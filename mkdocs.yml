@@ -1,0 +1,17 @@
+site_name: Lightnet Mobile
+site_description: Kotlin Multiplatform mobile app documentation
+docs_dir: docs
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: indigo
+  features:
+    - navigation.tabs
+    - toc.integrate
+nav:
+  - index.md
+  - Overview: overview.md
+  - Getting Started: getting-started.md
+  - Development: development.md
+  - Connectivity: connectivity.md
