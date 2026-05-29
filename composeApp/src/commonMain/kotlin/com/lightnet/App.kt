@@ -1,27 +1,43 @@
 package com.lightnet
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import com.lightnet.api.websocket.MockConnector
+import com.lightnet.api.websocket.SocketConnector
+import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.DeviceRepository
+import com.lightnet.discovery.DiscoveredDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.ServiceDiscovery
+import com.lightnet.ui.components.LightnetBottomNav
+import com.lightnet.ui.components.RootTab
+import com.lightnet.ui.screens.AddDeviceSheet
+import com.lightnet.ui.screens.DEMO_DEVICE_HOST
+import com.lightnet.ui.screens.DEMO_DEVICE_NAME
 import com.lightnet.ui.screens.DeviceControllerScreen
-import com.lightnet.ui.screens.DeviceDiscoveryScreen
+import com.lightnet.ui.screens.DeviceSwitcherSheet
+import com.lightnet.ui.screens.EditDeviceSheet
 import com.lightnet.ui.screens.MyDevicesScreen
 import io.ktor.client.HttpClient
 
-sealed class AppScreen {
-    object MyDevices : AppScreen()
-    object DeviceDiscovery : AppScreen()
-    data class DeviceController(val host: String, val port: Int) : AppScreen()
-}
+private val DemoSavedDevice = SavedDevice(DEMO_DEVICE_NAME, DEMO_DEVICE_HOST, 0)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LightnetApp(
     serviceDiscovery: ServiceDiscovery,
@@ -29,35 +45,116 @@ fun LightnetApp(
     httpClient: HttpClient,
 ) {
     MaterialTheme(colorScheme = darkColorScheme()) {
-        val backStack = remember { mutableStateListOf<AppScreen>(AppScreen.MyDevices) }
-
-        // Device list lives here so any screen change refreshes it
         var devices by remember { mutableStateOf(deviceRepository.getAll()) }
         fun refreshDevices() { devices = deviceRepository.getAll() }
 
-        fun navigateTo(screen: AppScreen) = backStack.add(screen)
-        fun navigateBack() { if (backStack.size > 1) backStack.removeLast() }
+        var selectedTab by remember { mutableStateOf(RootTab.Devices) }
+        var activeDevice by remember { mutableStateOf<SavedDevice?>(null) }
 
-        when (val screen = backStack.last()) {
-            is AppScreen.MyDevices -> MyDevicesScreen(
-                devices          = devices,
-                onDelete         = { name -> deviceRepository.remove(name); refreshDevices() },
-                onOpenDevice     = { d -> navigateTo(AppScreen.DeviceController(d.host, d.port)) },
-                onOpenDiscovery  = { navigateTo(AppScreen.DeviceDiscovery) },
-            )
-            is AppScreen.DeviceDiscovery -> DeviceDiscoveryScreen(
+        // Sheet state
+        var showAddSheet by remember { mutableStateOf(false) }
+        var editTarget by remember { mutableStateOf<SavedDevice?>(null) }
+        var showSwitcher by remember { mutableStateOf(false) }
+
+        // Hoisted device — survives bottom-nav tab switches. Keyed on (host, port)
+        // so a pure rename doesn't trigger a reconnect.
+        val device = remember(activeDevice?.host, activeDevice?.port) {
+            activeDevice?.let { d ->
+                val connector = if (d.host == DEMO_DEVICE_HOST) MockConnector()
+                                else SocketConnector(d.host, d.port, httpClient)
+                LightnetDevice(connector)
+            }
+        }
+        DisposableEffect(device) {
+            device?.load()
+            onDispose { device?.close() }
+        }
+
+        val bottomBar: @Composable () -> Unit = {
+            LightnetBottomNav(selected = selectedTab, onSelect = { selectedTab = it })
+        }
+
+        Box(Modifier.fillMaxSize()) {
+            when (selectedTab) {
+                RootTab.Devices -> MyDevicesScreen(
+                    devices       = devices,
+                    onOpenDevice  = { d ->
+                        activeDevice = d
+                        selectedTab = RootTab.Control
+                    },
+                    onOpenDemoDevice = {
+                        activeDevice = DemoSavedDevice
+                        selectedTab = RootTab.Control
+                    },
+                    onAddDevice   = { showAddSheet = true },
+                    onEditDevice  = { editTarget = it },
+                    bottomBar     = bottomBar,
+                )
+                RootTab.Library -> LibraryStub(bottomBar)
+                RootTab.Control -> DeviceControllerScreen(
+                    device               = device,
+                    activeDeviceName     = activeDevice?.name,
+                    onOpenDeviceSwitcher = { showSwitcher = true },
+                    onOpenSettings       = { /* §1.4 — not in scope */ },
+                    bottomBar            = bottomBar,
+                )
+            }
+        }
+
+        if (showAddSheet) {
+            AddDeviceSheet(
                 serviceDiscovery = serviceDiscovery,
-                savedDevices     = devices,
-                onAdd            = { d -> deviceRepository.add(SavedDevice(d.name, d.host, d.port)); refreshDevices() },
-                onOpenDevice     = { d -> navigateTo(AppScreen.DeviceController(d.host, d.port)) },
-                onNavigateBack   = ::navigateBack,
+                httpClient       = httpClient,
+                existingNames    = devices.map { it.name }.toSet(),
+                onAdd            = { d: DiscoveredDevice ->
+                    deviceRepository.add(SavedDevice(d.name, d.host, d.port))
+                    refreshDevices()
+                },
+                onDismiss        = { showAddSheet = false },
             )
-            is AppScreen.DeviceController -> DeviceControllerScreen(
-                host           = screen.host,
-                port           = screen.port,
-                httpClient     = httpClient,
-                onNavigateBack = ::navigateBack,
+        }
+
+        editTarget?.let { target ->
+            EditDeviceSheet(
+                device   = target,
+                onSave   = { original, updated ->
+                    deviceRepository.update(original.name, updated)
+                    refreshDevices()
+                    if (activeDevice?.name == original.name) activeDevice = updated
+                },
+                onDelete = { d ->
+                    deviceRepository.remove(d.name)
+                    refreshDevices()
+                    if (activeDevice?.name == d.name) activeDevice = null
+                },
+                onDismiss = { editTarget = null },
             )
+        }
+
+        if (showSwitcher) {
+            DeviceSwitcherSheet(
+                devices         = devices,
+                activeKey       = activeDevice?.let {
+                    if (it.host == DEMO_DEVICE_HOST) DEMO_DEVICE_HOST else it.name
+                },
+                onSelect        = { activeDevice = it },
+                onSelectDemo    = { activeDevice = DemoSavedDevice },
+                onManageDevices = { selectedTab = RootTab.Devices },
+                onDismiss       = { showSwitcher = false },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryStub(bottomBar: @Composable () -> Unit) {
+    Scaffold(
+        topBar    = { TopAppBar(title = { Text("Library") }) },
+        bottomBar = bottomBar,
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            Text("Library — coming soon", style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
