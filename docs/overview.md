@@ -2,17 +2,17 @@
 icon: material/information-outline
 ---
 
-# Lightnet Mobile App
+# App Overview
 
-The Lightnet mobile app is a Kotlin Multiplatform (KMP) application for visualising and managing addressable LED panels in a Lightnet network. It communicates with a Lightnet controller device using a custom binary WebSocket protocol to monitor panel states, control LEDs, and trigger animations in real time.
+The Lightnet mobile app visualises and controls an addressable LED panel network. It's a Kotlin Multiplatform (KMP) project: one Compose UI, one transport stack, two platform targets (Android and iOS).
 
-## How It Fits
+## How it fits
 
-The mobile app is a **client** of the Lightnet firmware APIs. All control flows through the controller — the app never communicates with panels directly.
+The app is a **client** of the controller's APIs. All control flows through the controller — the app never talks to panels directly.
 
 ```mermaid
 graph LR
-  App["📱 Mobile App\n(KMP / Compose)"] <-->|"HTTP + WebSocket"| C["🎛️ Controller\n(ESP8266 / ESP32)"]
+  App["📱 Mobile App<br/>(KMP / Compose)"] <-->|"HTTP + WebSocket"| C["🎛️ Controller<br/>(ESP8266 / ESP32)"]
   C <-->|I²C| P1["💡 Panel"]
   C <-->|I²C| P2["💡 Panel"]
   P1 <-->|I²C| P3["💡 Panel"]
@@ -20,7 +20,7 @@ graph LR
 
 ## Architecture
 
-The app uses a **single Gradle module** (`composeApp`) with three source sets:
+Single Gradle module (`composeApp`) with three source sets:
 
 | Source set | Contents |
 |---|---|
@@ -28,21 +28,21 @@ The app uses a **single Gradle module** (`composeApp`) with three source sets:
 | `androidMain` | Thin Android wiring: `MainActivity`, `NsdServiceDiscovery` |
 | `iosMain` | Stub iOS implementations: `StubServiceDiscovery`, `MainViewController` |
 
-Compose Multiplatform is used for the UI throughout `commonMain`, meaning screens and components are written once and shared across platforms.
+Compose Multiplatform powers the UI throughout `commonMain` — screens and components are written once and shared.
 
-## Supported Platforms
+## Supported platforms
 
 === "Android"
     - Minimum: **API 24 (Android 7.0)**
-    - Device discovery via `NsdManager` (mDNS)
-    - Build tool: Gradle + AGP
+    - mDNS discovery via Android's `NsdManager`
+    - Built with Gradle + AGP
 
 === "iOS"
     - Minimum: **iOS 13.0**
-    - mDNS browsing not yet implemented — devices must be added manually by IP/hostname
-    - Build tool: Xcode (KMP shared module compiled automatically)
+    - mDNS browsing not yet implemented — devices added manually by IP / hostname
+    - Built via Xcode; the KMP shared module is compiled automatically by the Xcode build phase
 
-## Key Dependencies
+## Dependency stack
 
 | Component | Version |
 |---|---|
@@ -55,6 +55,6 @@ Compose Multiplatform is used for the UI throughout `commonMain`, meaning screen
 
 ---
 
-- [Getting Started](getting-started.md) — Build and run the app
-- [Development](development.md) — Code structure and conventions
-- [Connectivity](connectivity.md) — Binary protocol and device discovery
+- [Getting Started](getting-started.md) — build and run on Android or iOS
+- [Development](development.md) — code structure and conventions
+- [Connectivity](connectivity.md) — binary protocol and device discovery
