@@ -34,6 +34,21 @@ class DeviceRepository(private val settings: Settings) {
         remaining.forEach { add(it) }
     }
 
+    /** Replace the device identified by [originalName], preserving list order. */
+    fun update(originalName: String, updated: SavedDevice) {
+        val list = getAll().toMutableList()
+        val index = list.indexOfFirst { it.name == originalName }
+        if (index < 0) {
+            add(updated)
+            return
+        }
+        // Reject if the new name collides with a different existing entry.
+        if (updated.name != originalName && list.any { it.name == updated.name }) return
+        list[index] = updated
+        clearAll()
+        list.forEach { add(it) }
+    }
+
     private fun clearAll() {
         repeat(count) { i ->
             settings.remove("${i}_name")
