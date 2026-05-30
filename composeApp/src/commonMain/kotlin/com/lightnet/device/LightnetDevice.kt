@@ -56,7 +56,6 @@ class LightnetDevice(
         }
         scope.launch {
             panelsListService.panels
-                .filter { it.isNotEmpty() }
                 .map { buildSnapshot(it) }
                 .collect { _snapshot.value = it }
         }
