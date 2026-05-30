@@ -28,8 +28,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -151,7 +151,7 @@ fun PaletteEditorScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                OutlinedTextField(
+                TextField(
                     value         = name,
                     onValueChange = { name = it },
                     label         = { Text("NAME") },
@@ -220,16 +220,13 @@ fun PaletteEditorScreen(
         val stop = stops.getOrNull(targetIdx)
         if (stop != null) {
             ColorPickerSheet(
-                initial      = parseHexColor(stop.color) ?: Color.White,
-                httpClient   = httpClient,
-                paletteNames = emptyList(),
-                baseColors   = emptyList(),
-                onPick       = { color ->
+                initial   = parseHexColor(stop.color) ?: Color.White,
+                onPick    = { color ->
                     val mutable = stops.toMutableList()
                     mutable[targetIdx] = stop.copy(color = colorToHex(color))
                     stops = mutable
                 },
-                onDismiss    = { colorPickerTarget = null },
+                onDismiss = { colorPickerTarget = null },
             )
         }
     }

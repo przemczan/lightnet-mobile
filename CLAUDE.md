@@ -100,6 +100,25 @@ Simple state-based back-stack in `App.kt` (`mutableStateListOf<AppScreen>`). No 
 - **`PanelsListService.load()`** cancels any in-flight load and resets `_panels` to empty before starting — always safe to call on reconnect
 - **Icons**: use only `Icons.Default.*` and `Icons.AutoMirrored.Filled.*` from the core Material icon set; `compose.materialIconsExtended` (CMP plugin DSL accessor) is included in `commonMain.dependencies`
 
+## Updating the App Icon
+
+Drop an `icon.zip` (generated from the Lightnet logo canvas) into the project root, then run:
+
+```bash
+unzip -o icon.zip -d /tmp/lightnet-icon-extract/
+
+RES=composeApp/src/androidMain/res
+SRC=/tmp/lightnet-icon-extract/res
+
+cp "$SRC/mipmap-anydpi-v26/ic_launcher.xml"       "$RES/mipmap-anydpi-v26/ic_launcher.xml"
+cp "$SRC/mipmap-anydpi-v26/ic_launcher_round.xml"  "$RES/mipmap-anydpi-v26/ic_launcher_round.xml"
+cp "$SRC/drawable/ic_launcher_background.xml"       "$RES/drawable/ic_launcher_background.xml"
+cp "$SRC/drawable/ic_launcher_foreground.xml"       "$RES/drawable/ic_launcher_foreground.xml"
+cp "$SRC/drawable/ic_launcher_monochrome.xml"       "$RES/drawable/ic_launcher_monochrome.xml"
+```
+
+The zip supplies vector-based adaptive icons (API 26+). The existing raster `.webp` files in `mipmap-hdpi/mdpi/xhdpi/xxhdpi/xxxhdpi` are kept as fallbacks for API 24–25 (minSdk).
+
 ## Versions
 
 | Component | Version |

@@ -20,7 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -134,7 +134,7 @@ fun AddDeviceSheet(
             // ── Manual section ────────────────────────────────────────────
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionHeader("Add manually")
-                OutlinedTextField(
+                TextField(
                     value = name,
                     onValueChange = { name = it; testState = TestConnectionState.Idle },
                     label = { Text("Friendly name") },
@@ -143,7 +143,7 @@ fun AddDeviceSheet(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
+                    TextField(
                         value = host,
                         onValueChange = { host = it; testState = TestConnectionState.Idle },
                         label = { Text("Override IP (optional)") },
@@ -151,7 +151,7 @@ fun AddDeviceSheet(
                         singleLine = true,
                         modifier = Modifier.weight(2f),
                     )
-                    OutlinedTextField(
+                    TextField(
                         value = port,
                         onValueChange = { port = it.filter { c -> c.isDigit() }.take(5); testState = TestConnectionState.Idle },
                         label = { Text("Port") },

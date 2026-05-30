@@ -108,7 +108,6 @@ fun LightnetApp(
                     activeDevice         = activeDevice,
                     httpClient           = httpApiClient,
                     onOpenDeviceSwitcher = { showSwitcher = true },
-                    onAddPalette         = { selectedTab = RootTab.Library },
                     bottomBar            = bottomBar,
                 )
             }
