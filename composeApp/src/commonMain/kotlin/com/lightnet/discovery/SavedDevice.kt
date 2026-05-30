@@ -13,7 +13,7 @@ data class SavedDevice(
 
 /** Effective host for HTTP/WebSocket connections (same priority as SocketConnector). */
 val SavedDevice.effectiveHost: String
-    get() = host.ifEmpty { hostName ?: lastIP ?: "" }
+    get() = host.ifEmpty { lastIP ?: hostName ?: "" }
 
 /** Display address for UI (most descriptive first). */
 fun SavedDevice.displayAddress(): String {
