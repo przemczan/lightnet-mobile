@@ -51,12 +51,19 @@ class NsdServiceDiscovery(context: Context) : ServiceDiscovery {
 
         override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
             val host = serviceInfo.host?.hostAddress ?: return
+            val hostName = deriveHostName(serviceInfo)
             val device = DiscoveredDevice(
-                name = serviceInfo.serviceName,
-                host = host,
-                port = serviceInfo.port,
+                name     = serviceInfo.serviceName,
+                host     = host,
+                port     = serviceInfo.port,
+                hostName = hostName,
             )
             _devices.value = (_devices.value + device).distinctBy { it.name }
         }
     }
+
+    // IoT firmware typically registers with its hostname as the service name,
+    // so appending ".local" is a reliable heuristic for _lightnet._tcp services.
+    private fun deriveHostName(serviceInfo: NsdServiceInfo): String? =
+        serviceInfo.serviceName.takeIf { it.isNotEmpty() }?.let { "$it.local" }
 }

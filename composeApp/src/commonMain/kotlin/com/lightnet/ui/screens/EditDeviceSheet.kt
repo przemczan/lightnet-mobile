@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lightnet.discovery.SavedDevice
@@ -42,7 +43,7 @@ fun EditDeviceSheet(
     var port by remember { mutableStateOf(device.port.toString()) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    fun isValid() = name.isNotBlank() && host.isNotBlank() && port.toIntOrNull() != null
+    fun isValid() = name.isNotBlank() && port.toIntOrNull() != null
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -61,11 +62,24 @@ fun EditDeviceSheet(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            // mDNS hostname — informational only, not editable
+            if (device.hostName != null) {
+                Text(
+                    "mDNS: ${device.hostName}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
-                    label = { Text("Host / IP") },
+                    label = { Text("Override IP (optional)") },
+                    placeholder = { Text("192.168.1.40") },
                     singleLine = true,
                     modifier = Modifier.weight(2f),
                 )
@@ -82,7 +96,12 @@ fun EditDeviceSheet(
                 onClick = {
                     onSave(
                         device,
-                        SavedDevice(name.trim(), host.trim(), port.toIntOrNull() ?: device.port),
+                        // Preserve hostName and lastIP — user cannot change them.
+                        device.copy(
+                            name = name.trim(),
+                            host = host.trim(),
+                            port = port.toIntOrNull() ?: device.port,
+                        ),
                     )
                     onDismiss()
                 },

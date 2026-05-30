@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.lightnet.discovery.SavedDevice
+import com.lightnet.discovery.displayAddress
 import com.lightnet.ui.components.DeviceListItem
 import com.lightnet.ui.components.DeviceStatus
 import com.lightnet.ui.components.EmptyState
@@ -93,7 +94,7 @@ fun MyDevicesScreen(
                 items(devices, key = { it.name }) { device ->
                     DeviceListItem(
                         name = device.name,
-                        subtitle = "${device.host}:${device.port}",
+                        subtitle = device.displayAddress(),
                         // No background connection per row — design 1.1 shows live dots but
                         // we'd need one socket per device for that. Surface live status only
                         // for the active device (in the Control chip). TODO: lightweight ping.

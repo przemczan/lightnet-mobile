@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -18,14 +18,35 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import com.lightnet.device.LightnetDevicePanel
 import com.lightnet.geometry.GeometryUtils
+import com.lightnet.ui.toColorRgb
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+enum class PaintMode { Paint, Erase, Stamp }
 
 @Composable
 fun LightnetDeviceVisualizer(
     panels: List<LightnetDevicePanel>,
     modifier: Modifier = Modifier,
+    paintMode: PaintMode = PaintMode.Paint,
+    paintColor: Color = Color.White,
+    interactive: Boolean = true,
+    selectionMode: Boolean = false,
+    selectedPanels: Set<Int> = emptySet(),
+    onSelectionChange: (Set<Int>) -> Unit = {},
+    onEnterSelectionMode: (firstPanelIndex: Int) -> Unit = {},
 ) {
-    // Collect each panel's state individually
     val states = panels.map { it.state.collectAsState() }
+
+    // Stable refs for gesture handler — changes don't restart the gesture block.
+    val currentPaintMode         = rememberUpdatedState(paintMode)
+    val currentPaintColor        = rememberUpdatedState(paintColor)
+    val currentInteractive       = rememberUpdatedState(interactive)
+    val currentSelectionMode     = rememberUpdatedState(selectionMode)
+    val currentSelectedPanels    = rememberUpdatedState(selectedPanels)
+    val currentOnSelectionChange = rememberUpdatedState(onSelectionChange)
+    val currentOnEnterSelection  = rememberUpdatedState(onEnterSelectionMode)
 
     BoxWithConstraints(modifier) {
         if (panels.isEmpty()) return@BoxWithConstraints
@@ -33,7 +54,6 @@ fun LightnetDeviceVisualizer(
         val viewW = constraints.maxWidth.toFloat()
         val viewH = constraints.maxHeight.toFloat()
 
-        // Bounding box over all edge coordinates
         val allCoords = panels.flatMap { it.layout.edgesCoords.values }
         val minX = allCoords.minOf { minOf(it.x1, it.x2) }.toFloat()
         val minY = allCoords.minOf { minOf(it.y1, it.y2) }.toFloat()
@@ -48,7 +68,6 @@ fun LightnetDeviceVisualizer(
         val offsetX = -minX + pad / scale
         val offsetY = -minY + pad / scale
 
-        // Polygon vertex lists in layout space for hit-testing
         val polygons = remember(panels) {
             panels.map { panel ->
                 panel.layout.edgesCoords.entries
@@ -63,35 +82,76 @@ fun LightnetDeviceVisualizer(
             return panels.indices.firstOrNull { i -> GeometryUtils.isInsidePolygon(lx, ly, polygons[i]) }
         }
 
-        val visitedInStroke = remember { mutableSetOf<Int>() }
+        val gestureModifier = if (interactive || selectionMode) {
+            Modifier.pointerInput(panels, scale, offsetX, offsetY) {
+                val visitedInStroke = mutableSetOf<Int>()
+
+                coroutineScope {
+                val cs = this
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var hasMoved = false
+                    var longPressTriggered = false
+                    visitedInStroke.clear()
+
+                    val longPressJob = if (!currentSelectionMode.value && currentInteractive.value) {
+                        cs.launch {
+                            delay(500L)
+                            if (!hasMoved) {
+                                longPressTriggered = true
+                                hitTest(down.position.x, down.position.y)?.let { idx ->
+                                    currentOnEnterSelection.value(idx)
+                                }
+                            }
+                        }
+                    } else null
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+
+                        if ((change.position - down.position).getDistance() > 4f) {
+                            hasMoved = true
+                            longPressJob?.cancel()
+                        }
+
+                        if (hasMoved && currentInteractive.value && !currentSelectionMode.value) {
+                            val idx = hitTest(change.position.x, change.position.y)
+                            if (idx != null && visitedInStroke.add(idx)) {
+                                when (currentPaintMode.value) {
+                                    PaintMode.Paint, PaintMode.Stamp -> {
+                                        panels[idx].setColor(currentPaintColor.value.toColorRgb())
+                                        panels[idx].toggle(on = true)
+                                    }
+                                    PaintMode.Erase -> panels[idx].toggle(on = false)
+                                }
+                            }
+                            change.consume()
+                        }
+                    }
+
+                    longPressJob?.cancel()
+
+                    if (!hasMoved && !longPressTriggered) {
+                        val idx = hitTest(down.position.x, down.position.y)
+                        when {
+                            currentSelectionMode.value && idx != null -> {
+                                val cur = currentSelectedPanels.value
+                                currentOnSelectionChange.value(if (idx in cur) cur - idx else cur + idx)
+                            }
+                            currentInteractive.value && idx != null -> panels[idx].toggle()
+                        }
+                    }
+                }
+                } // coroutineScope
+            }
+        } else Modifier
 
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(panels, scale, offsetX, offsetY) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        var hasMoved = false
-                        visitedInStroke.clear()
-
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) break
-
-                            if ((change.position - down.position).getDistance() > 4f) hasMoved = true
-
-                            if (hasMoved) {
-                                val idx = hitTest(change.position.x, change.position.y)
-                                if (idx != null && visitedInStroke.add(idx)) panels[idx].toggle()
-                                change.consume()
-                            }
-                        }
-
-                        // Tap: released without significant movement
-                        if (!hasMoved) hitTest(down.position.x, down.position.y)?.let { panels[it].toggle() }
-                    }
-                }
+                .then(gestureModifier)
         ) {
             panels.forEachIndexed { i, panel ->
                 val state = states[i].value
@@ -113,11 +173,9 @@ fun LightnetDeviceVisualizer(
                     close()
                 }
 
-                // Background: black fill + dark outline
                 drawPath(path, color = Color.Black, style = Fill)
                 drawPath(path, color = Color(0xFF444444), style = Stroke(width = 1.5f))
 
-                // Coloured overlay when on
                 if (state.on) {
                     drawPath(
                         path = path,
@@ -129,6 +187,15 @@ fun LightnetDeviceVisualizer(
                         ),
                         style = Fill,
                     )
+                }
+
+                if (selectionMode) {
+                    if (i in selectedPanels) {
+                        drawPath(path, color = Color.White.copy(alpha = 0.25f), style = Fill)
+                        drawPath(path, color = Color.White, style = Stroke(width = 2.5f))
+                    } else {
+                        drawPath(path, color = Color.Black.copy(alpha = 0.55f), style = Fill)
+                    }
                 }
             }
         }
