@@ -25,7 +25,6 @@ fun DeviceSwitcherSheet(
     devices: List<SavedDevice>,
     activeKey: String?,
     onSelect: (SavedDevice) -> Unit,
-    onSelectDemo: () -> Unit,
     onManageDevices: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -40,27 +39,18 @@ fun DeviceSwitcherSheet(
         ) {
             Text(
                 "Switch device",
-                style = MaterialTheme.typography.titleLarge,
+                style    = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
             )
-            // Live status per row would require a socket per device — same constraint as
-            // MyDevicesScreen. We surface live status only via the AppBar chip in Control.
             devices.forEach { device ->
                 DeviceListItem(
-                    name = device.name,
+                    name     = device.name,
                     subtitle = device.displayAddress(),
-                    status = DeviceStatus.Unknown,
+                    status   = DeviceStatus.Unknown,
                     selected = activeKey == device.name,
-                    onClick = { onSelect(device); onDismiss() },
+                    onClick  = { onSelect(device); onDismiss() },
                 )
             }
-            DeviceListItem(
-                name = DEMO_DEVICE_NAME,
-                subtitle = "Simulated controller",
-                status = DeviceStatus.Unknown,
-                selected = activeKey == DEMO_DEVICE_HOST,
-                onClick = { onSelectDemo(); onDismiss() },
-            )
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
             TextButton(onClick = { onManageDevices(); onDismiss() }) {
                 Text("Manage devices ›")

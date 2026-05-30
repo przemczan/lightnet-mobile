@@ -1,6 +1,8 @@
 package com.lightnet.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,7 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.model.ColorsRequest
+import com.lightnet.ui.colorToHex
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.effectiveHost
@@ -64,6 +69,7 @@ fun DeviceSettingsScreen(
     var brightness by remember { mutableStateOf(128f) }
     var palette by remember { mutableStateOf<String?>(null) }
     var baseColors by remember { mutableStateOf<List<String>>(emptyList()) }
+    var colorPickerIndex by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(httpClient) {
         val appearance = httpClient?.runCatching { getAppearance() }?.getOrNull() ?: return@LaunchedEffect
@@ -107,7 +113,7 @@ fun DeviceSettingsScreen(
                             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                                 Text("Global brightness", style = MaterialTheme.typography.bodyMedium)
                                 Text(
-                                    "${brightness.toInt()} / 255",
+                                    "${(brightness * 100f / 255f).roundToInt()} / 100",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -138,7 +144,11 @@ fun DeviceSettingsScreen(
                                     val color = baseColors.getOrNull(i)
                                         ?.let { parseHexColor(it) }
                                         ?: fallbacks[i]
-                                    ColorSwatch(label = label, color = color)
+                                    ColorSwatch(
+                                        label   = label,
+                                        color   = color,
+                                        onClick = { colorPickerIndex = i },
+                                    )
                                 }
                             }
                         }
@@ -197,6 +207,39 @@ fun DeviceSettingsScreen(
             }
         }
     }
+
+    colorPickerIndex?.let { idx ->
+        val fallbacks = listOf(Color(0xFFCF5B3C), Color(0xFF2F6DB0), Color(0xFF3C9A5F))
+        val initial = baseColors.getOrNull(idx)?.let { parseHexColor(it) } ?: fallbacks.getOrElse(idx) { Color.White }
+        ColorPickerSheet(
+            initial      = initial,
+            httpClient   = httpClient,
+            paletteNames = emptyList(),
+            baseColors   = baseColors,
+            onPick       = { color ->
+                val updated = baseColors.toMutableList()
+                    .also { list ->
+                        while (list.size <= idx) list.add("#FFFFFF")
+                        list[idx] = colorToHex(color)
+                    }
+                    .toList()
+                baseColors = updated
+            },
+            onDismiss    = {
+                colorPickerIndex = null
+                scope.launch {
+                    val updated = baseColors
+                    httpClient?.runCatching {
+                        setColors(ColorsRequest(
+                            primary   = updated.getOrNull(0),
+                            secondary = updated.getOrNull(1),
+                            tertiary  = updated.getOrNull(2),
+                        ))
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -223,12 +266,17 @@ private fun AboutRow(label: String, value: String) {
 }
 
 @Composable
-private fun ColorSwatch(label: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun ColorSwatch(label: String, color: Color, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.clickable { onClick() },
+    ) {
         Box(
             Modifier
                 .size(40.dp)
-                .background(color, shape = MaterialTheme.shapes.small),
+                .background(color, MaterialTheme.shapes.small)
+                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
         )
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

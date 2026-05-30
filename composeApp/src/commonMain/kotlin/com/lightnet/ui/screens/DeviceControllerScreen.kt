@@ -10,14 +10,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +29,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -42,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetHttpClient
@@ -67,6 +68,7 @@ fun DeviceControllerScreen(
     activeDevice: SavedDevice?,
     httpClient: LightnetHttpClient?,
     onOpenDeviceSwitcher: () -> Unit,
+    onAddPalette: () -> Unit,
     bottomBar: @Composable () -> Unit,
 ) {
     if (device == null || activeDevice == null) {
@@ -235,6 +237,7 @@ fun DeviceControllerScreen(
                             palette = name
                             scope.launch { httpClient?.runCatching { setPaletteName(name) } }
                         },
+                        onAddPalette         = onAddPalette,
                         paintColor           = paintColor,
                         onColorSwatchClick   = { showColorPicker = true },
                         paintMode            = paintMode,
@@ -252,20 +255,47 @@ fun DeviceControllerScreen(
             httpClient   = httpClient,
             paletteNames = paletteNames,
             baseColors   = baseColors,
-            onPick       = { color ->
-                paintColor = color
+            onPick       = { color -> paintColor = color },
+            onDismiss    = {
+                showColorPicker = false
                 if (selectionMode) {
-                    val rgb = color.toColorRgb()
-                    val panels = snapshot?.panels ?: return@ColorPickerSheet
-                    selectedPanels.forEach { idx ->
-                        panels.getOrNull(idx)?.let { panel ->
-                            panel.setColor(rgb)
-                            panel.toggle(on = true)
+                    val rgb = paintColor.toColorRgb()
+                    snapshot?.panels?.let { panels ->
+                        selectedPanels.forEach { idx ->
+                            panels.getOrNull(idx)?.let { panel ->
+                                panel.setColor(rgb)
+                                panel.toggle(on = true)
+                            }
                         }
                     }
                 }
             },
-            onDismiss    = { showColorPicker = false },
+        )
+    }
+}
+
+// ── Brightness slider ─────────────────────────────────────────────────────────
+
+/** Inset-icon slider that maps the 0–255 brightness to the 0–1 [Slider] range. */
+@Composable
+private fun BrightnessSlider(
+    brightness: Float,
+    onBrightnessChange: (Float) -> Unit,
+    onBrightnessFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier, Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
+        Icon(
+            Icons.Default.WbSunny,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint     = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Slider(
+            value                 = brightness / 255f,
+            onValueChange         = { onBrightnessChange(it * 255f) },
+            onValueChangeFinished = onBrightnessFinished,
+            modifier              = Modifier.weight(1f),
         )
     }
 }
@@ -292,7 +322,7 @@ private fun SelectionDock(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            Arrangement.SpaceBetween,
+            Arrangement.spacedBy(10.dp),
             Alignment.CenterVertically,
         ) {
             Text(
@@ -300,23 +330,20 @@ private fun SelectionDock(
                 style      = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(width = 26.dp, height = 24.dp)
-                        .background(paintColor, MaterialTheme.shapes.extraSmall)
-                        .clickable { onColorClick() }
-                )
-                Box(Modifier.width(80.dp)) {
-                    Slider(
-                        value                = brightness / 255f,
-                        onValueChange        = { onBrightnessChange(it * 255f) },
-                        onValueChangeFinished = onBrightnessFinished,
-                    )
-                }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Exit selection mode", modifier = Modifier.size(18.dp))
-                }
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .background(paintColor, MaterialTheme.shapes.small)
+                    .clickable { onColorClick() }
+            )
+            BrightnessSlider(
+                brightness           = brightness,
+                onBrightnessChange   = onBrightnessChange,
+                onBrightnessFinished = onBrightnessFinished,
+                modifier             = Modifier.weight(1f),
+            )
+            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Close, contentDescription = "Exit selection mode", modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -333,14 +360,13 @@ private fun BrushDock(
     palette: String?,
     paletteNames: List<String>,
     onPaletteChange: (String) -> Unit,
+    onAddPalette: () -> Unit,
     paintColor: Color,
     onColorSwatchClick: () -> Unit,
     paintMode: PaintMode,
     onPaintModeChange: (PaintMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showPaletteMenu by remember { mutableStateOf(false) }
-
     Surface(
         modifier       = modifier.fillMaxWidth(),
         color          = MaterialTheme.colorScheme.surface,
@@ -350,93 +376,48 @@ private fun BrushDock(
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Top row: colour swatch | palette chip
+            // Color swatch + scrollable palette list
             Row(
                 Modifier.fillMaxWidth(),
                 Arrangement.spacedBy(10.dp),
-                Alignment.Bottom,
+                Alignment.CenterVertically,
             ) {
-                // Colour swatch
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .size(width = 30.dp, height = 26.dp)
-                            .background(paintColor, MaterialTheme.shapes.extraSmall)
-                            .clickable { onColorSwatchClick() }
-                    )
-                    Text("colour", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-
-                // Palette chip
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Box {
-                        Surface(
-                            shape    = MaterialTheme.shapes.small,
-                            color    = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.clickable { showPaletteMenu = true },
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment     = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    palette ?: "default",
-                                    style      = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Default,
-                                )
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(14.dp))
-                            }
-                        }
-                        DropdownMenu(
-                            expanded         = showPaletteMenu,
-                            onDismissRequest = { showPaletteMenu = false },
-                        ) {
-                            paletteNames.forEach { name ->
-                                DropdownMenuItem(
-                                    text    = { Text(name) },
-                                    onClick = { onPaletteChange(name); showPaletteMenu = false },
-                                )
-                            }
-                            if (paletteNames.isEmpty()) {
-                                DropdownMenuItem(
-                                    text    = { Text("No palettes", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                    onClick = { showPaletteMenu = false },
-                                )
-                            }
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .background(paintColor, MaterialTheme.shapes.small)
+                        .clickable { onColorSwatchClick() }
+                )
+                if (paletteNames.isEmpty()) {
+                    TextButton(
+                        onClick  = onAddPalette,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Add palette →", style = MaterialTheme.typography.labelSmall)
+                    }
+                } else {
+                    LazyRow(
+                        modifier              = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(paletteNames) { name ->
+                            FilterChip(
+                                selected = name == palette,
+                                onClick  = { onPaletteChange(name) },
+                                label    = { Text(name, style = MaterialTheme.typography.labelSmall) },
+                            )
                         }
                     }
-                    Text("palette", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
-            // Brightness slider
-            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
-                Text(
-                    "Brightness",
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.alignByBaseline(),
-                )
-                Slider(
-                    value                 = brightness / 255f,
-                    onValueChange         = { onBrightnessChange(it * 255f) },
-                    onValueChangeFinished = onBrightnessFinished,
-                    modifier              = Modifier.weight(1f),
-                )
-                Text(
-                    brightness.toInt().toString(),
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.alignByBaseline(),
-                )
-            }
+            // Brightness slider with icon
+            BrightnessSlider(
+                brightness           = brightness,
+                onBrightnessChange   = onBrightnessChange,
+                onBrightnessFinished = onBrightnessFinished,
+                modifier             = Modifier.fillMaxWidth(),
+            )
 
             // Paint mode selector
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
