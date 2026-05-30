@@ -176,7 +176,7 @@ fun LightnetDeviceVisualizer(
                 }
 
                 drawPath(path, color = Color.Black, style = Fill)
-                drawPath(path, color = Color(0xFF444444), style = Stroke(width = 1.5f))
+                drawPath(path, color = Color(0xFF444444), style = Stroke(width = 4.5f))
 
                 if (state.on) {
                     drawPath(

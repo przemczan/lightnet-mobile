@@ -18,8 +18,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,13 +32,12 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.PaletteJson
@@ -55,6 +59,18 @@ import com.lightnet.ui.parseHexColor
 import kotlinx.coroutines.launch
 
 private enum class LibraryTab { Palettes, Scenes, Animations }
+
+private fun LibraryTab.icon(): ImageVector = when (this) {
+    LibraryTab.Palettes   -> Icons.Default.Palette
+    LibraryTab.Scenes     -> Icons.Default.VideoLibrary
+    LibraryTab.Animations -> Icons.Default.PlayArrow
+}
+
+private fun LibraryTab.label(): String = when (this) {
+    LibraryTab.Palettes   -> "Palettes"
+    LibraryTab.Scenes     -> "Scenes"
+    LibraryTab.Animations -> "Animations"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,40 +105,29 @@ fun LibraryScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(padding),
         ) {
-            Spacer(Modifier.height(8.dp))
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                LibraryTab.entries.forEachIndexed { i, tab ->
-                    SegmentedButton(
+            TabRow(selectedTabIndex = activeTab.ordinal) {
+                LibraryTab.entries.forEach { tab ->
+                    Tab(
                         selected = activeTab == tab,
                         onClick  = { activeTab = tab },
-                        shape    = SegmentedButtonDefaults.itemShape(i, LibraryTab.entries.size),
-                        label    = {
-                            Text(
-                                when (tab) {
-                                    LibraryTab.Palettes   -> "Palettes"
-                                    LibraryTab.Scenes     -> "Scenes"
-                                    LibraryTab.Animations -> "Animations"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        },
+                        icon     = { Icon(tab.icon(), contentDescription = null, modifier = Modifier.size(20.dp)) },
+                        text     = { Text(tab.label(), style = MaterialTheme.typography.labelSmall) },
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
 
             when (activeTab) {
                 LibraryTab.Palettes -> PalettesTab(
                     httpClient    = httpClient,
                     onEditPalette = { pal -> editingPalette = pal; showPaletteEditor = true },
+                    modifier      = Modifier.padding(horizontal = 16.dp),
                 )
                 LibraryTab.Scenes, LibraryTab.Animations -> {
                     Box(Modifier.fillMaxSize(), Alignment.Center) {
                         Text(
-                            "${activeTab.name} — coming soon",
+                            "${activeTab.label()} — coming soon",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -139,6 +144,7 @@ fun LibraryScreen(
 private fun PalettesTab(
     httpClient: LightnetHttpClient?,
     onEditPalette: (PaletteJson) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -162,8 +168,9 @@ private fun PalettesTab(
     val displayed = if (searchQuery.isBlank()) palettes
     else palettes.filter { it.name.contains(searchQuery, ignoreCase = true) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Active chip + search
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.height(8.dp))
+
         Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
             if (activeName != null) {
                 FilterChip(
@@ -172,24 +179,28 @@ private fun PalettesTab(
                     label    = { Text("Active: $activeName", style = MaterialTheme.typography.labelSmall) },
                 )
             }
-            OutlinedTextField(
+            TextField(
                 value         = searchQuery,
                 onValueChange = { searchQuery = it },
                 placeholder   = { Text("Search") },
                 singleLine    = true,
-                modifier      = Modifier.weight(1f).height(52.dp),
-                textStyle     = MaterialTheme.typography.bodySmall,
+                modifier      = Modifier.weight(1f),
             )
         }
 
-        if (httpClient == null) {
-            Text(
+        when {
+            httpClient == null -> Text(
                 "Connect a device to manage palettes.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        } else if (displayed.isEmpty() && !isLoading) {
-            Text(
+            isLoading && palettes.isEmpty() -> Box(
+                Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+            displayed.isEmpty() && !isLoading -> Text(
                 if (searchQuery.isBlank()) "No palettes found on device." else "No results for \"$searchQuery\".",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -197,25 +208,24 @@ private fun PalettesTab(
         }
 
         LazyColumn(
-            contentPadding  = PaddingValues(bottom = 80.dp),
+            contentPadding      = PaddingValues(bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(displayed, key = { it.name }) { palette ->
                 PaletteCard(
-                    palette      = palette,
-                    isActive     = palette.name == activeName,
-                    onTap        = {
+                    palette  = palette,
+                    isActive = palette.name == activeName,
+                    onTap    = {
                         activeName = palette.name
                         scope.launch { httpClient?.runCatching { setPaletteName(palette.name) } }
                     },
-                    onEdit       = { onEditPalette(palette) },
-                    onDelete     = { deleteTarget = palette },
+                    onEdit   = { onEditPalette(palette) },
+                    onDelete = { deleteTarget = palette },
                 )
             }
         }
     }
 
-    // Delete confirmation dialog
     deleteTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
@@ -272,8 +282,8 @@ private fun PaletteCard(
                     if (isActive) {
                         Text(
                             "active",
-                            style  = MaterialTheme.typography.labelSmall,
-                            color  = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }

@@ -212,11 +212,9 @@ fun DeviceSettingsScreen(
         val fallbacks = listOf(Color(0xFFCF5B3C), Color(0xFF2F6DB0), Color(0xFF3C9A5F))
         val initial = baseColors.getOrNull(idx)?.let { parseHexColor(it) } ?: fallbacks.getOrElse(idx) { Color.White }
         ColorPickerSheet(
-            initial      = initial,
-            httpClient   = httpClient,
-            paletteNames = emptyList(),
-            baseColors   = baseColors,
-            onPick       = { color ->
+            initial    = initial,
+            baseColors = baseColors,
+            onPick     = { color ->
                 val updated = baseColors.toMutableList()
                     .also { list ->
                         while (list.size <= idx) list.add("#FFFFFF")

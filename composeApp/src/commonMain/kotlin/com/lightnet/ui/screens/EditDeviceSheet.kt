@@ -13,7 +13,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -55,7 +55,7 @@ fun EditDeviceSheet(
         ) {
             Text("Edit device", style = MaterialTheme.typography.titleLarge)
 
-            OutlinedTextField(
+            TextField(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Friendly name") },
@@ -75,7 +75,7 @@ fun EditDeviceSheet(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
+                TextField(
                     value = host,
                     onValueChange = { host = it },
                     label = { Text("Override IP (optional)") },
@@ -83,7 +83,7 @@ fun EditDeviceSheet(
                     singleLine = true,
                     modifier = Modifier.weight(2f),
                 )
-                OutlinedTextField(
+                TextField(
                     value = port,
                     onValueChange = { port = it.filter { c -> c.isDigit() }.take(5) },
                     label = { Text("Port") },
