@@ -82,6 +82,16 @@ fun LightnetDeviceVisualizer(
             return panels.indices.firstOrNull { i -> GeometryUtils.isInsidePolygon(lx, ly, polygons[i]) }
         }
 
+        fun applyPaint(idx: Int) {
+            when (currentPaintMode.value) {
+                PaintMode.Paint, PaintMode.Stamp -> {
+                    panels[idx].setColor(currentPaintColor.value.toColorRgb())
+                    panels[idx].toggle(on = true)
+                }
+                PaintMode.Erase -> panels[idx].toggle(on = false)
+            }
+        }
+
         val gestureModifier = if (interactive || selectionMode) {
             Modifier.pointerInput(panels, scale, offsetX, offsetY) {
                 val visitedInStroke = mutableSetOf<Int>()
@@ -118,15 +128,7 @@ fun LightnetDeviceVisualizer(
 
                         if (hasMoved && currentInteractive.value && !currentSelectionMode.value) {
                             val idx = hitTest(change.position.x, change.position.y)
-                            if (idx != null && visitedInStroke.add(idx)) {
-                                when (currentPaintMode.value) {
-                                    PaintMode.Paint, PaintMode.Stamp -> {
-                                        panels[idx].setColor(currentPaintColor.value.toColorRgb())
-                                        panels[idx].toggle(on = true)
-                                    }
-                                    PaintMode.Erase -> panels[idx].toggle(on = false)
-                                }
-                            }
+                            if (idx != null && visitedInStroke.add(idx)) applyPaint(idx)
                             change.consume()
                         }
                     }
@@ -140,7 +142,7 @@ fun LightnetDeviceVisualizer(
                                 val cur = currentSelectedPanels.value
                                 currentOnSelectionChange.value(if (idx in cur) cur - idx else cur + idx)
                             }
-                            currentInteractive.value && idx != null -> panels[idx].toggle()
+                            currentInteractive.value && idx != null -> applyPaint(idx)
                         }
                     }
                 }

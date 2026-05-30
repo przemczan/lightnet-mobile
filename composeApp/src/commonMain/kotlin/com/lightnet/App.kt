@@ -15,7 +15,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.lightnet.api.http.LightnetHttpClient
-import com.lightnet.api.websocket.MockConnector
 import com.lightnet.api.websocket.SocketConnector
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.DeviceRepository
@@ -25,8 +24,6 @@ import com.lightnet.discovery.effectiveHost
 import com.lightnet.ui.components.LightnetBottomNav
 import com.lightnet.ui.components.RootTab
 import com.lightnet.ui.screens.AddDeviceSheet
-import com.lightnet.ui.screens.DEMO_DEVICE_HOST
-import com.lightnet.ui.screens.DEMO_DEVICE_NAME
 import com.lightnet.ui.screens.DeviceControllerScreen
 import com.lightnet.ui.screens.DeviceSwitcherSheet
 import com.lightnet.ui.screens.EditDeviceSheet
@@ -34,8 +31,6 @@ import com.lightnet.ui.screens.LibraryScreen
 import com.lightnet.ui.screens.MyDevicesScreen
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.launch
-
-private val DemoSavedDevice = SavedDevice(DEMO_DEVICE_NAME, DEMO_DEVICE_HOST, 0)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,32 +48,26 @@ fun LightnetApp(
         var selectedTab  by remember { mutableStateOf(RootTab.Devices) }
         var activeDevice by remember { mutableStateOf<SavedDevice?>(null) }
 
-        // Sheet state
-        var showAddSheet  by remember { mutableStateOf(false) }
-        var editTarget    by remember { mutableStateOf<SavedDevice?>(null) }
-        var showSwitcher  by remember { mutableStateOf(false) }
+        var showAddSheet by remember { mutableStateOf(false) }
+        var editTarget   by remember { mutableStateOf<SavedDevice?>(null) }
+        var showSwitcher by remember { mutableStateOf(false) }
 
-        // Hoisted device — survives bottom-nav tab switches. Keyed on (host, port)
-        // so a pure rename doesn't trigger a reconnect.
         val device = remember(activeDevice?.host, activeDevice?.port) {
             activeDevice?.let { d ->
-                val connector = if (d.host == DEMO_DEVICE_HOST) {
-                    MockConnector()
-                } else {
+                LightnetDevice(
                     SocketConnector(
-                        overrideIP       = d.host.ifEmpty { null },
-                        hostName         = d.hostName,
-                        lastIP           = d.lastIP,
-                        port             = d.port,
-                        client           = httpClient,
-                        onConnectedWith  = { connectedHost ->
+                        overrideIP      = d.host.ifEmpty { null },
+                        hostName        = d.hostName,
+                        lastIP          = d.lastIP,
+                        port            = d.port,
+                        client          = httpClient,
+                        onConnectedWith = { connectedHost ->
                             if (connectedHost != d.hostName) {
                                 scope.launch { deviceRepository.updateLastIP(d.name, connectedHost) }
                             }
                         },
                     )
-                }
-                LightnetDevice(connector)
+                )
             }
         }
         DisposableEffect(device) {
@@ -86,10 +75,8 @@ fun LightnetApp(
             onDispose { device?.close() }
         }
 
-        // Hoisted HTTP API client — keyed on effective host + port, null for demo device.
         val httpApiClient = remember(activeDevice?.effectiveHost, activeDevice?.port) {
             val d = activeDevice ?: return@remember null
-            if (d.host == DEMO_DEVICE_HOST) return@remember null
             d.effectiveHost.ifEmpty { null }?.let { h ->
                 LightnetHttpClient("http://$h:${d.port}")
             }
@@ -103,18 +90,14 @@ fun LightnetApp(
         Box(Modifier.fillMaxSize()) {
             when (selectedTab) {
                 RootTab.Devices -> MyDevicesScreen(
-                    devices          = devices,
-                    onOpenDevice     = { d ->
+                    devices      = devices,
+                    onOpenDevice = { d ->
                         activeDevice = d
                         selectedTab  = RootTab.Control
                     },
-                    onOpenDemoDevice = {
-                        activeDevice = DemoSavedDevice
-                        selectedTab  = RootTab.Control
-                    },
-                    onAddDevice      = { showAddSheet = true },
-                    onEditDevice     = { editTarget = it },
-                    bottomBar        = bottomBar,
+                    onAddDevice  = { showAddSheet = true },
+                    onEditDevice = { editTarget = it },
+                    bottomBar    = bottomBar,
                 )
                 RootTab.Library -> LibraryScreen(
                     httpClient = httpApiClient,
@@ -125,6 +108,7 @@ fun LightnetApp(
                     activeDevice         = activeDevice,
                     httpClient           = httpApiClient,
                     onOpenDeviceSwitcher = { showSwitcher = true },
+                    onAddPalette         = { selectedTab = RootTab.Library },
                     bottomBar            = bottomBar,
                 )
             }
@@ -163,11 +147,8 @@ fun LightnetApp(
         if (showSwitcher) {
             DeviceSwitcherSheet(
                 devices         = devices,
-                activeKey       = activeDevice?.let {
-                    if (it.host == DEMO_DEVICE_HOST) DEMO_DEVICE_HOST else it.name
-                },
+                activeKey       = activeDevice?.name,
                 onSelect        = { activeDevice = it },
-                onSelectDemo    = { activeDevice = DemoSavedDevice },
                 onManageDevices = { selectedTab = RootTab.Devices },
                 onDismiss       = { showSwitcher = false },
             )

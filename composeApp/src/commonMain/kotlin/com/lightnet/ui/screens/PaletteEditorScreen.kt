@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
@@ -51,7 +49,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetHttpClient
@@ -61,7 +58,17 @@ import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
+
+private const val MAX_STOPS = 16
+private const val MAX_POSITION = 255
+
+/** The [MAX_STOPS] evenly-spread positions a stop may occupy: 0, 17, … 255. */
+private val STOP_SLOTS: List<Int> = (0 until MAX_STOPS).map { it * MAX_POSITION / (MAX_STOPS - 1) }
+
+/** Slots available to movable stops — everything except the fixed 0 and 255 ends. */
+private val MIDDLE_SLOTS: List<Int> = STOP_SLOTS.subList(1, STOP_SLOTS.size - 1)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,10 +163,11 @@ fun PaletteEditorScreen(
             item {
                 GradientBar(
                     stops    = sortedStops,
-                    onMove   = { idx, newPos ->
-                        val mutable = stops.toMutableList()
-                        mutable[idx] = mutable[idx].copy(position = newPos)
-                        stops = mutable
+                    onMove   = { fromPos, toPos ->
+                        stops = stops
+                            .map { if (it.position == fromPos) it.copy(position = toPos) else it }
+                            .sortedBy { it.position }
+                            .toMutableList()
                     },
                 )
             }
@@ -171,15 +179,7 @@ fun PaletteEditorScreen(
                             if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp))
                             StopRow(
                                 stop        = stop,
-                                canRemove   = stop.position != 0 && stop.position != 255,
-                                onPositionChange = { raw ->
-                                    raw.toIntOrNull()?.coerceIn(0, 255)?.let { pos ->
-                                        val mutable = stops.toMutableList()
-                                        val realIdx = stops.indexOf(stop)
-                                        if (realIdx >= 0) mutable[realIdx] = stop.copy(position = pos)
-                                        stops = mutable
-                                    }
-                                },
+                                canRemove   = stop.position != 0 && stop.position != MAX_POSITION,
                                 onColorClick = {
                                     colorPickerTarget = stops.indexOf(stop)
                                 },
@@ -190,10 +190,11 @@ fun PaletteEditorScreen(
                         }
                         HorizontalDivider(Modifier.padding(horizontal = 12.dp))
                         TextButton(
+                            enabled  = stops.size < MAX_STOPS,
                             onClick  = {
-                                val usedPositions = stops.map { it.position }.toSet()
-                                val mid = (0..255).firstOrNull { it !in usedPositions && it > 0 && it < 255 } ?: return@TextButton
-                                stops = stops.toMutableList().also { it.add(PaletteStop(mid, "#FFFFFF")) }
+                                val taken = stops.map { it.position }.toSet()
+                                val free = MIDDLE_SLOTS.firstOrNull { it !in taken } ?: return@TextButton
+                                stops = (stops + PaletteStop(free, "#FFFFFF")).sortedBy { it.position }.toMutableList()
                             },
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         ) { Text("+ Add stop") }
@@ -202,18 +203,14 @@ fun PaletteEditorScreen(
             }
 
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ValidationBadge(label = "first @0, last @255", valid = hasFirst && hasLast)
-                    ValidationBadge(label = "increasing", valid = isIncreasing)
-                    Text(
-                        "${stops.size} / 16 stops",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall)
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                    )
-                }
+                Text(
+                    "${stops.size} / 16 stops",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall)
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
             }
         }
     }
@@ -243,7 +240,7 @@ fun PaletteEditorScreen(
 @Composable
 private fun GradientBar(
     stops: List<PaletteStop>,
-    onMove: (index: Int, newPosition: Int) -> Unit,
+    onMove: (fromPosition: Int, toPosition: Int) -> Unit,
 ) {
     val barHeight = 36.dp
 
@@ -272,12 +269,40 @@ private fun GradientBar(
         }
 
         // Draggable handles
+        val currentStops = rememberUpdatedState(stops)
         stops.forEachIndexed { idx, stop ->
-            val currentPos = rememberUpdatedState(stop.position)
+            val isFixed = stop.position == 0 || stop.position == MAX_POSITION
             val handleWidthDp  = 10.dp
             val handleWidthPx  = with(density) { handleWidthDp.toPx() }
             val xPx = stop.position / 255f * widthPx
             val xDp = with(density) { (xPx - handleWidthPx / 2f).coerceIn(0f, widthPx - handleWidthPx).toDp() }
+
+            // Movable stops snap to the nearest free slot among all 14 middle slots,
+            // allowing them to jump over other stops when a free slot exists on the other side.
+            val dragModifier = if (!isFixed) {
+                Modifier.pointerInput(idx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var draggingPos = currentStops.value.getOrNull(idx)?.position ?: return@awaitEachGesture
+                        var accX = draggingPos / 255f * widthPx
+                        while (true) {
+                            val event  = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            accX += change.position.x - change.previousPosition.x
+                            val rawTo  = ((accX / widthPx) * 255).roundToInt()
+                            // Recompute free slots each frame so jumps over other stops are allowed
+                            val taken  = currentStops.value.filter { it.position != draggingPos }.map { it.position }.toSet()
+                            val target = MIDDLE_SLOTS.filter { it !in taken }.minByOrNull { abs(it - rawTo) }
+                            if (target != null && target != draggingPos) {
+                                onMove(draggingPos, target)
+                                draggingPos = target
+                            }
+                            change.consume()
+                        }
+                    }
+                }
+            } else Modifier
 
             Box(
                 Modifier
@@ -285,24 +310,9 @@ private fun GradientBar(
                     .width(handleWidthDp)
                     .height(barHeight)
                     .clip(MaterialTheme.shapes.extraSmall)
-                    .background(Color.White)
+                    .background(if (isFixed) Color.Gray else Color.White)
                     .border(1.5.dp, Color.DarkGray, MaterialTheme.shapes.extraSmall)
-                    .pointerInput(idx) {
-                        var accX = currentPos.value / 255f * widthPx
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            accX = currentPos.value / 255f * widthPx
-                            while (true) {
-                                val event  = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!change.pressed) break
-                                accX += change.position.x - change.previousPosition.x
-                                val newPos = ((accX / widthPx) * 255).roundToInt().coerceIn(0, 255)
-                                onMove(idx, newPos)
-                                change.consume()
-                            }
-                        }
-                    }
+                    .then(dragModifier)
             )
         }
     }
@@ -327,36 +337,27 @@ private fun GradientBar(
 private fun StopRow(
     stop: PaletteStop,
     canRemove: Boolean,
-    onPositionChange: (String) -> Unit,
     onColorClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         Arrangement.SpaceBetween,
         Alignment.CenterVertically,
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("pos", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(
-                value           = stop.position.toString(),
-                onValueChange   = onPositionChange,
-                singleLine      = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier        = Modifier
-                    .width(64.dp)
-                    .height(48.dp),
-                textStyle       = MaterialTheme.typography.bodySmall,
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "pos ${stop.position}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
-                    .size(width = 24.dp, height = 22.dp)
-                    .background(parseHexColor(stop.color) ?: Color.White, MaterialTheme.shapes.extraSmall)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall)
+                    .size(36.dp)
+                    .background(parseHexColor(stop.color) ?: Color.White, MaterialTheme.shapes.small)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
                     .clickable { onColorClick() }
             )
             Text(
@@ -369,17 +370,3 @@ private fun StopRow(
     }
 }
 
-// ── Validation badge ──────────────────────────────────────────────────────────
-
-@Composable
-private fun ValidationBadge(label: String, valid: Boolean) {
-    val color = if (valid) Color(0xFF2F7A4A) else MaterialTheme.colorScheme.error
-    Text(
-        if (valid) "✓ $label" else "✗ $label",
-        style    = MaterialTheme.typography.labelSmall,
-        color    = color,
-        modifier = Modifier
-            .border(1.dp, color, MaterialTheme.shapes.extraSmall)
-            .padding(horizontal = 5.dp, vertical = 1.dp),
-    )
-}
