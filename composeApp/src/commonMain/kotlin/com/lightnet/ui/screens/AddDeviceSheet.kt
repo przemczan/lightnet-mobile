@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.lightnet.discovery.DiscoveredDevice
+import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.ServiceDiscovery
 import com.lightnet.ui.components.SectionHeader
 import io.ktor.client.HttpClient
@@ -57,7 +58,7 @@ fun AddDeviceSheet(
     serviceDiscovery: ServiceDiscovery,
     httpClient: HttpClient,
     existingNames: Set<String>,
-    onAdd: (DiscoveredDevice) -> Unit,
+    onAdd: (SavedDevice) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -112,7 +113,16 @@ fun AddDeviceSheet(
                             DiscoveredDeviceRow(
                                 device       = d,
                                 alreadySaved = d.name in existingNames,
-                                onAdd        = { onAdd(d); onDismiss() },
+                                onAdd        = {
+                                    onAdd(SavedDevice(
+                                        name     = d.name,
+                                        host     = "",
+                                        port     = d.port,
+                                        hostName = d.hostName,
+                                        lastIP   = d.host,
+                                    ))
+                                    onDismiss()
+                                },
                             )
                         }
                     }
@@ -136,8 +146,8 @@ fun AddDeviceSheet(
                     OutlinedTextField(
                         value = host,
                         onValueChange = { host = it; testState = TestConnectionState.Idle },
-                        label = { Text("Host / IP") },
-                        placeholder = { Text("lightnet-3F2A.local") },
+                        label = { Text("Override IP (optional)") },
+                        placeholder = { Text("192.168.1.40") },
                         singleLine = true,
                         modifier = Modifier.weight(2f),
                     )
@@ -165,7 +175,11 @@ fun AddDeviceSheet(
 
                 Button(
                     onClick = {
-                        onAdd(DiscoveredDevice(name.trim(), host.trim(), port.toIntOrNull() ?: 80))
+                        onAdd(SavedDevice(
+                            name   = name.trim(),
+                            host   = host.trim(),
+                            port   = port.toIntOrNull() ?: 80,
+                        ))
                         onDismiss()
                     },
                     enabled = isValid(),
@@ -207,11 +221,19 @@ private fun DiscoveredDeviceRow(
         Column(Modifier.weight(1f)) {
             Text(device.name, style = MaterialTheme.typography.bodyMedium)
             Text(
-                "${device.host}:${device.port}",
+                device.hostName ?: device.host,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontFamily = FontFamily.Monospace,
             )
+            if (device.hostName != null) {
+                Text(
+                    device.host,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
         }
         if (alreadySaved) {
             Text(

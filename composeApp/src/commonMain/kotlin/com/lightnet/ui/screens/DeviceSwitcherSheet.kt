@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lightnet.discovery.SavedDevice
+import com.lightnet.discovery.displayAddress
 import com.lightnet.ui.components.DeviceListItem
 import com.lightnet.ui.components.DeviceStatus
 
@@ -47,7 +48,7 @@ fun DeviceSwitcherSheet(
             devices.forEach { device ->
                 DeviceListItem(
                     name = device.name,
-                    subtitle = "${device.host}:${device.port}",
+                    subtitle = device.displayAddress(),
                     status = DeviceStatus.Unknown,
                     selected = activeKey == device.name,
                     onClick = { onSelect(device); onDismiss() },

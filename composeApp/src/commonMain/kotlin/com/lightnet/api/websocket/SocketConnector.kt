@@ -21,10 +21,21 @@ import kotlinx.coroutines.launch
 // HttpClient must have WebSockets plugin installed. Engine is platform-specific:
 //   androidMain: HttpClient(OkHttp) { install(WebSockets) }
 //   iosMain:     HttpClient(Darwin) { install(WebSockets) }
+//
+// Hosts are tried in order each reconnect cycle:
+//   1. overrideIP  — manually configured by the user
+//   2. hostName    — mDNS hostname from discovery (e.g. lightnet-3F2A.local)
+//   3. lastIP      — last known IP from discovery or prior override connection
+//
+// When the override IP connects successfully, onConnectedWith is called so the
+// caller can persist it as the new lastIP.
 class SocketConnector(
-    private val host: String,
+    private val overrideIP: String?,
+    private val hostName: String?,
+    private val lastIP: String?,
     private val port: Int,
     private val client: HttpClient,
+    private val onConnectedWith: ((host: String) -> Unit)? = null,
 ) : Connector {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow(ConnectorState.IDLE)
@@ -35,29 +46,42 @@ class SocketConnector(
     override val state: StateFlow<ConnectorState> = _state
     override val incoming: Flow<ByteArray> = _incoming
 
+    private fun hostsToTry(): List<String> = buildList {
+        overrideIP?.takeIf { it.isNotEmpty() }?.let { add(it) }
+        hostName?.takeIf { it.isNotEmpty() }?.let { add(it) }
+        lastIP?.takeIf { it.isNotEmpty() && it != overrideIP }?.let { add(it) }
+    }
+
     override fun connect() {
         connectionJob?.cancel()
         connectionJob = scope.launch {
             var delayMs = INITIAL_DELAY_MS
             while (true) {
-                _state.value = ConnectorState.CONNECTING
-                try {
-                    client.webSocket("ws://$host:$port/ws") {
-                        delayMs = INITIAL_DELAY_MS // reset backoff on every successful connect
-                        _state.value = ConnectorState.CONNECTED
-                        val sender = launch {
-                            for (data in sendQueue) outgoing.send(Frame.Binary(true, data))
+                var connected = false
+                for (host in hostsToTry()) {
+                    _state.value = ConnectorState.CONNECTING
+                    try {
+                        client.webSocket("ws://$host:$port/ws") {
+                            delayMs = INITIAL_DELAY_MS
+                            _state.value = ConnectorState.CONNECTED
+                            onConnectedWith?.invoke(host)
+                            connected = true
+                            val sender = launch {
+                                for (data in sendQueue) outgoing.send(Frame.Binary(true, data))
+                            }
+                            for (frame in incoming) {
+                                if (frame is Frame.Binary) _incoming.emit(frame.readBytes())
+                            }
+                            sender.cancel()
                         }
-                        for (frame in incoming) {
-                            if (frame is Frame.Binary) _incoming.emit(frame.readBytes())
-                        }
-                        sender.cancel()
+                        break  // host worked; restart outer loop on disconnect
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // this host failed; try the next one
                     }
-                } catch (e: CancellationException) {
-                    throw e // propagate — disconnect() or close() was called
-                } catch (_: Exception) {
-                    // connection attempt failed; fall through to backoff delay
                 }
+                if (connected) delayMs = INITIAL_DELAY_MS
                 _state.value = ConnectorState.DISCONNECTED
                 delay(delayMs)
                 delayMs = minOf(delayMs * 2, MAX_DELAY_MS)
