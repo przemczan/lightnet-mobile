@@ -1,6 +1,7 @@
 package com.lightnet.ui.components
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Wifi
@@ -16,6 +17,7 @@ enum class RootTab(val label: String, val icon: ImageVector) {
     Control("Control", Icons.Default.Tune),
     Library("Library", Icons.Default.Palette),
     Devices("Devices", Icons.Default.Wifi),
+    Debug("Debug", Icons.Default.BugReport),
 }
 
 @Composable

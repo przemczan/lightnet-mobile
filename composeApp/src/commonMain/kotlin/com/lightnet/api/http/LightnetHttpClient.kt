@@ -14,9 +14,12 @@ import com.lightnet.api.http.model.PanelStateResponse
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.SceneStatus
+import com.lightnet.debug.DebugLog
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.plugin
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -27,8 +30,10 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.time.TimeSource
 
 class LightnetApiException(val statusCode: Int, val error: String) :
     Exception("HTTP $statusCode: $error")
@@ -42,6 +47,24 @@ class LightnetHttpClient(private val baseUrl: String) {
     private val client = HttpClient {
         install(ContentNegotiation) { json(json) }
         expectSuccess = false
+    }.also { c ->
+        c.plugin(HttpSend).intercept { request ->
+            val start  = TimeSource.Monotonic.markNow()
+            val url    = request.url.build()
+            val host   = url.host
+            val method = request.method.value
+            val path   = url.encodedPath
+            try {
+                val call = execute(request)
+                DebugLog.logHttp(host, method, path, call.response.status.value, start.elapsedNow().inWholeMilliseconds)
+                call
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                DebugLog.logHttp(host, method, path, 0, start.elapsedNow().inWholeMilliseconds)
+                throw e
+            }
+        }
     }
 
     fun close() = client.close()

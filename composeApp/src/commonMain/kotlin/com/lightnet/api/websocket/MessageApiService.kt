@@ -8,6 +8,7 @@ import com.lightnet.api.websocket.protocol.message.decodePanelsStates
 import com.lightnet.api.websocket.protocol.message.IncomingMessage
 import com.lightnet.api.websocket.protocol.model.PanelEdgeInfoModel
 import com.lightnet.api.websocket.protocol.model.PanelStateModel
+import com.lightnet.debug.DebugLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -33,10 +34,17 @@ class MessageApiService(
         scope.launch {
             connector.incoming.collect { bytes ->
                 val result = MessageParser.parse(bytes)
-                if (result is MessageParser.Result.Success) _messages.emit(result.message)
+                if (result is MessageParser.Result.Success) {
+                    DebugLog.logWsReceived(result.message.type, bytes.size)
+                    _messages.emit(result.message)
+                }
             }
         }
     }
 
-    fun send(message: Message) = connector.send(message.encode())
+    fun send(message: Message) {
+        val encoded = message.encode()
+        DebugLog.logWsSent(message.type, encoded.size)
+        connector.send(encoded)
+    }
 }

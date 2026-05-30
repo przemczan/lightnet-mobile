@@ -24,6 +24,7 @@ import com.lightnet.discovery.effectiveHost
 import com.lightnet.ui.components.LightnetBottomNav
 import com.lightnet.ui.components.RootTab
 import com.lightnet.ui.screens.AddDeviceSheet
+import com.lightnet.ui.screens.DebugScreen
 import com.lightnet.ui.screens.DeviceControllerScreen
 import com.lightnet.ui.screens.DeviceSwitcherSheet
 import com.lightnet.ui.screens.EditDeviceSheet
@@ -110,6 +111,7 @@ fun LightnetApp(
                     onOpenDeviceSwitcher = { showSwitcher = true },
                     bottomBar            = bottomBar,
                 )
+                RootTab.Debug -> DebugScreen(bottomBar = bottomBar)
             }
         }
 

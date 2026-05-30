@@ -24,8 +24,8 @@ import kotlinx.coroutines.launch
 //
 // Hosts are tried in order each reconnect cycle:
 //   1. overrideIP  — manually configured by the user
-//   2. hostName    — mDNS hostname from discovery (e.g. lightnet-3F2A.local)
-//   3. lastIP      — last known IP from discovery or prior override connection
+//   2. lastIP      — last known IP from discovery or prior override connection
+//   3. hostName    — mDNS hostname from discovery (e.g. lightnet-3F2A.local); slowest, last resort
 //
 // When the override IP connects successfully, onConnectedWith is called so the
 // caller can persist it as the new lastIP.
@@ -48,8 +48,8 @@ class SocketConnector(
 
     private fun hostsToTry(): List<String> = buildList {
         overrideIP?.takeIf { it.isNotEmpty() }?.let { add(it) }
-        hostName?.takeIf { it.isNotEmpty() }?.let { add(it) }
         lastIP?.takeIf { it.isNotEmpty() && it != overrideIP }?.let { add(it) }
+        hostName?.takeIf { it.isNotEmpty() && it != overrideIP && it != lastIP }?.let { add(it) }
     }
 
     override fun connect() {
