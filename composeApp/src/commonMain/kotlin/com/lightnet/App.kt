@@ -53,6 +53,12 @@ fun LightnetApp(
         var editTarget   by remember { mutableStateOf<SavedDevice?>(null) }
         var showSwitcher by remember { mutableStateOf(false) }
 
+        // Tracks the host that the WebSocket last successfully connected to.
+        // Initialized from the best-known saved address; updated on every successful WS connection.
+        var connectedWsHost by remember(activeDevice) {
+            mutableStateOf(activeDevice?.effectiveHost?.ifEmpty { null })
+        }
+
         val device = remember(activeDevice?.host, activeDevice?.port) {
             activeDevice?.let { d ->
                 LightnetDevice(
@@ -63,9 +69,8 @@ fun LightnetApp(
                         port            = d.port,
                         client          = httpClient,
                         onConnectedWith = { connectedHost ->
-                            if (connectedHost != d.hostName) {
-                                scope.launch { deviceRepository.updateLastIP(d.name, connectedHost) }
-                            }
+                            connectedWsHost = connectedHost
+                            scope.launch { deviceRepository.updateLastIP(d.name, connectedHost) }
                         },
                     )
                 )
@@ -76,11 +81,10 @@ fun LightnetApp(
             onDispose { device?.close() }
         }
 
-        val httpApiClient = remember(activeDevice?.effectiveHost, activeDevice?.port) {
-            val d = activeDevice ?: return@remember null
-            d.effectiveHost.ifEmpty { null }?.let { h ->
-                LightnetHttpClient("http://$h:${d.port}")
-            }
+        val httpApiClient = remember(connectedWsHost, activeDevice?.port) {
+            val host = connectedWsHost ?: return@remember null
+            val port = activeDevice?.port ?: return@remember null
+            LightnetHttpClient("http://$host:$port")
         }
         DisposableEffect(httpApiClient) { onDispose { httpApiClient?.close() } }
 

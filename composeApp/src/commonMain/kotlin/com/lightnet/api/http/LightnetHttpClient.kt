@@ -16,7 +16,6 @@ import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.SceneStatus
 import com.lightnet.debug.DebugLog
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.plugin
@@ -27,13 +26,14 @@ import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlin.time.TimeSource
 
 class LightnetApiException(val statusCode: Int, val error: String) :
     Exception("HTTP $statusCode: $error")
@@ -44,24 +44,23 @@ class LightnetHttpClient(private val baseUrl: String) {
         encodeDefaults = false
     }
 
+    // Stored on the request builder before execute() so readBodyForDebug can compute duration.
+    private val startTimeAttr = AttributeKey<Long>("DebugHttpStartMs")
+
     private val client = HttpClient {
         install(ContentNegotiation) { json(json) }
         expectSuccess = false
     }.also { c ->
         c.plugin(HttpSend).intercept { request ->
-            val start  = TimeSource.Monotonic.markNow()
-            val url    = request.url.build()
-            val host   = url.host
-            val method = request.method.value
-            val path   = url.encodedPath
+            request.attributes.put(startTimeAttr, System.currentTimeMillis())
             try {
-                val call = execute(request)
-                DebugLog.logHttp(host, method, path, call.response.status.value, start.elapsedNow().inWholeMilliseconds)
-                call
+                execute(request)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                DebugLog.logHttp(host, method, path, 0, start.elapsedNow().inWholeMilliseconds)
+                val url = request.url.build()
+                val dur = System.currentTimeMillis() - (request.attributes.getOrNull(startTimeAttr) ?: 0L)
+                DebugLog.logHttp(url.host, request.method.value, url.encodedPath, 0, dur, e.message)
                 throw e
             }
         }
@@ -208,21 +207,36 @@ class LightnetHttpClient(private val baseUrl: String) {
         setBody(body)
     }
 
-    private suspend fun HttpResponse.throwIfError() {
+    private fun HttpResponse.throwIfError(bodyText: String) {
         if (status.value !in 200..299) {
-            val error = runCatching { body<ErrorBody>().error }.getOrNull()
+            val error = runCatching { json.decodeFromString<ErrorBody>(bodyText).error }.getOrNull()
             throw LightnetApiException(status.value, error ?: status.description)
         }
     }
 
     private suspend inline fun <reified T> HttpResponse.bodyOrThrow(): T {
-        throwIfError()
-        return body()
+        val text = readBodyForDebug()
+        throwIfError(text)
+        return json.decodeFromString(text)
     }
 
     private suspend fun HttpResponse.voidOrThrow() {
-        throwIfError()
-        body<Unit>()
+        val text = readBodyForDebug()
+        throwIfError(text)
+    }
+
+    private suspend fun HttpResponse.readBodyForDebug(): String {
+        val startMs = call.request.attributes.getOrNull(startTimeAttr)
+        val dur     = if (startMs != null) System.currentTimeMillis() - startMs else 0L
+        val req     = call.request
+        return try {
+            val text = bodyAsText()
+            DebugLog.logHttp(req.url.host, req.method.value, req.url.encodedPath, status.value, dur, text)
+            text
+        } catch (e: CancellationException) {
+            DebugLog.logHttp(req.url.host, req.method.value, req.url.encodedPath, status.value, dur, "(cancelled)")
+            throw e
+        }
     }
 
     // endregion

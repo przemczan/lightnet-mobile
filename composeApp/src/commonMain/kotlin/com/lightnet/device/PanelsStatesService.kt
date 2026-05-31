@@ -20,8 +20,7 @@ class PanelsStatesService(
     init {
         scope.launch {
             panelsListService.panels
-                .filter { it.isNotEmpty() }
-                .collect { refresh() }
+                .collect { panels -> if (!panels.isNullOrEmpty()) refresh() }
         }
         scope.launch {
             messageApiService.panelsStates.collect { models ->
