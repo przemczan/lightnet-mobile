@@ -4,5 +4,4 @@ data class PanelStateModel(
     val panelId: Int,
     val on: Boolean,
     val color: ColorRgbModel,
-    val brightness: Int,
 )

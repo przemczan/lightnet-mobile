@@ -13,7 +13,6 @@ class PanelsStatesResponse(private val states: List<PanelStateModel>) : Message(
             writer.writeU8(state.color.r)
             writer.writeU8(state.color.g)
             writer.writeU8(state.color.b)
-            writer.writeU8(state.brightness)
         }
     }
 }

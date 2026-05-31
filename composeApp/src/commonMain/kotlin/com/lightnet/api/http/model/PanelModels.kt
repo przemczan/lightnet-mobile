@@ -7,7 +7,6 @@ data class PanelStateResponse(
     val address: Int,
     val on: Boolean,
     val color: String,
-    val brightness: Int,
 )
 
 @Serializable

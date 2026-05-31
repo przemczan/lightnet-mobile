@@ -195,7 +195,6 @@ fun LightnetDeviceVisualizer(
                             red   = state.color.r / 255f,
                             green = state.color.g / 255f,
                             blue  = state.color.b / 255f,
-                            alpha = state.brightness / 255f,
                         ),
                         style = Fill,
                     )

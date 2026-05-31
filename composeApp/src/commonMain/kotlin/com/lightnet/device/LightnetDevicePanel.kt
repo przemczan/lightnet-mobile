@@ -21,7 +21,7 @@ class LightnetDevicePanel(
     scope: CoroutineScope,
 ) {
     private val _state = MutableStateFlow(
-        PanelState(panelId = info.id, on = false, color = ColorRgbModel(255, 255, 255), brightness = 255)
+        PanelState(panelId = info.id, on = false, color = ColorRgbModel(255, 255, 255))
     )
     val state: StateFlow<PanelState> = _state
 
