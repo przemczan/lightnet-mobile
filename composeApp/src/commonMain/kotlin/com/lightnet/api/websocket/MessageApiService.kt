@@ -35,7 +35,7 @@ class MessageApiService(
             connector.incoming.collect { bytes ->
                 val result = MessageParser.parse(bytes)
                 if (result is MessageParser.Result.Success) {
-                    DebugLog.logWsReceived(result.message.type, bytes.size)
+                    DebugLog.logWsReceived(result.message.type, bytes.size, bytes)
                     _messages.emit(result.message)
                 }
             }
@@ -44,7 +44,7 @@ class MessageApiService(
 
     fun send(message: Message) {
         val encoded = message.encode()
-        DebugLog.logWsSent(message.type, encoded.size)
+        DebugLog.logWsSent(message.type, encoded.size, encoded)
         connector.send(encoded)
     }
 }

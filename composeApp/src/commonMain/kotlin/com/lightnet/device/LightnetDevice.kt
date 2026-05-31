@@ -11,8 +11,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 enum class ConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
@@ -45,19 +43,18 @@ class LightnetDevice(
                     ConnectorState.IDLE          -> ConnectionState.IDLE
                     ConnectorState.CONNECTING    -> ConnectionState.CONNECTING
                     ConnectorState.CONNECTED     -> ConnectionState.CONNECTED
-                    ConnectorState.DISCONNECTED  -> ConnectionState.DISCONNECTED
+                    ConnectorState.DISCONNECTED,
+                    ConnectorState.FAILED        -> ConnectionState.DISCONNECTED
                 }
-                // Reload panels on every (re)connection — covers both first connect and
-                // automatic reconnects after a drop.
                 if (cs == ConnectorState.CONNECTED) panelsListService.load()
-                // Clear the snapshot so the UI shows the loading indicator during reconnect.
-                if (cs == ConnectorState.DISCONNECTED) _snapshot.value = null
+                if (cs == ConnectorState.DISCONNECTED || cs == ConnectorState.FAILED) _snapshot.value = null
             }
         }
         scope.launch {
-            panelsListService.panels
-                .map { buildSnapshot(it) }
-                .collect { _snapshot.value = it }
+            panelsListService.panels.collect { panels ->
+                // null = still loading; non-null (even emptyList) = response received
+                _snapshot.value = panels?.let { buildSnapshot(it) }
+            }
         }
     }
 

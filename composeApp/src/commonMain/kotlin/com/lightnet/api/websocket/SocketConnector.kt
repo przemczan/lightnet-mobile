@@ -1,5 +1,7 @@
 package com.lightnet.api.websocket
 
+import com.lightnet.debug.ConnectStatus
+import com.lightnet.debug.DebugLog
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
@@ -11,30 +13,35 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-// HttpClient must have WebSockets plugin installed. Engine is platform-specific:
-//   androidMain: HttpClient(OkHttp) { install(WebSockets) }
+// HttpClient must have WebSockets plugin installed and a short connect timeout set.
+// Engine is platform-specific:
+//   androidMain: HttpClient(OkHttp) { engine { config { connectTimeout(5, SECONDS) } }; install(WebSockets) }
 //   iosMain:     HttpClient(Darwin) { install(WebSockets) }
 //
-// Hosts are tried in order each reconnect cycle:
+// Hosts are tried in order each connection cycle:
 //   1. overrideIP  — manually configured by the user
-//   2. lastIP      — last known IP from discovery or prior override connection
-//   3. hostName    — mDNS hostname from discovery (e.g. lightnet-3F2A.local); slowest, last resort
+//   2. lastIP      — last known IP from discovery or prior connection
+//   3. hostName    — mDNS hostname (e.g. lightnet-3F2A.local); slowest, last resort
 //
-// When the override IP connects successfully, onConnectedWith is called so the
-// caller can persist it as the new lastIP.
+// Each host is attempted attemptsPerHost times before moving to the next.
+// If all hosts exhaust their attempts the state becomes FAILED and the loop stops —
+// the caller must invoke connect() again (e.g. the user pressing Retry).
+// After a successful connection that later drops, the cycle restarts automatically.
+// onConnectedWith is called on every successful connection so the caller can persist
+// the working host as lastIP.
 class SocketConnector(
     private val overrideIP: String?,
     private val hostName: String?,
     private val lastIP: String?,
     private val port: Int,
     private val client: HttpClient,
+    private val attemptsPerHost: Int = 2,
     private val onConnectedWith: ((host: String) -> Unit)? = null,
 ) : Connector {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -55,36 +62,43 @@ class SocketConnector(
     override fun connect() {
         connectionJob?.cancel()
         connectionJob = scope.launch {
-            var delayMs = INITIAL_DELAY_MS
-            while (true) {
-                var connected = false
-                for (host in hostsToTry()) {
-                    _state.value = ConnectorState.CONNECTING
-                    try {
-                        client.webSocket("ws://$host:$port/ws") {
-                            delayMs = INITIAL_DELAY_MS
-                            _state.value = ConnectorState.CONNECTED
-                            onConnectedWith?.invoke(host)
-                            connected = true
-                            val sender = launch {
-                                for (data in sendQueue) outgoing.send(Frame.Binary(true, data))
+            cycle@ while (true) {
+                val hosts = hostsToTry()
+                if (hosts.isEmpty()) {
+                    _state.value = ConnectorState.FAILED
+                    return@launch
+                }
+                for (host in hosts) {
+                    for (attempt in 1..attemptsPerHost) {
+                        _state.value = ConnectorState.CONNECTING
+                        DebugLog.logWsConnect(host, port, ConnectStatus.ATTEMPT)
+                        try {
+                            client.webSocket("ws://$host:$port/ws") {
+                                _state.value = ConnectorState.CONNECTED
+                                DebugLog.logWsConnect(host, port, ConnectStatus.CONNECTED)
+                                onConnectedWith?.invoke(host)
+                                val sender = launch {
+                                    for (data in sendQueue) outgoing.send(Frame.Binary(true, data))
+                                }
+                                for (frame in incoming) {
+                                    if (frame is Frame.Binary) _incoming.emit(frame.readBytes())
+                                }
+                                sender.cancel()
                             }
-                            for (frame in incoming) {
-                                if (frame is Frame.Binary) _incoming.emit(frame.readBytes())
-                            }
-                            sender.cancel()
+                            // Clean drop — restart the cycle to reconnect
+                            DebugLog.logWsConnect(host, port, ConnectStatus.DISCONNECTED)
+                            _state.value = ConnectorState.DISCONNECTED
+                            continue@cycle
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            DebugLog.logWsConnect(host, port, ConnectStatus.FAILED, e.message ?: e::class.simpleName)
                         }
-                        break  // host worked; restart outer loop on disconnect
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        // this host failed; try the next one
                     }
                 }
-                if (connected) delayMs = INITIAL_DELAY_MS
-                _state.value = ConnectorState.DISCONNECTED
-                delay(delayMs)
-                delayMs = minOf(delayMs * 2, MAX_DELAY_MS)
+                // All hosts and all attempts exhausted — give up until user retries
+                _state.value = ConnectorState.FAILED
+                return@launch
             }
         }
     }
@@ -105,8 +119,4 @@ class SocketConnector(
         scope.cancel()
     }
 
-    companion object {
-        private const val INITIAL_DELAY_MS = 1_000L
-        private const val MAX_DELAY_MS = 30_000L
-    }
 }

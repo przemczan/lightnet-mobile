@@ -18,21 +18,27 @@ class PanelsListService(
     private val messageApiService: MessageApiService,
     private val scope: CoroutineScope,
 ) {
-    private val _panels = MutableStateFlow<List<PanelInfo>>(emptyList())
-    val panels: StateFlow<List<PanelInfo>> = _panels
+    // null = loading in progress; emptyList = loaded with 0 panels; non-empty = loaded with panels
+    private val _panels = MutableStateFlow<List<PanelInfo>?>(null)
+    val panels: StateFlow<List<PanelInfo>?> = _panels
 
     private var loadJob: Job? = null
 
     fun load() {
         loadJob?.cancel()
-        _panels.value = emptyList() // clear so snapshot resets to loading state on reconnect
+        _panels.value = null  // null is distinct from emptyList — StateFlow will always emit on completion
         loadJob = scope.launch {
             // Subscribe BEFORE sending to guarantee we don't miss the response
             val edgesDeferred = async(start = CoroutineStart.UNDISPATCHED) {
                 messageApiService.edgesList.first()
             }
             messageApiService.send(GetEdgesListMessage())
-            _panels.value = buildPanelTree(edgesDeferred.await())
+            try {
+                _panels.value = buildPanelTree(edgesDeferred.await())
+            } catch (e: Exception) {
+                _panels.value = emptyList()  // decode failure → treat as 0 panels, don't hang forever
+                throw e  // still propagates for crash reporting
+            }
         }
     }
 

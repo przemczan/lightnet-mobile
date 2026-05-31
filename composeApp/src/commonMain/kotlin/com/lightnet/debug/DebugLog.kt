@@ -14,6 +14,7 @@ sealed interface DebugLogEntry {
         override val offsetMs: Long,
         val type: MessageType,
         val bytes: Int,
+        val payload: ByteArray?,
     ) : DebugLogEntry
 
     data class WsReceived(
@@ -22,6 +23,7 @@ sealed interface DebugLogEntry {
         val type: MessageType,
         val bytes: Int,
         val durationMs: Long?,
+        val payload: ByteArray?,
     ) : DebugLogEntry
 
     data class Http(
@@ -32,8 +34,20 @@ sealed interface DebugLogEntry {
         val path: String,
         val statusCode: Int,
         val durationMs: Long,
+        val body: String? = null,
+    ) : DebugLogEntry
+
+    data class WsConnect(
+        override val id: Long,
+        override val offsetMs: Long,
+        val host: String,
+        val port: Int,
+        val status: ConnectStatus,
+        val detail: String?,
     ) : DebugLogEntry
 }
+
+enum class ConnectStatus { ATTEMPT, CONNECTED, FAILED, DISCONNECTED }
 
 object DebugLog {
     private const val MAX_ENTRIES = 300
@@ -46,27 +60,30 @@ object DebugLog {
 
     private var nextId = 0L
 
-    // Tracks when a request was sent so the matching response can show round-trip time.
     private val inFlight = mutableMapOf<MessageType, kotlin.time.TimeMark>()
     private val requestToResponse = mapOf(
-        MessageType.GET_EDGES_LIST   to MessageType.EDGES_LIST,
+        MessageType.GET_EDGES_LIST    to MessageType.EDGES_LIST,
         MessageType.GET_PANELS_STATES to MessageType.PANELS_STATES,
     )
     private val responseToRequest = requestToResponse.entries.associate { (k, v) -> v to k }
 
-    fun logWsSent(type: MessageType, bytes: Int) {
+    fun logWsSent(type: MessageType, bytes: Int, payload: ByteArray? = null) {
         if (type in requestToResponse) inFlight[type] = source.markNow()
-        append(DebugLogEntry.WsSent(nextId++, now(), type, bytes))
+        append(DebugLogEntry.WsSent(nextId++, now(), type, bytes, payload))
     }
 
-    fun logWsReceived(type: MessageType, bytes: Int) {
+    fun logWsReceived(type: MessageType, bytes: Int, payload: ByteArray? = null) {
         val durationMs = responseToRequest[type]
             ?.let { inFlight.remove(it)?.elapsedNow()?.inWholeMilliseconds }
-        append(DebugLogEntry.WsReceived(nextId++, now(), type, bytes, durationMs))
+        append(DebugLogEntry.WsReceived(nextId++, now(), type, bytes, durationMs, payload))
     }
 
-    fun logHttp(host: String, method: String, path: String, statusCode: Int, durationMs: Long) {
-        append(DebugLogEntry.Http(nextId++, now(), host, method, path, statusCode, durationMs))
+    fun logHttp(host: String, method: String, path: String, statusCode: Int, durationMs: Long, body: String? = null) {
+        append(DebugLogEntry.Http(nextId++, now(), host, method, path, statusCode, durationMs, body))
+    }
+
+    fun logWsConnect(host: String, port: Int, status: ConnectStatus, detail: String? = null) {
+        append(DebugLogEntry.WsConnect(nextId++, now(), host, port, status, detail))
     }
 
     fun clear() {

@@ -12,11 +12,20 @@ import com.russhwolf.settings.SharedPreferencesSettings
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.WebSockets
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
 
     private val httpClient by lazy {
-        HttpClient(OkHttp) { install(WebSockets) }
+        HttpClient(OkHttp) {
+            engine {
+                config {
+                    connectTimeout(5, TimeUnit.SECONDS)
+                    readTimeout(30, TimeUnit.SECONDS)
+                }
+            }
+            install(WebSockets)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
