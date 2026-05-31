@@ -4,8 +4,6 @@ import com.lightnet.api.http.model.AnimationPlayRequest
 import com.lightnet.api.http.model.AnimationTriggerRequest
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
-import com.lightnet.api.http.model.ColorsRequest
-import com.lightnet.api.http.model.ColorsResponse
 import com.lightnet.api.http.model.FirmwareFlashResponse
 import com.lightnet.api.http.model.FirmwareStatusResponse
 import com.lightnet.api.http.model.PaletteJson
@@ -23,6 +21,7 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.patch
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -74,31 +73,13 @@ class LightnetHttpClient(private val baseUrl: String) {
         client.get("$baseUrl/api/appearance").bodyOrThrow()
 
     suspend fun setAppearance(request: AppearanceRequest) =
-        client.put("$baseUrl/api/appearance") { jsonBody(request) }.voidOrThrow()
-
-    suspend fun getBrightness(): Int =
-        client.get("$baseUrl/api/brightness").bodyOrThrow<BrightnessValue>().value
-
-    suspend fun setBrightness(value: Int) =
-        client.put("$baseUrl/api/brightness") { jsonBody(BrightnessValue(value)) }.voidOrThrow()
-
-    suspend fun getColors(): ColorsResponse =
-        client.get("$baseUrl/api/colors").bodyOrThrow()
-
-    suspend fun setColors(request: ColorsRequest) =
-        client.put("$baseUrl/api/colors") { jsonBody(request) }.voidOrThrow()
-
-    suspend fun getPaletteName(): String =
-        client.get("$baseUrl/api/palette").bodyOrThrow<PaletteNameValue>().palette
-
-    suspend fun setPaletteName(name: String) =
-        client.put("$baseUrl/api/palette") { jsonBody(PaletteNameValue(name)) }.voidOrThrow()
+        client.patch("$baseUrl/api/appearance") { jsonBody(request) }.voidOrThrow()
 
     // endregion
 
     // region Palettes
 
-    suspend fun getPaletteNames(): List<String> =
+    suspend fun getPalettes(): Map<String, PaletteJson> =
         client.get("$baseUrl/api/palettes").bodyOrThrow()
 
     suspend fun getPalette(name: String): PaletteJson =
@@ -195,8 +176,6 @@ class LightnetHttpClient(private val baseUrl: String) {
 
     // region Private helpers
 
-    @Serializable private data class BrightnessValue(val value: Int)
-    @Serializable private data class PaletteNameValue(val palette: String)
     @Serializable private data class SceneSpeedValue(val speed: Float)
     @Serializable private data class IntValue(val value: Int)
     @Serializable private data class ColorValue(val color: String)

@@ -41,7 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import com.lightnet.api.http.LightnetHttpClient
-import com.lightnet.api.http.model.ColorsRequest
+import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.ui.colorToHex
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
@@ -123,7 +123,7 @@ fun DeviceSettingsScreen(
                                 onValueChange = { brightness = it * 255f },
                                 onValueChangeFinished = {
                                     val b = brightness.toInt()
-                                    scope.launch { httpClient?.runCatching { setBrightness(b) } }
+                                    scope.launch { httpClient?.runCatching { setAppearance(AppearanceRequest(brightness = b)) } }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -228,11 +228,7 @@ fun DeviceSettingsScreen(
                 scope.launch {
                     val updated = baseColors
                     httpClient?.runCatching {
-                        setColors(ColorsRequest(
-                            primary   = updated.getOrNull(0),
-                            secondary = updated.getOrNull(1),
-                            tertiary  = updated.getOrNull(2),
-                        ))
+                        setAppearance(AppearanceRequest(baseColors = updated))
                     }
                 }
             },
