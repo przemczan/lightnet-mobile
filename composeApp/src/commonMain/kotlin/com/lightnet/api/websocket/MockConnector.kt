@@ -64,7 +64,7 @@ class MockConnector(
         generatedEdges = PanelsGenerator.generateEdges(panelCount, minEdges, maxEdges)
         val ids = generatedEdges.map { it.panelId }.toSet()
         ids.forEach { id ->
-            panelStates[id] = PanelStateModel(id, false, ColorRgbModel(255, 255, 255), 255)
+            panelStates[id] = PanelStateModel(id, false, ColorRgbModel(255, 255, 255))
         }
         _incoming.emit(EdgesListResponse(generatedEdges).encode())
     }

@@ -170,7 +170,6 @@ class MessageProtocolTest {
             writeU8(255)           // r
             writeU8(128)           // g
             writeU8(0)             // b
-            writeU8(200)           // brightness
         }
         val states = decodePanelsStates(payload)
         assertEquals(1, states.size)
@@ -179,7 +178,6 @@ class MessageProtocolTest {
         assertEquals(255, states[0].color.r)
         assertEquals(128, states[0].color.g)
         assertEquals(0, states[0].color.b)
-        assertEquals(200, states[0].brightness)
     }
 
     @Test

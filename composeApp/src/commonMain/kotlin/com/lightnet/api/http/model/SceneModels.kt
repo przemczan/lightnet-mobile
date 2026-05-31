@@ -36,8 +36,6 @@ data class SceneStep(
     val color: ColorRef? = null,
     val colorFrom: ColorRef? = null,
     val colorTo: ColorRef? = null,
-    val brightnessFrom: Int? = null,
-    val brightnessTo: Int? = null,
     val duration: Int? = null,
     val loop: Boolean? = null,
     val pingpong: Boolean? = null,

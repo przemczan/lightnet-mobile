@@ -149,11 +149,6 @@ class LightnetHttpClient(private val baseUrl: String) {
             jsonBody(IntValue(if (on) 1 else 0))
         }.voidOrThrow()
 
-    suspend fun setPanelBrightness(address: Int, brightness: Int) =
-        client.put("$baseUrl/api/panels/$address/brightness") {
-            jsonBody(IntValue(brightness))
-        }.voidOrThrow()
-
     suspend fun setPanelColor(address: Int, color: String) =
         client.put("$baseUrl/api/panels/$address/color") {
             jsonBody(ColorValue(color))

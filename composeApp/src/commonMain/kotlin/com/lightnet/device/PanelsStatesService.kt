@@ -24,7 +24,7 @@ class PanelsStatesService(
         }
         scope.launch {
             messageApiService.panelsStates.collect { models ->
-                _states.value = models.map { PanelState(it.panelId, it.on, it.color, it.brightness) }
+                _states.value = models.map { PanelState(it.panelId, it.on, it.color) }
             }
         }
     }
