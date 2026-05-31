@@ -16,16 +16,3 @@ data class AppearanceRequest(
     val palette: String? = null,
 )
 
-@Serializable
-data class ColorsResponse(
-    val primary: String,
-    val secondary: String,
-    val tertiary: String,
-)
-
-@Serializable
-data class ColorsRequest(
-    val primary: String? = null,
-    val secondary: String? = null,
-    val tertiary: String? = null,
-)

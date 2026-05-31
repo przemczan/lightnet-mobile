@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
@@ -124,7 +125,7 @@ fun DeviceControllerScreen(
                 palette    = app.palette
                 baseColors = app.baseColors
             }
-            paletteNames        = httpClient.runCatching { getPaletteNames() }.getOrNull() ?: emptyList()
+            paletteNames        = httpClient.runCatching { getPalettes().keys.toList() }.getOrNull() ?: emptyList()
             paletteNamesLoading = false
         }
     }
@@ -283,7 +284,7 @@ fun DeviceControllerScreen(
             currentPalette = palette,
             onSelect       = { name ->
                 palette = name
-                httpClient?.runCatching { setPaletteName(name) }
+                httpClient?.runCatching { setAppearance(AppearanceRequest(palette = name)) }
             },
             onDismiss      = { showPaletteSheet = false },
         )
@@ -294,7 +295,7 @@ fun DeviceControllerScreen(
             initialBrightness = brightness,
             onSave            = { newBrightness ->
                 brightness = newBrightness
-                httpClient?.runCatching { setBrightness(newBrightness.toInt()) }
+                httpClient?.runCatching { setAppearance(AppearanceRequest(brightness = newBrightness.toInt())) }
             },
             onDismiss         = { showBrightnessSheet = false },
         )

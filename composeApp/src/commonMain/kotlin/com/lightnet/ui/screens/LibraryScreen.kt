@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.ui.parseHexColor
 import kotlinx.coroutines.launch
@@ -157,9 +158,8 @@ private fun PalettesTab(
     suspend fun reload() {
         if (httpClient == null) return
         isLoading = true
-        val names = httpClient.runCatching { getPaletteNames() }.getOrNull() ?: emptyList()
-        palettes  = names.mapNotNull { name -> httpClient.runCatching { getPalette(name) }.getOrNull() }
-        activeName = httpClient.runCatching { getPaletteName() }.getOrNull()
+        palettes = httpClient.runCatching { getPalettes().values.toList() }.getOrNull() ?: emptyList()
+        activeName = httpClient.runCatching { getAppearance().palette }.getOrNull()
         isLoading = false
     }
 
@@ -217,7 +217,7 @@ private fun PalettesTab(
                     isActive = palette.name == activeName,
                     onTap    = {
                         activeName = palette.name
-                        scope.launch { httpClient?.runCatching { setPaletteName(palette.name) } }
+                        scope.launch { httpClient?.runCatching { setAppearance(AppearanceRequest(palette = palette.name)) } }
                     },
                     onEdit   = { onEditPalette(palette) },
                     onDelete = { deleteTarget = palette },

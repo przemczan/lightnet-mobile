@@ -22,6 +22,7 @@ import com.lightnet.ui.toColorRgb
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.sqrt
 
 enum class PaintMode { Paint, Erase, Stamp }
 
@@ -36,6 +37,10 @@ fun LightnetDeviceVisualizer(
     selectedPanels: Set<Int> = emptySet(),
     onSelectionChange: (Set<Int>) -> Unit = {},
     onEnterSelectionMode: (firstPanelIndex: Int) -> Unit = {},
+    borderWidth: Float = 6f,
+    panelPadding: Float = 12f,
+    borderColor: Color = Color(0xFF444444),
+    backgroundColor: Color = Color.Black,
 ) {
     val states = panels.map { it.state.collectAsState() }
 
@@ -150,6 +155,7 @@ fun LightnetDeviceVisualizer(
             }
         } else Modifier
 
+
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -158,7 +164,7 @@ fun LightnetDeviceVisualizer(
             panels.forEachIndexed { i, panel ->
                 val state = states[i].value
 
-                val points = panel.layout.edgesCoords.entries
+                val rawPoints = panel.layout.edgesCoords.entries
                     .sortedBy { it.key }
                     .map { (_, c) ->
                         Offset(
@@ -167,7 +173,9 @@ fun LightnetDeviceVisualizer(
                         )
                     }
 
-                if (points.size < 3) return@forEachIndexed
+                if (rawPoints.size < 3) return@forEachIndexed
+
+                val points = if (panelPadding > 0f) shrinkPolygon(rawPoints, panelPadding) else rawPoints
 
                 val path = Path().apply {
                     moveTo(points[0].x, points[0].y)
@@ -175,8 +183,10 @@ fun LightnetDeviceVisualizer(
                     close()
                 }
 
-                drawPath(path, color = Color.Black, style = Fill)
-                drawPath(path, color = Color(0xFF444444), style = Stroke(width = 4.5f))
+                drawPath(path, color = backgroundColor, style = Fill)
+                if (borderWidth > 0f) {
+                    drawPath(path, color = borderColor, style = Stroke(width = borderWidth))
+                }
 
                 if (state.on) {
                     drawPath(
@@ -201,5 +211,17 @@ fun LightnetDeviceVisualizer(
                 }
             }
         }
+    }
+}
+
+private fun shrinkPolygon(points: List<Offset>, padding: Float): List<Offset> {
+    val cx = points.sumOf { it.x.toDouble() }.toFloat() / points.size
+    val cy = points.sumOf { it.y.toDouble() }.toFloat() / points.size
+    return points.map { p ->
+        val dx = p.x - cx
+        val dy = p.y - cy
+        val dist = sqrt(dx * dx + dy * dy)
+        if (dist <= padding) Offset(cx, cy)
+        else Offset(cx + dx * (dist - padding) / dist, cy + dy * (dist - padding) / dist)
     }
 }
