@@ -115,6 +115,11 @@ fun DeviceControllerScreen(
     var paletteNames         by remember(device) { mutableStateOf<List<String>>(emptyList()) }
     var paletteNamesLoading  by remember(device) { mutableStateOf(false) }
     var baseColors           by remember(device) { mutableStateOf<List<String>>(emptyList()) }
+    var paintColor           by remember { mutableStateOf(Color(0xFFCF5B3C)) }
+    var showColorSheet       by remember { mutableStateOf(false) }
+    var showPaletteSheet     by remember { mutableStateOf(false) }
+    var showBrightnessSheet  by remember { mutableStateOf(false) }
+    var allPanelsOn          by remember { mutableStateOf(false) }
 
     LaunchedEffect(httpClient, connectionState) {
         if (connectionState == ConnectionState.CONNECTED && httpClient != null) {
@@ -127,14 +132,10 @@ fun DeviceControllerScreen(
             }
             paletteNames        = httpClient.runCatching { getPalettes().keys.toList() }.getOrNull() ?: emptyList()
             paletteNamesLoading = false
+            val power = httpClient.runCatching { getPowerState() }.getOrNull()
+            if (power != null) allPanelsOn = power
         }
     }
-
-    var paintColor         by remember { mutableStateOf(Color(0xFFCF5B3C)) }
-    var showColorSheet     by remember { mutableStateOf(false) }
-    var showPaletteSheet   by remember { mutableStateOf(false) }
-    var showBrightnessSheet by remember { mutableStateOf(false) }
-    var allPanelsOn        by remember { mutableStateOf(false) }
     var showSettings       by remember { mutableStateOf(false) }
 
     if (showSettings) {
@@ -200,6 +201,7 @@ fun DeviceControllerScreen(
                     ) {
                         LightnetDeviceVisualizer(
                             panels      = snapshot!!.panels,
+                            powerOn     = allPanelsOn,
                             paintMode   = PaintMode.Paint,
                             paintColor  = paintColor,
                             interactive = !isReconnecting,
@@ -246,7 +248,7 @@ fun DeviceControllerScreen(
                                 checked         = allPanelsOn,
                                 onCheckedChange = { on ->
                                     allPanelsOn = on
-                                    snapshot?.panels?.forEach { it.toggle(on = on) }
+                                    scope.launch { httpClient?.runCatching { setPowerState(on) } }
                                 },
                                 colors = IconButtonDefaults.iconToggleButtonColors(
                                     containerColor        = Color.Transparent,

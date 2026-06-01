@@ -30,6 +30,7 @@ enum class PaintMode { Paint, Erase, Stamp }
 fun LightnetDeviceVisualizer(
     panels: List<LightnetDevicePanel>,
     modifier: Modifier = Modifier,
+    powerOn: Boolean = true,
     paintMode: PaintMode = PaintMode.Paint,
     paintColor: Color = Color.White,
     interactive: Boolean = true,
@@ -97,7 +98,7 @@ fun LightnetDeviceVisualizer(
             }
         }
 
-        val gestureModifier = if (interactive || selectionMode) {
+        val gestureModifier = if (powerOn && (interactive || selectionMode)) {
             Modifier.pointerInput(panels, scale, offsetX, offsetY) {
                 val visitedInStroke = mutableSetOf<Int>()
 
@@ -188,7 +189,7 @@ fun LightnetDeviceVisualizer(
                     drawPath(path, color = borderColor, style = Stroke(width = borderWidth))
                 }
 
-                if (state.on) {
+                if (state.on && powerOn) {
                     drawPath(
                         path = path,
                         color = Color(

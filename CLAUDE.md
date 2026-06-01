@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Companion Repos
+
+- **Firmware** — `../lightnet-firmware` (relative to this repo). Check `lib/Lightnet/Controller/API/http/` for route handler implementations to verify HTTP verb, endpoint path, and exact JSON field names before adding API calls to `LightnetHttpClient`.
+
 ## Commands
 
 ```bat

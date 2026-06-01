@@ -156,6 +156,16 @@ class LightnetHttpClient(private val baseUrl: String) {
 
     // endregion
 
+    // region Power state
+
+    suspend fun getPowerState(): Boolean =
+        client.get("$baseUrl/api/state/power").bodyOrThrow<PowerStateBody>().isOn
+
+    suspend fun setPowerState(on: Boolean) =
+        client.post("$baseUrl/api/state/power") { jsonBody(PowerStateBody(on)) }.voidOrThrow()
+
+    // endregion
+
     // region Firmware
 
     suspend fun uploadPanelFirmware(data: ByteArray): FirmwareFlashResponse =
@@ -171,6 +181,7 @@ class LightnetHttpClient(private val baseUrl: String) {
 
     // region Private helpers
 
+    @Serializable private data class PowerStateBody(val isOn: Boolean)
     @Serializable private data class SceneSpeedValue(val speed: Float)
     @Serializable private data class IntValue(val value: Int)
     @Serializable private data class ColorValue(val color: String)
