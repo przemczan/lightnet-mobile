@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,13 +31,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -65,6 +62,7 @@ import com.lightnet.ui.components.LightnetDeviceVisualizer
 import com.lightnet.ui.components.LoadingState
 import com.lightnet.ui.components.PaintMode
 import com.lightnet.ui.components.ReconnectingBanner
+import com.lightnet.ui.components.RightSheet
 import com.lightnet.ui.components.StatusDot
 import com.lightnet.ui.components.toDeviceStatus
 import kotlinx.coroutines.launch
@@ -306,7 +304,6 @@ fun DeviceControllerScreen(
 
 // ── Brightness sheet ──────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BrightnessSheet(
     initialBrightness: Float,
@@ -317,64 +314,53 @@ private fun BrightnessSheet(
     var brightness by remember { mutableFloatStateOf(initialBrightness) }
     var isSaving   by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-    ) {
-        Column(
-            Modifier
-                .padding(horizontal = 16.dp)
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+    RightSheet(onDismiss = onDismiss) {
+        Text("Brightness", style = MaterialTheme.typography.titleMedium)
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment     = Alignment.CenterVertically,
         ) {
-            Text("Brightness", style = MaterialTheme.typography.titleMedium)
+            Icon(
+                Icons.Default.WbSunny,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint     = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value         = brightness / 255f,
+                onValueChange = { brightness = it * 255f },
+                modifier      = Modifier.weight(1f),
+            )
+            Text(
+                "${(brightness / 255f * 100).roundToInt()}%",
+                style    = MaterialTheme.typography.bodySmall,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(36.dp),
+            )
+        }
 
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment     = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Default.WbSunny,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint     = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Slider(
-                    value         = brightness / 255f,
-                    onValueChange = { brightness = it * 255f },
-                    modifier      = Modifier.weight(1f),
-                )
-                Text(
-                    "${(brightness / 255f * 100).roundToInt()}%",
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.width(36.dp),
-                )
-            }
-
-            Button(
-                onClick  = {
-                    scope.launch {
-                        isSaving = true
-                        onSave(brightness)
-                        isSaving = false
-                        onDismiss()
-                    }
-                },
-                enabled  = !isSaving,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (isSaving) {
-                    CircularProgressIndicator(
-                        modifier    = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color       = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
-                    Text("OK")
+        Button(
+            onClick  = {
+                scope.launch {
+                    isSaving = true
+                    onSave(brightness)
+                    isSaving = false
+                    onDismiss()
                 }
+            },
+            enabled  = !isSaving,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (isSaving) {
+                CircularProgressIndicator(
+                    modifier    = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color       = MaterialTheme.colorScheme.onPrimary,
+                )
+            } else {
+                Text("OK")
             }
         }
     }
@@ -382,7 +368,6 @@ private fun BrightnessSheet(
 
 // ── Palette sheet ─────────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PaletteSheet(
     paletteNames: List<String>,
@@ -394,79 +379,69 @@ private fun PaletteSheet(
     val scope = rememberCoroutineScope()
     var applyingPalette by remember { mutableStateOf<String?>(null) }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-    ) {
-        Column(
-            Modifier
-                .padding(horizontal = 16.dp)
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp),
-        ) {
-            Text(
-                "Palette",
-                style    = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
+    RightSheet(onDismiss = onDismiss) {
+        Text(
+            "Palette",
+            style    = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
 
-            when {
-                isLoading -> Box(
+        when {
+            isLoading -> Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(80.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+            paletteNames.isEmpty() -> Text(
+                "No palettes available on this device.",
+                style    = MaterialTheme.typography.bodySmall,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            else -> paletteNames.forEach { name ->
+                Row(
                     Modifier
                         .fillMaxWidth()
-                        .height(80.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-                paletteNames.isEmpty() -> Text(
-                    "No palettes available on this device.",
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-                else -> paletteNames.forEach { name ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = applyingPalette == null) {
-                                scope.launch {
-                                    applyingPalette = name
-                                    onSelect(name)
-                                    applyingPalette = null
-                                }
+                        .clickable(enabled = applyingPalette == null) {
+                            scope.launch {
+                                applyingPalette = name
+                                onSelect(name)
+                                applyingPalette = null
                             }
-                            .padding(vertical = 14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment     = Alignment.CenterVertically,
-                    ) {
-                        Text(name, style = MaterialTheme.typography.bodyMedium)
-                        when {
-                            applyingPalette == name -> CircularProgressIndicator(
-                                modifier    = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                            )
-                            name == currentPalette  -> Icon(
-                                Icons.Default.Check,
-                                contentDescription = null,
-                                tint     = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
-                            )
                         }
+                        .padding(vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text(name, style = MaterialTheme.typography.bodyMedium)
+                    when {
+                        applyingPalette == name -> CircularProgressIndicator(
+                            modifier    = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        name == currentPalette  -> Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint     = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
-                    HorizontalDivider()
                 }
+                HorizontalDivider()
             }
-
-            Spacer(Modifier.height(4.dp))
-
-            Button(
-                onClick  = onDismiss,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-            ) { Text("OK") }
         }
+
+        Spacer(Modifier.height(4.dp))
+
+        Button(
+            onClick  = onDismiss,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+        ) { Text("OK") }
     }
 }
 
