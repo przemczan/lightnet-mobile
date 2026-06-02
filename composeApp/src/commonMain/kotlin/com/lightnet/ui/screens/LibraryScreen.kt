@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -113,8 +112,8 @@ fun LibraryScreen(
                     Tab(
                         selected = activeTab == tab,
                         onClick  = { activeTab = tab },
-                        icon     = { Icon(tab.icon(), contentDescription = null, modifier = Modifier.size(20.dp)) },
-                        text     = { Text(tab.label(), style = MaterialTheme.typography.labelSmall) },
+                        icon     = { Icon(tab.icon(), contentDescription = null) },
+                        text     = { Text(tab.label()) },
                     )
                 }
             }
@@ -288,8 +287,8 @@ private fun PaletteCard(
                     }
                 }
                 Box {
-                    IconButton(onClick = { showMenu = true }, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More", modifier = Modifier.size(16.dp))
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More")
                     }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                         DropdownMenuItem(text = { Text("Edit") },   onClick = { showMenu = false; onEdit() })

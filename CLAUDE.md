@@ -110,8 +110,7 @@ Aim for **standard Material 3** — prefer stock M3 components with default styl
 
 - **Theme**: the app follows the system light/dark setting via `LightnetTheme` (`ui/theme/Theme.kt`), using the default `lightColorScheme()` / `darkColorScheme()`. No custom palette. Drive component colors from `MaterialTheme.colorScheme` roles — **do not hardcode `Color(0x…)`**. The few exceptions are intentional and must work in both themes: semantic status colors (`StatusDot`, success green), the visualiser's black panel background, and the device paint-color default.
 - **Don't override stock component defaults** (sizes, typography, shapes) without a reason — e.g. let `TopAppBar` use its default title typography and height rather than forcing `titleMedium`.
-- **Bottom sheets** (`ModalBottomSheet`): wrap content in a `Column` padded `horizontal = 16.dp` (20.dp for form sheets) and add `.navigationBarsPadding()` so content clears the system nav bar.
-  - **Action buttons** (OK / Save / Delete) are **wrap-content, centered** — place each in a `Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center)` with `padding(top = 8.dp)`. this Row pattern is the convention.
+- **Action buttons** (OK / Save / Delete) are **wrap-content, centered** — place each in a `Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center)` with `padding(top = 8.dp)`. this Row pattern is the convention.
 
 ## Updating the App Icon
 

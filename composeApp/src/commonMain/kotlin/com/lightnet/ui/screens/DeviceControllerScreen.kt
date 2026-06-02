@@ -28,7 +28,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -49,7 +48,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.model.AppearanceRequest
@@ -209,11 +207,7 @@ fun DeviceControllerScreen(
                         onPrimaryAction    = { device.load() },
                     )
 
-                    snapshot != null -> Box(
-                        Modifier
-                            .fillMaxSize()
-                            .alpha(if (isReconnecting) 0.55f else 1f),
-                    ) {
+                    snapshot != null -> Box(Modifier.fillMaxSize()) {
                         LightnetDeviceVisualizer(
                             panels       = snapshot!!.panels,
                             powerOn      = allPanelsOn,
@@ -233,11 +227,10 @@ fun DeviceControllerScreen(
                     Box(
                         Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 16.dp)
-                            .alpha(if (isReconnecting) 0.45f else 1f),
+                            .padding(bottom = 16.dp),
                     ) {
                         Surface(
-                            color          = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                            color          = MaterialTheme.colorScheme.surface,
                             shape          = MaterialTheme.shapes.extraLarge,
                             tonalElevation = 6.dp,
                         ) {
@@ -247,13 +240,13 @@ fun DeviceControllerScreen(
                                 verticalAlignment     = Alignment.CenterVertically,
                             ) {
                                 IconButton(onClick = { showColorSheet = true }) {
-                                    Icon(Icons.Default.Brush, contentDescription = "Pick color", modifier = Modifier.size(26.dp))
+                                    Icon(Icons.Default.Brush, contentDescription = "Pick color")
                                 }
                                 IconButton(onClick = { showPaletteSheet = true }) {
-                                    Icon(Icons.Default.Gradient, contentDescription = "Choose palette", modifier = Modifier.size(26.dp))
+                                    Icon(Icons.Default.Gradient, contentDescription = "Choose palette")
                                 }
                                 IconButton(onClick = { showBrightnessSheet = true }) {
-                                    Icon(Icons.Default.WbSunny, contentDescription = "Brightness", modifier = Modifier.size(26.dp))
+                                    Icon(Icons.Default.WbSunny, contentDescription = "Brightness")
                                 }
                                 IconToggleButton(
                                     checked         = allPanelsOn,
@@ -261,17 +254,10 @@ fun DeviceControllerScreen(
                                         allPanelsOn = on
                                         scope.launch { device.setPowerState(on) }
                                     },
-                                    colors = IconButtonDefaults.iconToggleButtonColors(
-                                        containerColor        = Color.Transparent,
-                                        contentColor          = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                                        checkedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                                        checkedContentColor   = MaterialTheme.colorScheme.primary,
-                                    ),
                                 ) {
                                     Icon(
                                         Icons.Default.PowerSettingsNew,
                                         contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
-                                        modifier = Modifier.size(26.dp),
                                     )
                                 }
                             }
@@ -355,12 +341,7 @@ private fun BrightnessSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment     = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.Default.WbSunny,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint     = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Icon(Icons.Default.WbSunny, contentDescription = null)
                 Slider(
                     value         = brightness / 255f,
                     onValueChange = { brightness = it * 255f },
@@ -469,15 +450,11 @@ private fun PaletteSheet(
                     ) {
                         Text(name, style = MaterialTheme.typography.bodyMedium)
                         when {
-                            applyingPalette == name -> CircularProgressIndicator(
-                                modifier    = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                            )
+                            applyingPalette == name -> CircularProgressIndicator()
                             name == currentPalette  -> Icon(
                                 Icons.Default.Check,
                                 contentDescription = null,
-                                tint     = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary,
                             )
                         }
                     }

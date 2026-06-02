@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +22,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -36,7 +36,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.model.ConfigurationRequest
@@ -143,20 +142,16 @@ fun DeviceSettingsScreen(
                 SettingsSectionTitle("FIRMWARE")
                 Spacer(Modifier.height(8.dp))
                 Card(Modifier.fillMaxWidth()) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        Arrangement.SpaceBetween,
-                        Alignment.CenterVertically,
-                    ) {
-                        Text("Update panel firmware", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "Coming soon",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    ListItem(
+                        headlineContent = { Text("Update panel firmware") },
+                        trailingContent = {
+                            Text(
+                                "Coming soon",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                    )
                 }
             }
 
@@ -168,11 +163,20 @@ fun DeviceSettingsScreen(
                         val hostname = savedDevice.hostName
                             ?: savedDevice.effectiveHost.ifEmpty { "—" }
                         val panelCount = snapshot?.panels?.size?.toString() ?: "—"
-                        AboutRow("Hostname", hostname)
+                        ListItem(
+                            headlineContent = { Text("Hostname") },
+                            trailingContent = { Text(hostname) },
+                        )
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                        AboutRow("Firmware", "—")
+                        ListItem(
+                            headlineContent = { Text("Firmware") },
+                            trailingContent = { Text("—") },
+                        )
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                        AboutRow("Panels", panelCount)
+                        ListItem(
+                            headlineContent = { Text("Panels") },
+                            trailingContent = { Text(panelCount) },
+                        )
                     }
                 }
             }
@@ -181,21 +185,13 @@ fun DeviceSettingsScreen(
                 SettingsSectionTitle("DEVELOPER")
                 Spacer(Modifier.height(8.dp))
                 Card(Modifier.fillMaxWidth()) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onOpenDebug)
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        Arrangement.SpaceBetween,
-                        Alignment.CenterVertically,
-                    ) {
-                        Text("Debug console", style = MaterialTheme.typography.bodyMedium)
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    ListItem(
+                        headlineContent = { Text("Debug console") },
+                        trailingContent = {
+                            Icon(Icons.Default.ChevronRight, contentDescription = null)
+                        },
+                        modifier = Modifier.clickable(onClick = onOpenDebug),
+                    )
                 }
             }
         }
@@ -208,19 +204,5 @@ private fun SettingsSectionTitle(text: String) {
         text,
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        letterSpacing = MaterialTheme.typography.labelSmall.letterSpacing,
     )
-}
-
-@Composable
-private fun AboutRow(label: String, value: String) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        Arrangement.SpaceBetween,
-    ) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodySmall)
-    }
 }

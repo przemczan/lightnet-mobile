@@ -111,7 +111,7 @@ fun DebugScreen(
                 ) {
                     items(displayEntries, key = { it.id }) { entry ->
                         LogRow(entry, onClick = { selectedEntry = entry })
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
             }
@@ -138,7 +138,7 @@ private fun LogRow(entry: DebugLogEntry, onClick: () -> Unit) {
         Text(
             text = entry.offsetMs.toOffsetLabel(),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontFamily = FontFamily.Monospace,
         )
         when (entry) {
@@ -209,7 +209,7 @@ private fun LogRow(entry: DebugLogEntry, onClick: () -> Unit) {
                     Text(
                         text = it,
                         style = MaterialTheme.typography.labelSmall,
-                        color = errorColor.copy(alpha = 0.8f),
+                        color = errorColor,
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
@@ -228,7 +228,7 @@ private fun LogRow(entry: DebugLogEntry, onClick: () -> Unit) {
                 Text(
                     text = entry.host,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
@@ -241,7 +241,7 @@ private fun LogRow(entry: DebugLogEntry, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     text = "${entry.statusCode}",
