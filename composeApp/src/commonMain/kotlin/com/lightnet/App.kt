@@ -1,13 +1,9 @@
 package com.lightnet
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,40 +17,32 @@ import com.lightnet.discovery.DeviceRepository
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.ServiceDiscovery
 import com.lightnet.discovery.effectiveHost
-import com.lightnet.ui.components.LightnetBottomNav
-import com.lightnet.ui.components.RootTab
 import com.lightnet.ui.screens.AddDeviceSheet
-import com.lightnet.ui.screens.DebugScreen
 import com.lightnet.ui.screens.DeviceControllerScreen
-import com.lightnet.ui.screens.DeviceSwitcherSheet
 import com.lightnet.ui.screens.EditDeviceSheet
-import com.lightnet.ui.screens.LibraryScreen
 import com.lightnet.ui.screens.MyDevicesScreen
+import com.lightnet.ui.theme.LightnetTheme
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LightnetApp(
     serviceDiscovery: ServiceDiscovery,
     deviceRepository: DeviceRepository,
     httpClient: HttpClient,
 ) {
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    LightnetTheme {
         val scope = rememberCoroutineScope()
 
         var devices by remember { mutableStateOf(deviceRepository.getAll()) }
         fun refreshDevices() { devices = deviceRepository.getAll() }
 
-        var selectedTab  by remember { mutableStateOf(RootTab.Devices) }
+        var showDevice   by remember { mutableStateOf(false) }
         var activeDevice by remember { mutableStateOf<SavedDevice?>(null) }
 
         var showAddSheet by remember { mutableStateOf(false) }
         var editTarget   by remember { mutableStateOf<SavedDevice?>(null) }
-        var showSwitcher by remember { mutableStateOf(false) }
 
-        // Tracks the host that the WebSocket last successfully connected to.
-        // Initialized from the best-known saved address; updated on every successful WS connection.
         var connectedWsHost by remember(activeDevice) {
             mutableStateOf(activeDevice?.effectiveHost?.ifEmpty { null })
         }
@@ -81,6 +69,17 @@ fun LightnetApp(
             onDispose { device?.close() }
         }
 
+        // Cache panel count whenever the snapshot first becomes available
+        LaunchedEffect(device) {
+            device?.snapshot?.collect { snap ->
+                val count = snap?.panels?.size ?: return@collect
+                activeDevice?.let { d ->
+                    deviceRepository.updatePanelCount(d.name, count)
+                    refreshDevices()
+                }
+            }
+        }
+
         val httpApiClient = remember(connectedWsHost, activeDevice?.port) {
             val host = connectedWsHost ?: return@remember null
             val port = activeDevice?.port ?: return@remember null
@@ -88,42 +87,34 @@ fun LightnetApp(
         }
         DisposableEffect(httpApiClient) { onDispose { httpApiClient?.close() } }
 
-        val bottomBar: @Composable () -> Unit = {
-            LightnetBottomNav(selected = selectedTab, onSelect = { selectedTab = it })
-        }
+        // Wire the resolved HTTP client into the device so it handles all API calls.
+        LaunchedEffect(device, httpApiClient) { device?.attachHttpClient(httpApiClient) }
 
-        Box(Modifier.fillMaxSize()) {
-            when (selectedTab) {
-                RootTab.Devices -> MyDevicesScreen(
-                    devices      = devices,
-                    onOpenDevice = { d ->
-                        activeDevice = d
-                        selectedTab  = RootTab.Control
-                    },
-                    onAddDevice  = { showAddSheet = true },
-                    onEditDevice = { editTarget = it },
-                    bottomBar    = bottomBar,
-                )
-                RootTab.Library -> LibraryScreen(
-                    httpClient = httpApiClient,
-                    bottomBar  = bottomBar,
-                )
-                RootTab.Control -> DeviceControllerScreen(
-                    device               = device,
-                    activeDevice         = activeDevice,
-                    httpClient           = httpApiClient,
-                    onOpenDeviceSwitcher = { showSwitcher = true },
-                    bottomBar            = bottomBar,
-                )
-                RootTab.Debug -> DebugScreen(bottomBar = bottomBar)
-            }
+        if (showDevice && activeDevice != null) {
+            DeviceControllerScreen(
+                device       = device,
+                activeDevice = activeDevice!!,
+                onBack       = { showDevice = false },
+                modifier     = Modifier.fillMaxSize(),
+            )
+        } else {
+            MyDevicesScreen(
+                devices      = devices,
+                onOpenDevice = { d ->
+                    activeDevice = d
+                    showDevice   = true
+                },
+                onAddDevice  = { showAddSheet = true },
+                onEditDevice = { editTarget = it },
+                modifier     = Modifier.fillMaxSize(),
+            )
         }
 
         if (showAddSheet) {
             AddDeviceSheet(
                 serviceDiscovery = serviceDiscovery,
                 httpClient       = httpClient,
-                existingNames    = devices.map { it.name }.toSet(),
+                existingDevices  = devices,
                 onAdd            = { saved ->
                     deviceRepository.add(saved)
                     refreshDevices()
@@ -143,19 +134,12 @@ fun LightnetApp(
                 onDelete  = { d ->
                     deviceRepository.remove(d.name)
                     refreshDevices()
-                    if (activeDevice?.name == d.name) activeDevice = null
+                    if (activeDevice?.name == d.name) {
+                        activeDevice = null
+                        showDevice   = false
+                    }
                 },
                 onDismiss = { editTarget = null },
-            )
-        }
-
-        if (showSwitcher) {
-            DeviceSwitcherSheet(
-                devices         = devices,
-                activeKey       = activeDevice?.name,
-                onSelect        = { activeDevice = it },
-                onManageDevices = { selectedTab = RootTab.Devices },
-                onDismiss       = { showSwitcher = false },
             )
         }
     }

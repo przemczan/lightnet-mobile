@@ -9,6 +9,8 @@ data class SavedDevice(
     val hostName: String? = null,
     /** Last successfully connected IP. Populated from discovery; updated when connecting via override IP. */
     val lastIP: String? = null,
+    /** Cached panel count from last successful connection. */
+    val panelCount: Int? = null,
 )
 
 /** Effective host for HTTP/WebSocket connections (same priority as SocketConnector). */
@@ -22,3 +24,17 @@ fun SavedDevice.displayAddress(): String {
 }
 
 fun SavedDevice.toDiscovered() = DiscoveredDevice(name, host.ifEmpty { lastIP ?: "" }, port, hostName)
+
+/**
+ * Identity match between a discovered device and a saved one — used to flag a discovered
+ * device as already added. Prefers the mDNS hostName when both sides have one; otherwise
+ * falls back to IP (the saved override host, or its last known IP). The friendly name is
+ * never used, since the user is free to rename a device.
+ */
+fun DiscoveredDevice.isSameAs(saved: SavedDevice): Boolean =
+    if (hostName != null && saved.hostName != null) {
+        hostName.equals(saved.hostName, ignoreCase = true)
+    } else {
+        val savedIp = saved.host.ifEmpty { saved.lastIP }
+        host.isNotEmpty() && host == savedIp
+    }

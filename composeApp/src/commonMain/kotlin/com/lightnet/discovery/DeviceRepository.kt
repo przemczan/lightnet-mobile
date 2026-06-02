@@ -15,12 +15,13 @@ class DeviceRepository(private val settings: Settings) {
     fun getAll(): List<SavedDevice> = (0 until count).mapNotNull { i ->
         val name = settings.getStringOrNull("${i}_name") ?: return@mapNotNull null
         val port = settings.getIntOrNull("${i}_port")   ?: return@mapNotNull null
-        val host     = settings.getStringOrNull("${i}_host")     ?: ""
-        val hostName = settings.getStringOrNull("${i}_hostName")
-        val lastIP   = settings.getStringOrNull("${i}_lastIP")
+        val host       = settings.getStringOrNull("${i}_host")       ?: ""
+        val hostName   = settings.getStringOrNull("${i}_hostName")
+        val lastIP     = settings.getStringOrNull("${i}_lastIP")
+        val panelCount = settings.getIntOrNull("${i}_panelCount")
         // Discard entries that have no usable address at all (shouldn't happen normally).
         if (host.isEmpty() && hostName == null && lastIP == null) return@mapNotNull null
-        SavedDevice(name, host, port, hostName, lastIP)
+        SavedDevice(name, host, port, hostName, lastIP, panelCount)
     }
 
     fun add(device: SavedDevice) {
@@ -50,6 +51,16 @@ class DeviceRepository(private val settings: Settings) {
         list.forEach { add(it) }
     }
 
+    /** Silently update the cached panel count for the given device without touching other fields. */
+    fun updatePanelCount(name: String, count: Int) {
+        val list = getAll().toMutableList()
+        val index = list.indexOfFirst { it.name == name }
+        if (index < 0) return
+        list[index] = list[index].copy(panelCount = count)
+        clearAll()
+        list.forEach { add(it) }
+    }
+
     /** Silently update the cached IP for the given device without touching other fields. */
     fun updateLastIP(name: String, ip: String) {
         val list = getAll().toMutableList()
@@ -64,8 +75,9 @@ class DeviceRepository(private val settings: Settings) {
         settings.putString("${i}_name", device.name)
         settings.putString("${i}_host", device.host)
         settings.putInt("${i}_port",    device.port)
-        if (device.hostName != null) settings.putString("${i}_hostName", device.hostName)
-        if (device.lastIP   != null) settings.putString("${i}_lastIP",   device.lastIP)
+        if (device.hostName   != null) settings.putString("${i}_hostName",   device.hostName)
+        if (device.lastIP     != null) settings.putString("${i}_lastIP",     device.lastIP)
+        if (device.panelCount != null) settings.putInt("${i}_panelCount",    device.panelCount)
     }
 
     private fun clearAll() {
@@ -75,6 +87,7 @@ class DeviceRepository(private val settings: Settings) {
             settings.remove("${i}_port")
             settings.remove("${i}_hostName")
             settings.remove("${i}_lastIP")
+            settings.remove("${i}_panelCount")
         }
         count = 0
     }

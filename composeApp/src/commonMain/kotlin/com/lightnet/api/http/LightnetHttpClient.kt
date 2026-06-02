@@ -4,6 +4,8 @@ import com.lightnet.api.http.model.AnimationPlayRequest
 import com.lightnet.api.http.model.AnimationTriggerRequest
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
+import com.lightnet.api.http.model.ConfigurationRequest
+import com.lightnet.api.http.model.ConfigurationResponse
 import com.lightnet.api.http.model.FirmwareFlashResponse
 import com.lightnet.api.http.model.FirmwareStatusResponse
 import com.lightnet.api.http.model.PaletteJson
@@ -163,6 +165,16 @@ class LightnetHttpClient(private val baseUrl: String) {
 
     suspend fun setPowerState(on: Boolean) =
         client.post("$baseUrl/api/state/power") { jsonBody(PowerStateBody(on)) }.voidOrThrow()
+
+    // endregion
+
+    // region Configuration
+
+    suspend fun getConfiguration(): ConfigurationResponse =
+        client.get("$baseUrl/api/configuration").bodyOrThrow()
+
+    suspend fun setConfiguration(request: ConfigurationRequest) =
+        client.patch("$baseUrl/api/configuration") { jsonBody(request) }.voidOrThrow()
 
     // endregion
 

@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,7 +45,10 @@ import com.lightnet.debug.DebugLogEntry
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DebugScreen(bottomBar: @Composable () -> Unit) {
+fun DebugScreen(
+    onBack: () -> Unit,
+    bottomBar: @Composable () -> Unit = {},
+) {
     val entries by DebugLog.entries.collectAsState()
     val displayEntries = remember(entries) { entries.asReversed() }
 
@@ -54,6 +58,11 @@ fun DebugScreen(bottomBar: @Composable () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Debug Log") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 actions = {
                     IconButton(onClick = { DebugLog.clear() }) {
                         Icon(Icons.Default.DeleteSweep, contentDescription = "Clear log")

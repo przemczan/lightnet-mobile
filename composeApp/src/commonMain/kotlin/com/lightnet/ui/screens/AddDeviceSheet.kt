@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.lightnet.discovery.DiscoveredDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.ServiceDiscovery
+import com.lightnet.discovery.isSameAs
 import com.lightnet.ui.components.SectionHeader
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -57,7 +59,7 @@ sealed interface TestConnectionState {
 fun AddDeviceSheet(
     serviceDiscovery: ServiceDiscovery,
     httpClient: HttpClient,
-    existingNames: Set<String>,
+    existingDevices: List<SavedDevice>,
     onAdd: (SavedDevice) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -83,7 +85,8 @@ fun AddDeviceSheet(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("Add device", style = MaterialTheme.typography.titleLarge)
@@ -112,7 +115,7 @@ fun AddDeviceSheet(
                         items(discovered, key = { it.name }) { d ->
                             DiscoveredDeviceRow(
                                 device       = d,
-                                alreadySaved = d.name in existingNames,
+                                alreadySaved = existingDevices.any { d.isSameAs(it) },
                                 onAdd        = {
                                     onAdd(SavedDevice(
                                         name     = d.name,
@@ -173,19 +176,20 @@ fun AddDeviceSheet(
                     },
                 )
 
-                Button(
-                    onClick = {
-                        onAdd(SavedDevice(
-                            name   = name.trim(),
-                            host   = host.trim(),
-                            port   = port.toIntOrNull() ?: 80,
-                        ))
-                        onDismiss()
-                    },
-                    enabled = isValid(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Save")
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    Button(
+                        onClick = {
+                            onAdd(SavedDevice(
+                                name   = name.trim(),
+                                host   = host.trim(),
+                                port   = port.toIntOrNull() ?: 80,
+                            ))
+                            onDismiss()
+                        },
+                        enabled = isValid(),
+                    ) {
+                        Text("Save")
+                    }
                 }
             }
         }

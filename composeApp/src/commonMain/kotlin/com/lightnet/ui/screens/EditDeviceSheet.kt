@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -50,7 +51,8 @@ fun EditDeviceSheet(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Edit device", style = MaterialTheme.typography.titleLarge)
@@ -92,35 +94,37 @@ fun EditDeviceSheet(
                 )
             }
 
-            Button(
-                onClick = {
-                    onSave(
-                        device,
-                        // Preserve hostName and lastIP — user cannot change them.
-                        device.copy(
-                            name = name.trim(),
-                            host = host.trim(),
-                            port = port.toIntOrNull() ?: device.port,
-                        ),
-                    )
-                    onDismiss()
-                },
-                enabled = isValid(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Save changes")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                Button(
+                    onClick = {
+                        onSave(
+                            device,
+                            // Preserve hostName and lastIP — user cannot change them.
+                            device.copy(
+                                name = name.trim(),
+                                host = host.trim(),
+                                port = port.toIntOrNull() ?: device.port,
+                            ),
+                        )
+                        onDismiss()
+                    },
+                    enabled = isValid(),
+                ) {
+                    Text("Save changes")
+                }
             }
 
             HorizontalDivider()
 
-            OutlinedButton(
-                onClick = { confirmDelete = true },
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Delete device")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                OutlinedButton(
+                    onClick = { confirmDelete = true },
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) {
+                    Text("Delete device")
+                }
             }
 
             Text(

@@ -1,5 +1,6 @@
 package com.lightnet.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,14 +12,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Settings
@@ -31,11 +31,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,56 +50,52 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
-import com.lightnet.ui.components.DeviceStatus
+import com.lightnet.ui.colorToHex
+import lightnet.composeapp.generated.resources.Res
+import lightnet.composeapp.generated.resources.logo_mark
+import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.components.EmptyState
 import com.lightnet.ui.components.LightnetDeviceVisualizer
 import com.lightnet.ui.components.LoadingState
 import com.lightnet.ui.components.PaintMode
 import com.lightnet.ui.components.ReconnectingBanner
-import com.lightnet.ui.components.RightSheet
-import com.lightnet.ui.components.StatusDot
-import com.lightnet.ui.components.toDeviceStatus
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.painterResource
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceControllerScreen(
     device: LightnetDevice?,
-    activeDevice: SavedDevice?,
-    httpClient: LightnetHttpClient?,
-    onOpenDeviceSwitcher: () -> Unit,
-    bottomBar: @Composable () -> Unit,
+    activeDevice: SavedDevice,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    if (device == null || activeDevice == null) {
-        Scaffold(
-            topBar    = { TopAppBar(title = { Text("Control") }) },
-            bottomBar = bottomBar,
-        ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
-                EmptyState(
-                    title              = "No device connected",
-                    body               = "Control and Library need a device. Pick one to get started.",
-                    primaryActionLabel = "Choose a device",
-                    onPrimaryAction    = onOpenDeviceSwitcher,
-                )
-            }
+    // Null guard before any composable calls — device is null for a brief window
+    // while App.kt creates it; show loading and keep back handler active.
+    if (device == null) {
+        BackHandlerCompat(onBack = onBack)
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            LoadingState(label = "Connecting…")
         }
         return
     }
+
+    BackHandlerCompat(onBack = onBack)
 
     val scope = rememberCoroutineScope()
 
     val connectionState by device.connectionState.collectAsState()
     val snapshot        by device.snapshot.collectAsState()
+
+    // Refresh panel states on screen entry when already connected.
+    LaunchedEffect(device) { device?.refreshPanelStates() }
 
     var wasConnected by remember(device) { mutableStateOf(false) }
     LaunchedEffect(connectionState) {
@@ -113,49 +111,60 @@ fun DeviceControllerScreen(
     var paletteNames         by remember(device) { mutableStateOf<List<String>>(emptyList()) }
     var paletteNamesLoading  by remember(device) { mutableStateOf(false) }
     var baseColors           by remember(device) { mutableStateOf<List<String>>(emptyList()) }
-    var paintColor           by remember { mutableStateOf(Color(0xFFCF5B3C)) }
+    var paintColor           by remember { mutableStateOf<Color?>(null) }
     var showColorSheet       by remember { mutableStateOf(false) }
     var showPaletteSheet     by remember { mutableStateOf(false) }
     var showBrightnessSheet  by remember { mutableStateOf(false) }
     var allPanelsOn          by remember { mutableStateOf(false) }
 
-    LaunchedEffect(httpClient, connectionState) {
-        if (connectionState == ConnectionState.CONNECTED && httpClient != null) {
+    LaunchedEffect(device, connectionState) {
+        if (connectionState == ConnectionState.CONNECTED && device != null) {
             paletteNamesLoading = true
-            val app = httpClient.runCatching { getAppearance() }.getOrNull()
+            val app = device.loadAppearance()
             if (app != null) {
                 brightness = app.brightness.toFloat()
                 palette    = app.palette
                 baseColors = app.baseColors
             }
-            paletteNames        = httpClient.runCatching { getPalettes().keys.toList() }.getOrNull() ?: emptyList()
+            paletteNames        = device.getPalettes()
             paletteNamesLoading = false
-            val power = httpClient.runCatching { getPowerState() }.getOrNull()
+            val power = device.getPowerState()
             if (power != null) allPanelsOn = power
         }
     }
-    var showSettings       by remember { mutableStateOf(false) }
+
+    var showSettings by remember { mutableStateOf(false) }
+    var showDebug    by remember { mutableStateOf(false) }
+
+    if (showDebug) {
+        DebugScreen(onBack = { showDebug = false })
+        return
+    }
 
     if (showSettings) {
         DeviceSettingsScreen(
             savedDevice = activeDevice,
             device      = device,
-            httpClient  = httpClient,
             onBack      = { showSettings = false },
+            onOpenDebug = { showDebug = true },
         )
         return
     }
 
     Scaffold(
-        topBar = {
+        modifier = modifier,
+        topBar   = {
             TopAppBar(
-                title = {
-                    DeviceChip(
-                        name    = activeDevice.name,
-                        status  = connectionState.toDeviceStatus(),
-                        onClick = onOpenDeviceSwitcher,
+                navigationIcon = {
+                    Image(
+                        painter           = painterResource(Res.drawable.logo_mark),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .padding(start = 8.dp),
                     )
                 },
+                title   = { Text(activeDevice.name) },
                 actions = {
                     IconButton(onClick = { showSettings = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Device settings")
@@ -163,7 +172,6 @@ fun DeviceControllerScreen(
                 },
             )
         },
-        bottomBar = bottomBar,
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (isReconnecting) ReconnectingBanner()
@@ -172,7 +180,7 @@ fun DeviceControllerScreen(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(Color.Black),
+                    .background(MaterialTheme.colorScheme.background),
                 contentAlignment = Alignment.Center,
             ) {
                 when {
@@ -201,7 +209,7 @@ fun DeviceControllerScreen(
                             panels      = snapshot!!.panels,
                             powerOn     = allPanelsOn,
                             paintMode   = PaintMode.Paint,
-                            paintColor  = paintColor,
+                            paintColor  = paintColor ?: Color(0xFFCF5B3C),
                             interactive = !isReconnecting,
                             modifier    = Modifier.fillMaxSize(),
                         )
@@ -210,56 +218,52 @@ fun DeviceControllerScreen(
                     else -> LoadingState(label = "Connecting…")
                 }
 
-                // Left vertical toolbar — visible once panels are ready
+                // Bottom centered toolbar — visible once panels are ready
                 if (snapshot != null && !isFirstLoading) {
-                    Surface(
+                    Box(
                         Modifier
-                            .align(Alignment.CenterStart)
-                            .padding(start = 8.dp)
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 16.dp)
                             .alpha(if (isReconnecting) 0.45f else 1f),
-                        color          = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                        shape          = MaterialTheme.shapes.medium,
-                        tonalElevation = 6.dp,
                     ) {
-                        Column(
-                            Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                        Surface(
+                            color          = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                            shape          = MaterialTheme.shapes.extraLarge,
+                            tonalElevation = 6.dp,
                         ) {
-                            // Color
-                            IconButton(onClick = { showColorSheet = true }) {
-                                Icon(Icons.Default.Colorize, contentDescription = "Pick color", modifier = Modifier.size(26.dp))
-                            }
-
-                            // Palette
-                            IconButton(onClick = { showPaletteSheet = true }) {
-                                Icon(Icons.Default.Gradient, contentDescription = "Choose palette", modifier = Modifier.size(26.dp))
-                            }
-
-                            // Brightness
-                            IconButton(onClick = { showBrightnessSheet = true }) {
-                                Icon(Icons.Default.WbSunny, contentDescription = "Brightness", modifier = Modifier.size(26.dp))
-                            }
-
-                            // Power — visually distinct on/off states
-                            IconToggleButton(
-                                checked         = allPanelsOn,
-                                onCheckedChange = { on ->
-                                    allPanelsOn = on
-                                    scope.launch { httpClient?.runCatching { setPowerState(on) } }
-                                },
-                                colors = IconButtonDefaults.iconToggleButtonColors(
-                                    containerColor        = Color.Transparent,
-                                    contentColor          = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                                    checkedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                                    checkedContentColor   = MaterialTheme.colorScheme.primary,
-                                ),
+                            Row(
+                                Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment     = Alignment.CenterVertically,
                             ) {
-                                Icon(
-                                    Icons.Default.PowerSettingsNew,
-                                    contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
-                                    modifier = Modifier.size(26.dp),
-                                )
+                                IconButton(onClick = { showColorSheet = true }) {
+                                    Icon(Icons.Default.Brush, contentDescription = "Pick color", modifier = Modifier.size(26.dp))
+                                }
+                                IconButton(onClick = { showPaletteSheet = true }) {
+                                    Icon(Icons.Default.Gradient, contentDescription = "Choose palette", modifier = Modifier.size(26.dp))
+                                }
+                                IconButton(onClick = { showBrightnessSheet = true }) {
+                                    Icon(Icons.Default.WbSunny, contentDescription = "Brightness", modifier = Modifier.size(26.dp))
+                                }
+                                IconToggleButton(
+                                    checked         = allPanelsOn,
+                                    onCheckedChange = { on ->
+                                        allPanelsOn = on
+                                        scope.launch { device.setPowerState(on) }
+                                    },
+                                    colors = IconButtonDefaults.iconToggleButtonColors(
+                                        containerColor        = Color.Transparent,
+                                        contentColor          = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                        checkedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                        checkedContentColor   = MaterialTheme.colorScheme.primary,
+                                    ),
+                                ) {
+                                    Icon(
+                                        Icons.Default.PowerSettingsNew,
+                                        contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
+                                        modifier = Modifier.size(26.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -273,6 +277,13 @@ fun DeviceControllerScreen(
             initial    = paintColor,
             baseColors = baseColors,
             onPick     = { paintColor = it },
+            onUpdateBaseColor = { i, color ->
+                baseColors = baseColors.toMutableList().also { list ->
+                    while (list.size <= i) list.add("#FFFFFF")
+                    list[i] = colorToHex(color)
+                }
+                scope.launch { device.setAppearance(AppearanceRequest(baseColors = baseColors)) }
+            },
             onDismiss  = { showColorSheet = false },
         )
     }
@@ -284,7 +295,7 @@ fun DeviceControllerScreen(
             currentPalette = palette,
             onSelect       = { name ->
                 palette = name
-                httpClient?.runCatching { setAppearance(AppearanceRequest(palette = name)) }
+                device.setAppearance(AppearanceRequest(palette = name))
             },
             onDismiss      = { showPaletteSheet = false },
         )
@@ -295,7 +306,7 @@ fun DeviceControllerScreen(
             initialBrightness = brightness,
             onSave            = { newBrightness ->
                 brightness = newBrightness
-                httpClient?.runCatching { setAppearance(AppearanceRequest(brightness = newBrightness.toInt())) }
+                device.setAppearance(AppearanceRequest(brightness = newBrightness.toInt()))
             },
             onDismiss         = { showBrightnessSheet = false },
         )
@@ -304,6 +315,7 @@ fun DeviceControllerScreen(
 
 // ── Brightness sheet ──────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BrightnessSheet(
     initialBrightness: Float,
@@ -314,53 +326,71 @@ private fun BrightnessSheet(
     var brightness by remember { mutableFloatStateOf(initialBrightness) }
     var isSaving   by remember { mutableStateOf(false) }
 
-    RightSheet(onDismiss = onDismiss) {
-        Text("Brightness", style = MaterialTheme.typography.titleMedium)
-
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment     = Alignment.CenterVertically,
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState       = rememberModalBottomSheetState(),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Icon(
-                Icons.Default.WbSunny,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint     = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Slider(
-                value         = brightness / 255f,
-                onValueChange = { brightness = it * 255f },
-                modifier      = Modifier.weight(1f),
-            )
-            Text(
-                "${(brightness / 255f * 100).roundToInt()}%",
-                style    = MaterialTheme.typography.bodySmall,
-                color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(36.dp),
-            )
-        }
+            Text("Brightness", style = MaterialTheme.typography.titleMedium)
 
-        Button(
-            onClick  = {
-                scope.launch {
-                    isSaving = true
-                    onSave(brightness)
-                    isSaving = false
-                    onDismiss()
-                }
-            },
-            enabled  = !isSaving,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            if (isSaving) {
-                CircularProgressIndicator(
-                    modifier    = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color       = MaterialTheme.colorScheme.onPrimary,
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.WbSunny,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint     = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            } else {
-                Text("OK")
+                Slider(
+                    value         = brightness / 255f,
+                    onValueChange = { brightness = it * 255f },
+                    modifier      = Modifier.weight(1f),
+                )
+                Text(
+                    "${(brightness / 255f * 100).roundToInt()}%",
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(36.dp),
+                )
+            }
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isSaving = true
+                            onSave(brightness)
+                            isSaving = false
+                            onDismiss()
+                        }
+                    },
+                    enabled = !isSaving,
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color       = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Text("OK")
+                    }
+                }
             }
         }
     }
@@ -368,6 +398,7 @@ private fun BrightnessSheet(
 
 // ── Palette sheet ─────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PaletteSheet(
     paletteNames: List<String>,
@@ -379,93 +410,81 @@ private fun PaletteSheet(
     val scope = rememberCoroutineScope()
     var applyingPalette by remember { mutableStateOf<String?>(null) }
 
-    RightSheet(onDismiss = onDismiss) {
-        Text(
-            "Palette",
-            style    = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-
-        when {
-            isLoading -> Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(80.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator()
-            }
-            paletteNames.isEmpty() -> Text(
-                "No palettes available on this device.",
-                style    = MaterialTheme.typography.bodySmall,
-                color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp),
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState       = rememberModalBottomSheetState(),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
+        ) {
+            Text(
+                "Palette",
+                style    = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 8.dp),
             )
-            else -> paletteNames.forEach { name ->
-                Row(
+
+            when {
+                isLoading -> Box(
                     Modifier
                         .fillMaxWidth()
-                        .clickable(enabled = applyingPalette == null) {
-                            scope.launch {
-                                applyingPalette = name
-                                onSelect(name)
-                                applyingPalette = null
-                            }
-                        }
-                        .padding(vertical = 14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment     = Alignment.CenterVertically,
+                        .height(80.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text(name, style = MaterialTheme.typography.bodyMedium)
-                    when {
-                        applyingPalette == name -> CircularProgressIndicator(
-                            modifier    = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        name == currentPalette  -> Icon(
-                            Icons.Default.Check,
-                            contentDescription = null,
-                            tint     = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
+                    CircularProgressIndicator()
                 }
-                HorizontalDivider()
+                paletteNames.isEmpty() -> Text(
+                    "No palettes available on this device.",
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+                else -> paletteNames.forEach { name ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = applyingPalette == null) {
+                                scope.launch {
+                                    applyingPalette = name
+                                    onSelect(name)
+                                    applyingPalette = null
+                                }
+                            }
+                            .padding(vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Text(name, style = MaterialTheme.typography.bodyMedium)
+                        when {
+                            applyingPalette == name -> CircularProgressIndicator(
+                                modifier    = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            name == currentPalette  -> Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint     = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    HorizontalDivider()
+                }
             }
-        }
 
-        Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(4.dp))
 
-        Button(
-            onClick  = onDismiss,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-        ) { Text("OK") }
-    }
-}
-
-// ── Device chip ───────────────────────────────────────────────────────────────
-
-@Composable
-private fun DeviceChip(
-    name: String,
-    status: DeviceStatus,
-    onClick: () -> Unit,
-) {
-    Surface(
-        shape    = MaterialTheme.shapes.large,
-        color    = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.clickable(onClick = onClick),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment     = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            StatusDot(status, size = 8.dp)
-            Text(name, style = MaterialTheme.typography.titleMedium)
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Button(onClick = onDismiss) { Text("OK") }
+            }
         }
     }
 }

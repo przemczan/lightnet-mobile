@@ -1,10 +1,7 @@
 package com.lightnet.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,19 +10,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,17 +38,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
-import com.lightnet.api.http.LightnetHttpClient
-import com.lightnet.api.http.model.AppearanceRequest
-import com.lightnet.ui.colorToHex
+import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.effectiveHost
 import com.lightnet.ui.BackHandlerCompat
-import com.lightnet.ui.parseHexColor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -56,8 +52,8 @@ import kotlinx.coroutines.launch
 fun DeviceSettingsScreen(
     savedDevice: SavedDevice,
     device: LightnetDevice?,
-    httpClient: LightnetHttpClient?,
     onBack: () -> Unit,
+    onOpenDebug: () -> Unit = {},
 ) {
     BackHandlerCompat(onBack = onBack)
 
@@ -66,16 +62,13 @@ fun DeviceSettingsScreen(
         device?.snapshot ?: MutableStateFlow(null)
     }.collectAsState()
 
-    var brightness by remember { mutableStateOf(128f) }
-    var palette by remember { mutableStateOf<String?>(null) }
-    var baseColors by remember { mutableStateOf<List<String>>(emptyList()) }
-    var colorPickerIndex by remember { mutableStateOf<Int?>(null) }
+    var powerStateOnBoot by remember { mutableStateOf<Int?>(null) }
+    var powerMenuExpanded by remember { mutableStateOf(false) }
+    val powerOptions = listOf("Always on", "Always off", "Restore last")
 
-    LaunchedEffect(httpClient) {
-        val appearance = httpClient?.runCatching { getAppearance() }?.getOrNull() ?: return@LaunchedEffect
-        brightness = appearance.brightness.toFloat()
-        palette = appearance.palette
-        baseColors = appearance.baseColors
+    LaunchedEffect(device) {
+        val config = device?.getConfiguration() ?: return@LaunchedEffect
+        powerStateOnBoot = config.powerStateOnBoot
     }
 
     Scaffold(
@@ -101,68 +94,46 @@ fun DeviceSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                SettingsSectionTitle("APPEARANCE")
+                SettingsSectionTitle("CONFIGURATION")
                 Spacer(Modifier.height(8.dp))
                 Card(Modifier.fillMaxWidth()) {
                     Column(
                         Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        // Brightness
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-                                Text("Global brightness", style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "${(brightness * 100f / 255f).roundToInt()} / 100",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Slider(
-                                value = brightness / 255f,
-                                onValueChange = { brightness = it * 255f },
-                                onValueChangeFinished = {
-                                    val b = brightness.toInt()
-                                    scope.launch { httpClient?.runCatching { setAppearance(AppearanceRequest(brightness = b)) } }
+                        ExposedDropdownMenuBox(
+                            expanded = powerMenuExpanded,
+                            onExpandedChange = { powerMenuExpanded = it },
+                        ) {
+                            TextField(
+                                value = powerStateOnBoot?.let { powerOptions.getOrNull(it) } ?: "",
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Power on boot") },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = powerMenuExpanded)
                                 },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                    .fillMaxWidth(),
                             )
-                        }
-
-                        HorizontalDivider()
-
-                        // Base colours
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Base colours", style = MaterialTheme.typography.bodyMedium)
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
+                            ExposedDropdownMenu(
+                                expanded = powerMenuExpanded,
+                                onDismissRequest = { powerMenuExpanded = false },
                             ) {
-                                val labels = listOf("Primary", "Secondary", "Tertiary")
-                                val fallbacks = listOf(Color(0xFFCF5B3C), Color(0xFF2F6DB0), Color(0xFF3C9A5F))
-                                labels.forEachIndexed { i, label ->
-                                    val color = baseColors.getOrNull(i)
-                                        ?.let { parseHexColor(it) }
-                                        ?: fallbacks[i]
-                                    ColorSwatch(
-                                        label   = label,
-                                        color   = color,
-                                        onClick = { colorPickerIndex = i },
+                                powerOptions.forEachIndexed { index, label ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            powerStateOnBoot = index
+                                            powerMenuExpanded = false
+                                            scope.launch {
+                                                device?.setConfiguration(ConfigurationRequest(powerStateOnBoot = index))
+                                            }
+                                        },
                                     )
                                 }
                             }
-                        }
-
-                        HorizontalDivider()
-
-                        // Palette
-                        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                            Text("Active palette", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                palette ?: "—",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                     }
                 }
@@ -205,34 +176,29 @@ fun DeviceSettingsScreen(
                     }
                 }
             }
-        }
-    }
 
-    colorPickerIndex?.let { idx ->
-        val fallbacks = listOf(Color(0xFFCF5B3C), Color(0xFF2F6DB0), Color(0xFF3C9A5F))
-        val initial = baseColors.getOrNull(idx)?.let { parseHexColor(it) } ?: fallbacks.getOrElse(idx) { Color.White }
-        ColorPickerSheet(
-            initial    = initial,
-            baseColors = baseColors,
-            onPick     = { color ->
-                val updated = baseColors.toMutableList()
-                    .also { list ->
-                        while (list.size <= idx) list.add("#FFFFFF")
-                        list[idx] = colorToHex(color)
-                    }
-                    .toList()
-                baseColors = updated
-            },
-            onDismiss    = {
-                colorPickerIndex = null
-                scope.launch {
-                    val updated = baseColors
-                    httpClient?.runCatching {
-                        setAppearance(AppearanceRequest(baseColors = updated))
+            item {
+                SettingsSectionTitle("DEVELOPER")
+                Spacer(Modifier.height(8.dp))
+                Card(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onOpenDebug)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        Arrangement.SpaceBetween,
+                        Alignment.CenterVertically,
+                    ) {
+                        Text("Debug console", style = MaterialTheme.typography.bodyMedium)
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
-            },
-        )
+            }
+        }
     }
 }
 
@@ -258,21 +224,3 @@ private fun AboutRow(label: String, value: String) {
         Text(value, style = MaterialTheme.typography.bodySmall)
     }
 }
-
-@Composable
-private fun ColorSwatch(label: String, color: Color, onClick: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.clickable { onClick() },
-    ) {
-        Box(
-            Modifier
-                .size(40.dp)
-                .background(color, MaterialTheme.shapes.small)
-                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
-        )
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-

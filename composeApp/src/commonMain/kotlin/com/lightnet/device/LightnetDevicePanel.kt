@@ -19,9 +19,10 @@ class LightnetDevicePanel(
     val layout: PanelLayout,
     panelsStates: kotlinx.coroutines.flow.Flow<List<PanelState>>,
     scope: CoroutineScope,
+    initialState: PanelState? = null,
 ) {
     private val _state = MutableStateFlow(
-        PanelState(panelId = info.id, on = false, color = ColorRgbModel(255, 255, 255))
+        initialState ?: PanelState(panelId = info.id, on = false, color = ColorRgbModel(255, 255, 255))
     )
     val state: StateFlow<PanelState> = _state
 
