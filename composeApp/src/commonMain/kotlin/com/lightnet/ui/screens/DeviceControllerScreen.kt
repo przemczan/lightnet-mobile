@@ -56,6 +56,7 @@ import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
+import com.lightnet.debug.DebugLog
 import com.lightnet.ui.colorToHex
 import lightnet.composeapp.generated.resources.Res
 import lightnet.composeapp.generated.resources.logo_mark
@@ -97,25 +98,32 @@ fun DeviceControllerScreen(
     // Refresh panel states on screen entry when already connected.
     LaunchedEffect(device) { device?.refreshPanelStates() }
 
-    var wasConnected by remember(device) { mutableStateOf(false) }
+    var wasConnected    by remember(device) { mutableStateOf(false) }
+    var deviceInfoReady by remember(device) { mutableStateOf(false) }
     LaunchedEffect(connectionState) {
         if (connectionState == ConnectionState.CONNECTED) wasConnected = true
     }
 
     val isReconnecting   = connectionState == ConnectionState.CONNECTING && wasConnected
-    val isFirstLoading   = connectionState == ConnectionState.CONNECTING && !wasConnected
     val hasEmptyTopology = connectionState == ConnectionState.CONNECTED && snapshot?.panels?.isEmpty() == true
+    // Show a loader on first entry until panels + appearance/power are all loaded.
+    // deviceInfoReady persists across reconnects so re-entry never shows the loader again.
+    val isInitialLoading = !isReconnecting &&
+        connectionState != ConnectionState.DISCONNECTED &&
+        (!deviceInfoReady || snapshot == null)
 
-    var brightness           by remember(device) { mutableStateOf(128f) }
-    var palette              by remember(device) { mutableStateOf<String?>(null) }
-    var paletteNames         by remember(device) { mutableStateOf<List<String>>(emptyList()) }
-    var paletteNamesLoading  by remember(device) { mutableStateOf(false) }
-    var baseColors           by remember(device) { mutableStateOf<List<String>>(emptyList()) }
-    var paintColor           by remember { mutableStateOf<Color?>(null) }
-    var showColorSheet       by remember { mutableStateOf(false) }
-    var showPaletteSheet     by remember { mutableStateOf(false) }
-    var showBrightnessSheet  by remember { mutableStateOf(false) }
-    var allPanelsOn          by remember { mutableStateOf(false) }
+    val debugMode by DebugLog.debugMode.collectAsState()
+
+    var brightness          by remember(device) { mutableStateOf(128f) }
+    var palette             by remember(device) { mutableStateOf<String?>(null) }
+    var paletteNames        by remember(device) { mutableStateOf<List<String>>(emptyList()) }
+    var paletteNamesLoading by remember(device) { mutableStateOf(false) }
+    var baseColors          by remember(device) { mutableStateOf<List<String>>(emptyList()) }
+    var paintColor          by remember { mutableStateOf<Color?>(null) }
+    var showColorSheet      by remember { mutableStateOf(false) }
+    var showPaletteSheet    by remember { mutableStateOf(false) }
+    var showBrightnessSheet by remember { mutableStateOf(false) }
+    var allPanelsOn         by remember { mutableStateOf(false) }
 
     LaunchedEffect(device, connectionState) {
         if (connectionState == ConnectionState.CONNECTED && device != null) {
@@ -130,6 +138,7 @@ fun DeviceControllerScreen(
             paletteNamesLoading = false
             val power = device.getPowerState()
             if (power != null) allPanelsOn = power
+            deviceInfoReady = true
         }
     }
 
@@ -184,7 +193,7 @@ fun DeviceControllerScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 when {
-                    isFirstLoading -> LoadingState(label = "Discovering panels…")
+                    isInitialLoading -> LoadingState(label = "Loading…")
 
                     connectionState == ConnectionState.DISCONNECTED && snapshot == null -> EmptyState(
                         title              = "Disconnected",
@@ -206,12 +215,13 @@ fun DeviceControllerScreen(
                             .alpha(if (isReconnecting) 0.55f else 1f),
                     ) {
                         LightnetDeviceVisualizer(
-                            panels      = snapshot!!.panels,
-                            powerOn     = allPanelsOn,
-                            paintMode   = PaintMode.Paint,
-                            paintColor  = paintColor ?: Color(0xFFCF5B3C),
-                            interactive = !isReconnecting,
-                            modifier    = Modifier.fillMaxSize(),
+                            panels       = snapshot!!.panels,
+                            powerOn      = allPanelsOn,
+                            paintMode    = PaintMode.Paint,
+                            paintColor   = paintColor ?: Color(0xFFCF5B3C),
+                            interactive  = !isReconnecting,
+                            showPanelIds = debugMode,
+                            modifier     = Modifier.fillMaxSize(),
                         )
                     }
 
@@ -219,7 +229,7 @@ fun DeviceControllerScreen(
                 }
 
                 // Bottom centered toolbar — visible once panels are ready
-                if (snapshot != null && !isFirstLoading) {
+                if (snapshot != null && !isInitialLoading) {
                     Box(
                         Modifier
                             .align(Alignment.BottomCenter)

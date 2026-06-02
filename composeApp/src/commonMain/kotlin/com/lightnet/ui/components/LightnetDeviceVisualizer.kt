@@ -16,6 +16,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.sp
 import com.lightnet.device.LightnetDevicePanel
 import com.lightnet.geometry.GeometryUtils
 import com.lightnet.ui.toColorRgb
@@ -34,6 +39,7 @@ fun LightnetDeviceVisualizer(
     paintMode: PaintMode = PaintMode.Paint,
     paintColor: Color = Color.White,
     interactive: Boolean = true,
+    showPanelIds: Boolean = false,
     selectionMode: Boolean = false,
     selectedPanels: Set<Int> = emptySet(),
     onSelectionChange: (Set<Int>) -> Unit = {},
@@ -44,6 +50,7 @@ fun LightnetDeviceVisualizer(
     backgroundColor: Color = Color.Black,
 ) {
     val states = panels.map { it.state.collectAsState() }
+    val textMeasurer = rememberTextMeasurer()
 
     // Stable refs for gesture handler — changes don't restart the gesture block.
     val currentPaintMode         = rememberUpdatedState(paintMode)
@@ -208,6 +215,24 @@ fun LightnetDeviceVisualizer(
                     } else {
                         drawPath(path, color = Color.Black.copy(alpha = 0.55f), style = Fill)
                     }
+                }
+
+                if (showPanelIds) {
+                    val cx = points.sumOf { it.x.toDouble() }.toFloat() / points.size
+                    val cy = points.sumOf { it.y.toDouble() }.toFloat() / points.size
+                    val label = panel.info.id.toString()
+                    val measured = textMeasurer.measure(
+                        label,
+                        style = TextStyle(color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                    )
+                    val shadowMeasured = textMeasurer.measure(
+                        label,
+                        style = TextStyle(color = Color.Black.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                    )
+                    val tx = cx - measured.size.width / 2f
+                    val ty = cy - measured.size.height / 2f
+                    drawText(shadowMeasured, topLeft = Offset(tx + 1f, ty + 1f))
+                    drawText(measured, topLeft = Offset(tx, ty))
                 }
             }
         }

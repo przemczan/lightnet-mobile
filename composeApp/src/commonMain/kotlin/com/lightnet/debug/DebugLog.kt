@@ -52,6 +52,8 @@ enum class ConnectStatus { ATTEMPT, CONNECTED, FAILED, DISCONNECTED }
 object DebugLog {
     private const val MAX_ENTRIES = 300
 
+    val debugMode = MutableStateFlow(false)
+
     private val source = TimeSource.Monotonic
     private val start = source.markNow()
 
