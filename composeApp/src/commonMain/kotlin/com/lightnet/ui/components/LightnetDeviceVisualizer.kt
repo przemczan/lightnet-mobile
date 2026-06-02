@@ -231,7 +231,6 @@ fun LightnetDeviceVisualizer(
                 val state = states[r.index].value
                 translate(animOffsets[r.index].x, animOffsets[r.index].y) {
                     drawPanelBackground(r.path, config)
-                    drawPanelBorder(r.path, config)
 
                     if (powerOn) {
                         drawPanelActiveColor(
@@ -243,6 +242,8 @@ fun LightnetDeviceVisualizer(
                             ),
                         )
                     }
+
+                    drawPanelBorder(r.path, config)
 
                     // After the fill so the rim darkens the lit colour, giving a recessed look.
                     drawInnerShadow(r.path, config.innerShadow)

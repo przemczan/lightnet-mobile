@@ -25,7 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -46,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.lightnet.debug.ConnectStatus
 import com.lightnet.debug.DebugLog
 import com.lightnet.debug.DebugLogEntry
+import com.lightnet.ui.BackHandlerCompat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,9 +53,10 @@ fun DebugScreen(
     onBack: () -> Unit,
     bottomBar: @Composable () -> Unit = {},
 ) {
+    BackHandlerCompat(onBack = onBack)
+
     val entries by DebugLog.entries.collectAsState()
     val displayEntries = remember(entries) { entries.asReversed() }
-    val debugMode by DebugLog.debugMode.collectAsState()
 
     var selectedEntry by remember { mutableStateOf<DebugLogEntry?>(null) }
 
@@ -78,21 +79,6 @@ fun DebugScreen(
         bottomBar = bottomBar,
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Debug mode", style = MaterialTheme.typography.bodyMedium)
-                Switch(
-                    checked = debugMode,
-                    onCheckedChange = { DebugLog.debugMode.value = it },
-                )
-            }
-            HorizontalDivider()
-
             if (displayEntries.isEmpty()) {
                 Box(
                     Modifier.fillMaxSize(),

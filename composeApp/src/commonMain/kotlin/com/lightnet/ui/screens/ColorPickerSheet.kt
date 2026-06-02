@@ -44,17 +44,19 @@ private val baseColorLabels = listOf("Primary", "Secondary", "Tertiary")
 fun ColorPickerSheet(
     initial: Color?,
     baseColors: List<String> = emptyList(),
+    showBaseColors: Boolean = true,
     onPick: (Color) -> Unit,
     onUpdateBaseColor: (index: Int, color: Color) -> Unit = { _, _ -> },
     onDismiss: () -> Unit,
 ) {
-    // No color specified yet → start at full saturation.
-    val (initH, initS) = remember(initial) {
-        if (initial == null) 0f to 1f
-        else colorToHsv(initial).let { (h, s, _) -> h to s }
+    // No color specified yet → start at full saturation and full brightness.
+    val (initH, initS, initV) = remember(initial) {
+        if (initial == null) Triple(0f, 1f, 1f)
+        else colorToHsv(initial)
     }
     var hue        by remember { mutableFloatStateOf(initH) }
     var saturation by remember { mutableFloatStateOf(initS) }
+    var brightness by remember { mutableFloatStateOf(initV) }
     var selectedBaseIndex by remember { mutableStateOf<Int?>(null) }
 
     // Local copy so an updated swatch repaints immediately.
@@ -73,7 +75,7 @@ fun ColorPickerSheet(
         ) {
             Text("Color", style = MaterialTheme.typography.titleMedium)
 
-            if (localBaseColors.isNotEmpty()) {
+            if (showBaseColors && localBaseColors.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                     localBaseColors.take(3).forEachIndexed { i, hex ->
                         val color = parseHexColor(hex) ?: baseColorFallbacks.getOrElse(i) { Color.White }
@@ -83,9 +85,9 @@ fun ColorPickerSheet(
                             selected = selectedBaseIndex == i,
                             onClick  = {
                                 selectedBaseIndex = i
-                                val (h, s, _) = colorToHsv(color)
-                                hue = h; saturation = s
-                                onPick(hsvToColor(hue, saturation, 1f))
+                                val (h, s, v) = colorToHsv(color)
+                                hue = h; saturation = s; brightness = v
+                                onPick(hsvToColor(hue, saturation, brightness))
                             },
                         )
                     }
@@ -94,7 +96,7 @@ fun ColorPickerSheet(
                 FilledTonalButton(
                     onClick  = {
                         val idx = selectedBaseIndex ?: return@FilledTonalButton
-                        val updated = hsvToColor(hue, saturation, 1f)
+                        val updated = hsvToColor(hue, saturation, brightness)
                         localBaseColors = localBaseColors.toMutableList().also { list ->
                             while (list.size <= idx) list.add("#FFFFFF")
                             list[idx] = colorToHex(updated)
@@ -111,8 +113,10 @@ fun ColorPickerSheet(
             HueRingColorPicker(
                 hue                = hue,
                 saturation         = saturation,
-                onHueChange        = { hue = it; onPick(hsvToColor(it, saturation, 1f)) },
-                onSaturationChange = { saturation = it; onPick(hsvToColor(hue, it, 1f)) },
+                brightness         = brightness,
+                onHueChange        = { hue = it; onPick(hsvToColor(it, saturation, brightness)) },
+                onSaturationChange = { saturation = it; onPick(hsvToColor(hue, it, brightness)) },
+                onBrightnessChange = { brightness = it; onPick(hsvToColor(hue, saturation, it)) },
                 modifier           = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 32.dp),

@@ -33,15 +33,19 @@ import kotlin.math.sqrt
 fun HueRingColorPicker(
     hue: Float,
     saturation: Float,
+    brightness: Float = 1f,
     onHueChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
+    onBrightnessChange: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val selectedColor  = hsvToColor(hue, saturation, 1f)
-    val onHueRef       = rememberUpdatedState(onHueChange)
-    val onSatRef       = rememberUpdatedState(onSaturationChange)
-    val currentHue     = rememberUpdatedState(hue)
-    val currentSat     = rememberUpdatedState(saturation)
+    val selectedColor     = hsvToColor(hue, saturation, brightness)
+    val onHueRef          = rememberUpdatedState(onHueChange)
+    val onSatRef          = rememberUpdatedState(onSaturationChange)
+    val onBrightnessRef   = rememberUpdatedState(onBrightnessChange)
+    val currentHue        = rememberUpdatedState(hue)
+    val currentSat        = rememberUpdatedState(saturation)
+    val currentBrightness = rememberUpdatedState(brightness)
 
     Column(modifier) {
         BoxWithConstraints(
@@ -163,6 +167,58 @@ fun HueRingColorPicker(
                 drawRoundRect(
                     brush        = Brush.horizontalGradient(
                         listOf(hsvToColor(currentHue.value, 0f, 1f), hsvToColor(currentHue.value, 1f, 1f)),
+                    ),
+                    topLeft      = Offset(0f, barTop),
+                    size         = Size(size.width, barH),
+                    cornerRadius = corner,
+                )
+
+                drawCircle(color = Color.White, radius = 10.dp.toPx(), center = Offset(thumbX, size.height / 2))
+                drawCircle(
+                    color  = Color.Black.copy(alpha = 0.35f),
+                    radius = 10.dp.toPx(),
+                    center = Offset(thumbX, size.height / 2),
+                    style  = Stroke(width = 2.dp.toPx()),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // Brightness slider — gradient from black to fully-saturated hue color
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp)
+                .height(28.dp),
+        ) {
+            val sliderW = constraints.maxWidth.toFloat()
+
+            Canvas(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(sliderW) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            onBrightnessRef.value((down.position.x / sliderW).coerceIn(0f, 1f))
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val ch = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!ch.pressed) break
+                                onBrightnessRef.value((ch.position.x / sliderW).coerceIn(0f, 1f))
+                                ch.consume()
+                            }
+                        }
+                    },
+            ) {
+                val barH   = 14.dp.toPx()
+                val barTop = (size.height - barH) / 2
+                val corner = CornerRadius(barH / 2)
+                val thumbX = (currentBrightness.value * size.width).coerceIn(10.dp.toPx(), size.width - 10.dp.toPx())
+
+                drawRoundRect(
+                    brush        = Brush.horizontalGradient(
+                        listOf(Color.Black, hsvToColor(currentHue.value, currentSat.value, 1f)),
                     ),
                     topLeft      = Offset(0f, barTop),
                     size         = Size(size.width, barH),

@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.lightnet.discovery.DeviceRepository
 import com.lightnet.discovery.JmDnsServiceDiscovery
+import com.lightnet.settings.AppPreferences
 import com.russhwolf.settings.SharedPreferencesSettings
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
@@ -34,6 +35,7 @@ class MainActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences("lightnet_devices", MODE_PRIVATE)
         val deviceRepository = DeviceRepository(SharedPreferencesSettings(prefs))
+        AppPreferences.init(SharedPreferencesSettings(getSharedPreferences("lightnet_app", MODE_PRIVATE)))
         val serviceDiscovery = JmDnsServiceDiscovery(applicationContext)
 
         // Double back-press to exit. Compose's BackHandler (sheets, etc.) has higher priority

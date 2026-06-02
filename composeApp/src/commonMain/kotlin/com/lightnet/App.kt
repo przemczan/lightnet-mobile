@@ -20,6 +20,7 @@ import com.lightnet.discovery.effectiveHost
 import com.lightnet.ui.screens.AddDeviceSheet
 import com.lightnet.ui.screens.DeviceControllerScreen
 import com.lightnet.ui.screens.EditDeviceSheet
+import com.lightnet.ui.screens.GlobalSettingsScreen
 import com.lightnet.ui.screens.MyDevicesScreen
 import com.lightnet.ui.theme.LightnetTheme
 import io.ktor.client.HttpClient
@@ -37,7 +38,8 @@ fun LightnetApp(
         var devices by remember { mutableStateOf(deviceRepository.getAll()) }
         fun refreshDevices() { devices = deviceRepository.getAll() }
 
-        var showDevice   by remember { mutableStateOf(false) }
+        var showDevice         by remember { mutableStateOf(false) }
+        var showGlobalSettings by remember { mutableStateOf(false) }
         var activeDevice by remember { mutableStateOf<SavedDevice?>(null) }
 
         var showAddSheet by remember { mutableStateOf(false) }
@@ -90,7 +92,9 @@ fun LightnetApp(
         // Wire the resolved HTTP client into the device so it handles all API calls.
         LaunchedEffect(device, httpApiClient) { device?.attachHttpClient(httpApiClient) }
 
-        if (showDevice && activeDevice != null) {
+        if (showGlobalSettings) {
+            GlobalSettingsScreen(onBack = { showGlobalSettings = false })
+        } else if (showDevice && activeDevice != null) {
             DeviceControllerScreen(
                 device       = device,
                 activeDevice = activeDevice!!,
@@ -99,14 +103,15 @@ fun LightnetApp(
             )
         } else {
             MyDevicesScreen(
-                devices      = devices,
-                onOpenDevice = { d ->
+                devices         = devices,
+                onOpenDevice    = { d ->
                     activeDevice = d
                     showDevice   = true
                 },
-                onAddDevice  = { showAddSheet = true },
-                onEditDevice = { editTarget = it },
-                modifier     = Modifier.fillMaxSize(),
+                onAddDevice     = { showAddSheet = true },
+                onEditDevice    = { editTarget = it },
+                onOpenSettings  = { showGlobalSettings = true },
+                modifier        = Modifier.fillMaxSize(),
             )
         }
 

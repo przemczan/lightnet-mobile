@@ -15,13 +15,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,15 +36,29 @@ import lightnet.composeapp.generated.resources.logo_dark
 import lightnet.composeapp.generated.resources.logo_light
 import org.jetbrains.compose.resources.painterResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyDevicesScreen(
     devices: List<SavedDevice>,
     onOpenDevice: (SavedDevice) -> Unit,
     onAddDevice: () -> Unit,
     onEditDevice: (SavedDevice) -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Scaffold(modifier = modifier) { padding ->
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            TopAppBar(
+                title = {},
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+                },
+            )
+        },
+    ) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
@@ -54,7 +71,7 @@ fun MyDevicesScreen(
                 modifier = Modifier
                     .fillMaxWidth(0.75f)
                     .align(Alignment.CenterHorizontally)
-                    .padding(top = 40.dp, bottom = 24.dp),
+                    .padding(top = 16.dp, bottom = 24.dp),
             )
 
             if (devices.isEmpty()) {

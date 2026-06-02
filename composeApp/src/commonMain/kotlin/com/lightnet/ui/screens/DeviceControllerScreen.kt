@@ -28,7 +28,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -55,7 +55,9 @@ import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.debug.DebugLog
+import com.lightnet.settings.AppPreferences
 import com.lightnet.ui.colorToHex
+import com.lightnet.ui.parseHexColor
 import lightnet.composeapp.generated.resources.Res
 import lightnet.composeapp.generated.resources.logo_mark
 import com.lightnet.ui.BackHandlerCompat
@@ -111,6 +113,12 @@ fun DeviceControllerScreen(
         (!deviceInfoReady || snapshot == null)
 
     val debugMode by DebugLog.debugMode.collectAsState()
+
+    val devicePrefs   = remember(activeDevice.name) { AppPreferences.forDevice(activeDevice.name) }
+    val vizBgEnabled  by devicePrefs.visualizerBgColorEnabled.collectAsState()
+    val vizBgColorHex by devicePrefs.visualizerBgColor.collectAsState()
+    val vizBgColor    = if (vizBgEnabled && vizBgColorHex != null)
+        parseHexColor(vizBgColorHex!!) else null
 
     var brightness          by remember(device) { mutableStateOf(128f) }
     var palette             by remember(device) { mutableStateOf<String?>(null) }
@@ -187,7 +195,7 @@ fun DeviceControllerScreen(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background),
+                    .background(vizBgColor ?: MaterialTheme.colorScheme.background),
                 contentAlignment = Alignment.Center,
             ) {
                 when {
@@ -248,7 +256,7 @@ fun DeviceControllerScreen(
                                 IconButton(onClick = { showBrightnessSheet = true }) {
                                     Icon(Icons.Default.WbSunny, contentDescription = "Brightness")
                                 }
-                                IconToggleButton(
+                                FilledIconToggleButton(
                                     checked         = allPanelsOn,
                                     onCheckedChange = { on ->
                                         allPanelsOn = on

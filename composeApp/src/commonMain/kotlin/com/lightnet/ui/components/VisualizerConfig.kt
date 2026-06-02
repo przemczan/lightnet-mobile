@@ -21,8 +21,8 @@ enum class PanelAnimationStyle {
  */
 data class PanelVisualConfig(
     // ── Geometry ────────────────────────────────────────────────────────────
-    val borderWidth: Float = 28f,
-    val panelPadding: Float = 14f,
+    val borderWidth: Float = 14f,
+    val panelPadding: Float = 6f,
     /** Corner rounding radius in px. 0 = sharp corners. */
     val cornerRadius: Float = 12f,
 
