@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -57,7 +60,6 @@ fun ColorPickerSheet(
     var hue        by remember { mutableFloatStateOf(initH) }
     var saturation by remember { mutableFloatStateOf(initS) }
     var brightness by remember { mutableFloatStateOf(initV) }
-    var selectedBaseIndex by remember { mutableStateOf<Int?>(null) }
 
     // Local copy so an updated swatch repaints immediately.
     var localBaseColors by remember(baseColors) { mutableStateOf(baseColors) }
@@ -78,35 +80,37 @@ fun ColorPickerSheet(
             if (showBaseColors && localBaseColors.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                     localBaseColors.take(3).forEachIndexed { i, hex ->
-                        val color = parseHexColor(hex) ?: baseColorFallbacks.getOrElse(i) { Color.White }
-                        BaseColorSwatch(
-                            color    = color,
-                            label    = baseColorLabels.getOrElse(i) { "" },
-                            selected = selectedBaseIndex == i,
-                            onClick  = {
-                                selectedBaseIndex = i
-                                val (h, s, v) = colorToHsv(color)
-                                hue = h; saturation = s; brightness = v
-                                onPick(hsvToColor(hue, saturation, brightness))
-                            },
-                        )
-                    }
-                }
-
-                FilledTonalButton(
-                    onClick  = {
-                        val idx = selectedBaseIndex ?: return@FilledTonalButton
-                        val updated = hsvToColor(hue, saturation, brightness)
-                        localBaseColors = localBaseColors.toMutableList().also { list ->
-                            while (list.size <= idx) list.add("#FFFFFF")
-                            list[idx] = colorToHex(updated)
+                        val swatchColor = parseHexColor(hex) ?: baseColorFallbacks.getOrElse(i) { Color.White }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            BaseColorSwatch(
+                                color   = swatchColor,
+                                label   = baseColorLabels.getOrElse(i) { "" },
+                                onClick = {
+                                    val (h, s, v) = colorToHsv(swatchColor)
+                                    hue = h; saturation = s; brightness = v
+                                    onPick(hsvToColor(hue, saturation, brightness))
+                                },
+                            )
+                            FilledTonalIconButton(
+                                onClick = {
+                                    val updated = hsvToColor(hue, saturation, brightness)
+                                    localBaseColors = localBaseColors.toMutableList().also { list ->
+                                        while (list.size <= i) list.add("#FFFFFF")
+                                        list[i] = colorToHex(updated)
+                                    }
+                                    onUpdateBaseColor(i, updated)
+                                },
+                            ) {
+                                Icon(
+                                    Icons.Default.ArrowUpward,
+                                    contentDescription = "Set as ${baseColorLabels.getOrElse(i) { "" }}",
+                                )
+                            }
                         }
-                        onUpdateBaseColor(idx, updated)
-                    },
-                    enabled  = selectedBaseIndex != null,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Update base color")
+                    }
                 }
             }
 
@@ -138,7 +142,6 @@ fun ColorPickerSheet(
 private fun BaseColorSwatch(
     color: Color,
     label: String,
-    selected: Boolean,
     onClick: () -> Unit,
 ) {
     Column(
@@ -149,13 +152,6 @@ private fun BaseColorSwatch(
         Box(
             Modifier
                 .size(48.dp)
-                // Selection ring (radio-like); reserves the gap when unselected so size never jumps.
-                .border(
-                    width = if (selected) 2.dp else 0.dp,
-                    color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                    shape = CircleShape,
-                )
-                .padding(4.dp)
                 .clip(CircleShape)
                 .background(color)
                 .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
@@ -163,8 +159,7 @@ private fun BaseColorSwatch(
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = if (selected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

@@ -270,9 +270,15 @@ private fun DeviceInfoScreen(
                         val hostname   = savedDevice.hostName
                             ?: savedDevice.effectiveHost.ifEmpty { "—" }
                         val panelCount = snapshot?.panels?.size?.toString() ?: "—"
+                        val lastIp     = savedDevice.lastIP ?: "—"
                         ListItem(
                             headlineContent = { Text("Hostname") },
                             trailingContent = { Text(hostname) },
+                        )
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        ListItem(
+                            headlineContent = { Text("Last IP") },
+                            trailingContent = { Text(lastIp) },
                         )
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                         ListItem(

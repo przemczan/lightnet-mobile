@@ -2,6 +2,7 @@ package com.lightnet.api.websocket
 
 import com.lightnet.debug.ConnectStatus
 import com.lightnet.debug.DebugLog
+import com.lightnet.network.resolveHostToIp
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
@@ -69,14 +70,15 @@ class SocketConnector(
                     return@launch
                 }
                 for (host in hosts) {
+                    val resolvedIp = resolveHostToIp(host) ?: host
                     for (attempt in 1..attemptsPerHost) {
                         _state.value = ConnectorState.CONNECTING
                         DebugLog.logWsConnect(host, port, ConnectStatus.ATTEMPT)
                         try {
-                            client.webSocket("ws://$host:$port/ws") {
+                            client.webSocket("ws://$resolvedIp:$port/ws") {
                                 _state.value = ConnectorState.CONNECTED
-                                DebugLog.logWsConnect(host, port, ConnectStatus.CONNECTED)
-                                onConnectedWith?.invoke(host)
+                                DebugLog.logWsConnect(resolvedIp, port, ConnectStatus.CONNECTED)
+                                onConnectedWith?.invoke(resolvedIp)
                                 val sender = launch {
                                     for (data in sendQueue) outgoing.send(Frame.Binary(true, data))
                                 }
@@ -86,13 +88,13 @@ class SocketConnector(
                                 sender.cancel()
                             }
                             // Clean drop — restart the cycle to reconnect
-                            DebugLog.logWsConnect(host, port, ConnectStatus.DISCONNECTED)
+                            DebugLog.logWsConnect(resolvedIp, port, ConnectStatus.DISCONNECTED)
                             _state.value = ConnectorState.DISCONNECTED
                             continue@cycle
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
-                            DebugLog.logWsConnect(host, port, ConnectStatus.FAILED, e.message ?: e::class.simpleName)
+                            DebugLog.logWsConnect(resolvedIp, port, ConnectStatus.FAILED, e.message ?: e::class.simpleName)
                         }
                     }
                 }
