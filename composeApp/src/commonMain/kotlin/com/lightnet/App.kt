@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -16,7 +17,6 @@ import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.DeviceRepository
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.ServiceDiscovery
-import com.lightnet.discovery.effectiveHost
 import com.lightnet.ui.screens.AddDeviceSheet
 import com.lightnet.ui.screens.DeviceControllerScreen
 import com.lightnet.ui.screens.EditDeviceSheet
@@ -40,38 +40,64 @@ fun LightnetApp(
 
         var showDevice         by remember { mutableStateOf(false) }
         var showGlobalSettings by remember { mutableStateOf(false) }
-        var activeDevice by remember { mutableStateOf<SavedDevice?>(null) }
+        var activeDevice       by remember { mutableStateOf<SavedDevice?>(null) }
 
         var showAddSheet by remember { mutableStateOf(false) }
         var editTarget   by remember { mutableStateOf<SavedDevice?>(null) }
 
-        var connectedWsHost by remember(activeDevice) {
-            mutableStateOf(activeDevice?.effectiveHost?.ifEmpty { null })
-        }
+        // Pool of persistent connections, one per saved device.
+        val devicePool     = remember { mutableStateMapOf<String, LightnetDevice>() }
+        val connectedHosts = remember { mutableStateMapOf<String, String>() }
+        // Tracks which connection params were used to create each pooled device,
+        // so we can detect when a device edit requires reconnecting.
+        val poolSnapshots  = remember { mutableMapOf<String, SavedDevice>() }
 
-        val device = remember(activeDevice?.id) {
-            activeDevice?.let { d ->
-                LightnetDevice(
-                    SocketConnector(
-                        overrideIP      = d.host.ifEmpty { null },
-                        hostName        = d.hostName,
-                        lastIP          = d.lastIP,
-                        port            = d.port,
-                        client          = httpClient,
-                        onConnectedWith = { connectedHost ->
-                            connectedWsHost = connectedHost
-                            scope.launch { deviceRepository.updateLastIP(d.id, connectedHost) }
-                        },
+        fun connectsToSameEndpoint(a: SavedDevice, b: SavedDevice) =
+            a.host == b.host && a.hostName == b.hostName && a.port == b.port
+
+        // Keep pool in sync with the saved-devices list.
+        LaunchedEffect(devices) {
+            // Remove devices no longer in the list.
+            val currentIds = devices.map { it.id }.toSet()
+            (devicePool.keys - currentIds).forEach { id ->
+                devicePool.remove(id)?.close()
+                connectedHosts.remove(id)
+                poolSnapshots.remove(id)
+            }
+
+            // Add new devices or recreate ones whose connection params changed.
+            devices.forEach { saved ->
+                val prev = poolSnapshots[saved.id]
+                if (prev == null || !connectsToSameEndpoint(prev, saved)) {
+                    devicePool.remove(saved.id)?.close()
+                    val d = LightnetDevice(
+                        SocketConnector(
+                            overrideIP      = saved.host.ifEmpty { null },
+                            hostName        = saved.hostName,
+                            lastIP          = saved.lastIP,
+                            port            = saved.port,
+                            client          = httpClient,
+                            onConnectedWith = { connectedHost ->
+                                connectedHosts[saved.id] = connectedHost
+                                scope.launch { deviceRepository.updateLastIP(saved.id, connectedHost) }
+                            },
+                        )
                     )
-                )
+                    poolSnapshots[saved.id] = saved
+                    devicePool[saved.id] = d
+                    d.load()
+                }
             }
         }
-        DisposableEffect(device) {
-            device?.load()
-            onDispose { device?.close() }
+
+        // Close all connections when the app is disposed.
+        DisposableEffect(Unit) {
+            onDispose { devicePool.values.forEach { it.close() } }
         }
 
-        // Cache panel count whenever the snapshot first becomes available
+        val device = activeDevice?.let { devicePool[it.id] }
+
+        // Cache panel count for the active device whenever a snapshot arrives.
         LaunchedEffect(device) {
             device?.snapshot?.collect { snap ->
                 val count = snap?.panels?.size ?: return@collect
@@ -81,6 +107,8 @@ fun LightnetApp(
                 }
             }
         }
+
+        val connectedWsHost = activeDevice?.id?.let { connectedHosts[it] }
 
         val httpApiClient = remember(connectedWsHost, activeDevice?.port) {
             val host = connectedWsHost ?: return@remember null
@@ -96,10 +124,13 @@ fun LightnetApp(
             GlobalSettingsScreen(onBack = { showGlobalSettings = false })
         } else if (showDevice && activeDevice != null) {
             DeviceControllerScreen(
-                device       = device,
-                activeDevice = activeDevice!!,
-                onBack       = { showDevice = false },
-                modifier     = Modifier.fillMaxSize(),
+                device          = device,
+                activeDevice    = activeDevice!!,
+                devices         = devices,
+                onBack          = { showDevice = false },
+                onSwitchDevice  = { d -> activeDevice = d },
+                onManageDevices = { showDevice = false },
+                modifier        = Modifier.fillMaxSize(),
             )
         } else {
             MyDevicesScreen(

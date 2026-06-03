@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -75,7 +76,10 @@ import kotlin.math.roundToInt
 fun DeviceControllerScreen(
     device: LightnetDevice?,
     activeDevice: SavedDevice,
+    devices: List<SavedDevice>,
     onBack: () -> Unit,
+    onSwitchDevice: (SavedDevice) -> Unit,
+    onManageDevices: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Null guard before any composable calls — device is null for a brief window
@@ -98,8 +102,10 @@ fun DeviceControllerScreen(
     // Refresh panel states on screen entry when already connected.
     LaunchedEffect(device) { device?.refreshPanelStates() }
 
-    var wasConnected    by remember(device) { mutableStateOf(false) }
-    var deviceInfoReady by remember(device) { mutableStateOf(false) }
+    var wasConnected    by remember(device) { mutableStateOf(device.connectionState.value == ConnectionState.CONNECTED) }
+    // Pre-seeded to true when the pool already has a snapshot so switching to a live
+    // device never shows a loading screen while appearance/power fetch in the background.
+    var deviceInfoReady by remember(device) { mutableStateOf(device.snapshot.value != null) }
     LaunchedEffect(connectionState) {
         if (connectionState == ConnectionState.CONNECTED) wasConnected = true
     }
@@ -120,16 +126,16 @@ fun DeviceControllerScreen(
     val vizBgColor    = if (vizBgEnabled && vizBgColorHex != null)
         parseHexColor(vizBgColorHex!!) else null
 
-    var brightness          by remember(device) { mutableStateOf(128f) }
-    var palette             by remember(device) { mutableStateOf<String?>(null) }
+    var brightness          by remember(device) { mutableStateOf(device.cachedAppearance?.brightness?.toFloat() ?: 128f) }
+    var palette             by remember(device) { mutableStateOf(device.cachedAppearance?.palette) }
     var paletteNames        by remember(device) { mutableStateOf<List<String>>(emptyList()) }
     var paletteNamesLoading by remember(device) { mutableStateOf(false) }
-    var baseColors          by remember(device) { mutableStateOf<List<String>>(emptyList()) }
+    var baseColors          by remember(device) { mutableStateOf(device.cachedAppearance?.baseColors ?: emptyList()) }
     var paintColor          by remember { mutableStateOf<Color?>(null) }
     var showColorSheet      by remember { mutableStateOf(false) }
     var showPaletteSheet    by remember { mutableStateOf(false) }
     var showBrightnessSheet by remember { mutableStateOf(false) }
-    var allPanelsOn         by remember { mutableStateOf(false) }
+    var allPanelsOn         by remember(device) { mutableStateOf(device.cachedPowerState ?: false) }
 
     LaunchedEffect(device, connectionState) {
         if (connectionState == ConnectionState.CONNECTED && device != null) {
@@ -148,8 +154,9 @@ fun DeviceControllerScreen(
         }
     }
 
-    var showSettings by remember { mutableStateOf(false) }
-    var showDebug    by remember { mutableStateOf(false) }
+    var showSettings      by remember { mutableStateOf(false) }
+    var showDebug         by remember { mutableStateOf(false) }
+    var showSwitcherSheet by remember { mutableStateOf(false) }
 
     if (showDebug) {
         DebugScreen(onBack = { showDebug = false })
@@ -232,10 +239,12 @@ fun DeviceControllerScreen(
 
                 // Bottom centered toolbar — visible once panels are ready
                 if (snapshot != null && !isInitialLoading) {
-                    Box(
+                    Row(
                         Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment     = Alignment.CenterVertically,
                     ) {
                         Surface(
                             color          = MaterialTheme.colorScheme.surface,
@@ -268,6 +277,16 @@ fun DeviceControllerScreen(
                                         contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
                                     )
                                 }
+                            }
+                        }
+
+                        Surface(
+                            color          = MaterialTheme.colorScheme.surface,
+                            shape          = MaterialTheme.shapes.extraLarge,
+                            tonalElevation = 6.dp,
+                        ) {
+                            IconButton(onClick = { showSwitcherSheet = true }) {
+                                Icon(Icons.Default.SwapHoriz, contentDescription = "Switch device")
                             }
                         }
                     }
@@ -313,6 +332,16 @@ fun DeviceControllerScreen(
                 device.setAppearance(AppearanceRequest(brightness = newBrightness.toInt()))
             },
             onDismiss         = { showBrightnessSheet = false },
+        )
+    }
+
+    if (showSwitcherSheet) {
+        DeviceSwitcherSheet(
+            devices         = devices,
+            activeKey       = activeDevice.name,
+            onSelect        = { onSwitchDevice(it) },
+            onManageDevices = onManageDevices,
+            onDismiss       = { showSwitcherSheet = false },
         )
     }
 }

@@ -44,6 +44,14 @@ class LightnetDevice(
     /** Updated from App once the resolved WebSocket host is known. */
     @Volatile private var httpClient: LightnetHttpClient? = null
 
+    /** Last successfully fetched appearance — survives screen navigation so the UI seeds instantly. */
+    @Volatile var cachedAppearance: AppearanceResponse? = null
+        private set
+
+    /** Last known power state — survives screen navigation so the UI seeds instantly. */
+    @Volatile var cachedPowerState: Boolean? = null
+        private set
+
     init {
         scope.launch {
             connector.state.collect { cs ->
@@ -88,14 +96,14 @@ class LightnetDevice(
     // ── HTTP operations — single point of device API access ──────────────────
 
     suspend fun loadAppearance(): AppearanceResponse? =
-        httpClient?.runCatching { getAppearance() }?.getOrNull()
+        httpClient?.runCatching { getAppearance() }?.getOrNull()?.also { cachedAppearance = it }
 
     suspend fun setAppearance(req: AppearanceRequest) {
         httpClient?.runCatching { setAppearance(req) }
     }
 
     suspend fun getPowerState(): Boolean? =
-        httpClient?.runCatching { getPowerState() }?.getOrNull()
+        httpClient?.runCatching { getPowerState() }?.getOrNull()?.also { cachedPowerState = it }
 
     suspend fun setPowerState(on: Boolean) {
         httpClient?.runCatching { setPowerState(on) }
