@@ -3,6 +3,7 @@ package com.lightnet.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -34,6 +35,9 @@ import com.lightnet.ui.toColorRgb
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 enum class PaintMode { Paint, Erase, Stamp }
 
@@ -52,6 +56,9 @@ fun LightnetDeviceVisualizer(
     onSelectionChange: (Set<Int>) -> Unit = {},
     onEnterSelectionMode: (firstPanelIndex: Int) -> Unit = {},
     onTapWhileOff: (() -> Unit)? = null,
+    rotationDegrees: Float = 0f,
+    rotateMode: Boolean = false,
+    onRotate: (deltaDegrees: Float) -> Unit = {},
     config: PanelVisualConfig = PanelVisualConfig(),
 ) {
     val states = panels.map { it.state.collectAsState() }
@@ -66,6 +73,7 @@ fun LightnetDeviceVisualizer(
     val currentOnSelectionChange = rememberUpdatedState(onSelectionChange)
     val currentOnEnterSelection  = rememberUpdatedState(onEnterSelectionMode)
     val currentOnTapWhileOff     = rememberUpdatedState(onTapWhileOff)
+    val currentOnRotate          = rememberUpdatedState(onRotate)
 
     BoxWithConstraints(modifier) {
         if (panels.isEmpty()) return@BoxWithConstraints
@@ -73,11 +81,45 @@ fun LightnetDeviceVisualizer(
         val viewW = constraints.maxWidth.toFloat()
         val viewH = constraints.maxHeight.toFloat()
 
-        val allCoords = panels.flatMap { it.layout.edgesCoords.values }
-        val minX = allCoords.minOf { minOf(it.x1, it.x2) }.toFloat()
-        val minY = allCoords.minOf { minOf(it.y1, it.y2) }.toFloat()
-        val maxX = allCoords.maxOf { maxOf(it.x1, it.x2) }.toFloat()
-        val maxY = allCoords.maxOf { maxOf(it.y1, it.y2) }.toFloat()
+        // Unrotated panel vertices (sorted by edge index) in layout space. For a closed polygon the
+        // set of edge start points {x1,y1} already covers every vertex, so this drives fit + hit-test.
+        val rawPolygons = remember(panels) {
+            panels.map { panel ->
+                panel.layout.edgesCoords.entries
+                    .sortedBy { it.key }
+                    .map { GeometryUtils.Point(it.value.x1, it.value.y1) }
+            }
+        }
+
+        // Rotation pivot — centre of the unrotated bounding box, so any angle rotates in place.
+        val pivot = remember(rawPolygons) {
+            val all = rawPolygons.flatten()
+            val cx = (all.minOf { it.x } + all.maxOf { it.x }) / 2.0
+            val cy = (all.minOf { it.y } + all.maxOf { it.y }) / 2.0
+            GeometryUtils.Point(cx, cy)
+        }
+
+        // Vertices rotated about the pivot — the single source of truth for fit, hit-test and render.
+        val polygons = remember(rawPolygons, pivot, rotationDegrees) {
+            if (rotationDegrees == 0f) rawPolygons
+            else {
+                val rad = rotationDegrees.toDouble() * PI / 180.0
+                val c = cos(rad); val s = sin(rad)
+                rawPolygons.map { poly ->
+                    poly.map { p ->
+                        val dx = p.x - pivot.x; val dy = p.y - pivot.y
+                        GeometryUtils.Point(pivot.x + dx * c - dy * s, pivot.y + dx * s + dy * c)
+                    }
+                }
+            }
+        }
+
+        // Fit the rotated bounding box into the view (re-fits live as the angle changes).
+        val allPts = polygons.flatten()
+        val minX = allPts.minOf { it.x }.toFloat()
+        val minY = allPts.minOf { it.y }.toFloat()
+        val maxX = allPts.maxOf { it.x }.toFloat()
+        val maxY = allPts.maxOf { it.y }.toFloat()
 
         val pad = 32f
         val scale = minOf(
@@ -87,17 +129,8 @@ fun LightnetDeviceVisualizer(
         val offsetX = -minX + pad / scale
         val offsetY = -minY + pad / scale
 
-        // Per-panel polygon vertices in layout coordinates (sorted by edge index).
-        val polygons = remember(panels) {
-            panels.map { panel ->
-                panel.layout.edgesCoords.entries
-                    .sortedBy { it.key }
-                    .map { GeometryUtils.Point(it.value.x1, it.value.y1) }
-            }
-        }
-
         // Entrance animation: per-panel displacement that decays to zero on appearance.
-        val screenXCenters = remember(panels) {
+        val screenXCenters = remember(polygons) {
             polygons.map { poly -> if (poly.isEmpty()) 0f else (poly.sumOf { it.x } / poly.size).toFloat() }
         }
         val entrancePlan = rememberEntrancePlan(panels, config, viewW, viewH, screenXCenters)
@@ -107,39 +140,36 @@ fun LightnetDeviceVisualizer(
         val animScales = panels.indices.map { i -> entrancePlan.scaleAnimatables[i].value }
 
         // Per-panel screen-space centers, used as scale pivots for the PopUp animation.
-        val panelScreenCenters = remember(panels, scale, offsetX, offsetY) {
-            panels.indices.map { i ->
-                val coords = panels[i].layout.edgesCoords.values
-                if (coords.isEmpty()) Offset.Zero
+        val panelScreenCenters = remember(polygons, scale, offsetX, offsetY) {
+            polygons.map { poly ->
+                if (poly.isEmpty()) Offset.Zero
                 else Offset(
-                    x = coords.sumOf { (it.x1.toFloat() + offsetX) * scale.toDouble() }.toFloat() / coords.size,
-                    y = coords.sumOf { (it.y1.toFloat() + offsetY) * scale.toDouble() }.toFloat() / coords.size,
+                    x = poly.sumOf { (it.x.toFloat() + offsetX) * scale.toDouble() }.toFloat() / poly.size,
+                    y = poly.sumOf { (it.y.toFloat() + offsetY) * scale.toDouble() }.toFloat() / poly.size,
                 )
             }
         }
 
         // Per-panel screen-space geometry, shared by the shadow layer and the main canvas.
-        // Rebuilt only when layout/scale or shape params change — never per animation frame.
-        val rendered = remember(panels, scale, offsetX, offsetY, config.panelPadding, config.cornerRadius) {
-            panels.indices.mapNotNull { i ->
-                val rawPoints = panels[i].layout.edgesCoords.entries
-                    .sortedBy { it.key }
-                    .map { (_, c) ->
-                        Offset(
-                            x = (c.x1.toFloat() + offsetX) * scale,
-                            y = (c.y1.toFloat() + offsetY) * scale,
-                        )
-                    }
+        // Rebuilt only when layout/scale/angle or shape params change — never per animation frame.
+        val rendered = remember(polygons, scale, offsetX, offsetY, config.panelPadding, config.cornerRadius) {
+            polygons.indices.mapNotNull { i ->
+                val rawPoints = polygons[i].map { p ->
+                    Offset(
+                        x = (p.x.toFloat() + offsetX) * scale,
+                        y = (p.y.toFloat() + offsetY) * scale,
+                    )
+                }
                 if (rawPoints.size < 3) return@mapNotNull null
-                val points = if (config.panelPadding > 0f) shrinkPolygon(rawPoints, config.panelPadding) else rawPoints
-                PanelRender(i, points, buildPanelPath(points, config.cornerRadius))
+                val points = if (config.panelPadding > 0f) shrinkPolygon(rawPoints, config.panelPadding * scale) else rawPoints
+                PanelRender(i, points, buildPanelPath(points, config.cornerRadius * scale))
             }
         }
 
         fun hitTest(sx: Float, sy: Float): Int? {
             val lx = (sx / scale - offsetX).toDouble()
             val ly = (sy / scale - offsetY).toDouble()
-            return panels.indices.firstOrNull { i -> GeometryUtils.isInsidePolygon(lx, ly, polygons[i]) }
+            return polygons.indices.firstOrNull { i -> GeometryUtils.isInsidePolygon(lx, ly, polygons[i]) }
         }
 
         fun applyPaint(idx: Int) {
@@ -152,7 +182,15 @@ fun LightnetDeviceVisualizer(
             }
         }
 
-        val gestureModifier = if (!powerOn && currentOnTapWhileOff.value != null) {
+        val gestureModifier = if (rotateMode) {
+            // Rotate mode overrides paint/select: horizontal swipe spins the view (works powered off).
+            Modifier.pointerInput(Unit) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    change.consume()
+                    currentOnRotate.value(dragAmount * config.rotateSensitivity)
+                }
+            }
+        } else if (!powerOn && currentOnTapWhileOff.value != null) {
             Modifier.pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
@@ -229,12 +267,12 @@ fun LightnetDeviceVisualizer(
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .blur(shadow.nativeBlur.radius.dp, BlurredEdgeTreatment.Unbounded)
+                    .blur((shadow.nativeBlur.radius * scale).dp, BlurredEdgeTreatment.Unbounded)
             ) {
                 rendered.forEach { r ->
                     translate(animOffsets[r.index].x, animOffsets[r.index].y) {
                         scale(animScales[r.index], pivot = panelScreenCenters[r.index]) {
-                            drawNativeBlurShape(r.path, shadow)
+                            drawNativeBlurShape(r.path, shadow, scale)
                         }
                     }
                 }
@@ -251,7 +289,7 @@ fun LightnetDeviceVisualizer(
             rendered.forEach { r ->
                 translate(animOffsets[r.index].x, animOffsets[r.index].y) {
                     scale(animScales[r.index], pivot = panelScreenCenters[r.index]) {
-                        drawInCanvasShadow(r.points, r.path, shadow, config.cornerRadius)
+                        drawInCanvasShadow(r.points, r.path, shadow, config.cornerRadius * scale, scale)
                     }
                 }
             }
@@ -276,12 +314,12 @@ fun LightnetDeviceVisualizer(
                             )
                         }
 
-                        drawPanelBorder(r.path, config)
+                        drawPanelBorder(r.path, config, scale)
 
                         // After the fill so the rim darkens the lit colour, giving a recessed look.
-                        drawInnerShadow(r.path, config.innerShadow)
+                        drawInnerShadow(r.path, config.innerShadow, scale)
 
-                        if (selectionMode) drawPanelSelection(r.path, isSelected = r.index in selectedPanels)
+                        if (selectionMode) drawPanelSelection(r.path, isSelected = r.index in selectedPanels, scale = scale)
 
                         if (showPanelIds) drawPanelLabel(panel.info.id.toString(), r.points, textMeasurer)
                     }
@@ -302,9 +340,9 @@ private fun DrawScope.drawPanelBackground(path: Path, config: PanelVisualConfig)
     drawPath(path, color = config.backgroundColor, style = Fill)
 }
 
-private fun DrawScope.drawPanelBorder(path: Path, config: PanelVisualConfig) {
+private fun DrawScope.drawPanelBorder(path: Path, config: PanelVisualConfig, scale: Float) {
     if (config.borderWidth > 0f) {
-        drawPath(path, color = config.borderColor, style = Stroke(width = config.borderWidth))
+        drawPath(path, color = config.borderColor, style = Stroke(width = config.borderWidth * scale))
     }
 }
 
@@ -312,10 +350,10 @@ private fun DrawScope.drawPanelActiveColor(path: Path, color: Color) {
     drawPath(path, color = color, style = Fill)
 }
 
-private fun DrawScope.drawPanelSelection(path: Path, isSelected: Boolean) {
+private fun DrawScope.drawPanelSelection(path: Path, isSelected: Boolean, scale: Float) {
     if (isSelected) {
         drawPath(path, color = Color.White.copy(alpha = 0.25f), style = Fill)
-        drawPath(path, color = Color.White, style = Stroke(width = 2.5f))
+        drawPath(path, color = Color.White, style = Stroke(width = 2.5f * scale))
     } else {
         drawPath(path, color = Color.Black.copy(alpha = 0.55f), style = Fill)
     }

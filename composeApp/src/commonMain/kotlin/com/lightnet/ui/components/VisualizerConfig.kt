@@ -10,7 +10,7 @@ enum class PanelAnimationStyle {
     /** Panels drop from the top, staggered left-to-right like rain. */
     Rain,
 
-ah    /** Panels grow from zero size to full size with a slight bounce, staggered randomly. */
+    /** Panels grow from zero size to full size with a slight bounce, staggered randomly. */
     PopUp,
 
     /** Pick one of the concrete styles at random on each appearance. */
@@ -23,11 +23,13 @@ ah    /** Panels grow from zero size to full size with a slight bounce, staggere
  * sharp corners) so existing call sites render unchanged.
  */
 data class PanelVisualConfig(
-    // ── Geometry ────────────────────────────────────────────────────────────
-    val borderWidth: Float = 14f,
-    val panelPadding: Float = 6f,
-    /** Corner rounding radius in px. 0 = sharp corners. */
-    val cornerRadius: Float = 12f,
+    // ── Geometry ──────────────────────────────────────────────────────────────
+    // All sizes below are in *panel-layout units* (edge length ≈ 100), multiplied by the
+    // canvas `scale` at draw time so they stay proportional regardless of panel count.
+    val borderWidth: Float = 7f,
+    val panelPadding: Float = 3f,
+    /** Corner rounding radius in layout units. 0 = sharp corners. */
+    val cornerRadius: Float = 6f,
 
     // ── Colors ──────────────────────────────────────────────────────────────
     val borderColor: Color = Color(0xFF444444),
@@ -43,6 +45,10 @@ data class PanelVisualConfig(
     val animationStyle: PanelAnimationStyle = PanelAnimationStyle.Random,
     /** Per-panel animation duration in ms. */
     val animationSpeedMs: Int = 400,
+
+    // ── Rotation ──────────────────────────────────────────────────────────────
+    /** Degrees of view rotation per px of horizontal swipe while in rotate mode. */
+    val rotateSensitivity: Float = 0.35f,
 )
 
 /** Shadow rendering technique, shared by [ShadowConfig] (drop) and [InnerShadowConfig] (inner). */
@@ -70,9 +76,10 @@ data class ShadowConfig(
     val implementation: ShadowImplementation = ShadowImplementation.NativeBlur,
 
     // ── Common to all implementations ─────────────────────────────────────────
+    // offsets in panel-layout units, scaled by canvas `scale` at draw time.
     val color: Color = Color.Black.copy(alpha = 1f),
-    val offsetX: Float = 8f,
-    val offsetY: Float = 12f,
+    val offsetX: Float = 4f,
+    val offsetY: Float = 6f,
 
     // ── Implementation-specific ────────────────────────────────────────────────
     val layered: LayeredShadow = LayeredShadow(),
@@ -88,15 +95,15 @@ data class LayeredShadow(
 
 /** Params for [ShadowImplementation.Feathered]. */
 data class FeatheredShadow(
-    /** How far the soft edge feathers outward from the panel, in px. */
-    val blur: Float = 12f,
+    /** How far the soft edge feathers outward from the panel, in layout units (scaled at draw time). */
+    val blur: Float = 6f,
     /** Feather resolution: number of expanding rings. Higher = smoother, more fills per frame. */
     val steps: Int = 12,
 )
 
 /** Params for [ShadowImplementation.NativeBlur]. */
 data class NativeBlurShadow(
-    /** Gaussian blur radius in dp. */
+    /** Gaussian blur radius in layout units (multiplied by canvas `scale` → dp at draw time). */
     val radius: Float = 8f,
 )
 
@@ -112,8 +119,8 @@ data class InnerShadowConfig(
 
     // ── Common to all implementations ─────────────────────────────────────────
     val color: Color = Color.Black.copy(alpha = 0.25f),
-    /** Rim thickness in px. */
-    val width: Float = 5f,
+    /** Rim thickness in layout units (scaled at draw time). */
+    val width: Float = 2.5f,
 
     // ── Implementation-specific ────────────────────────────────────────────────
     val layered: LayeredInnerShadow = LayeredInnerShadow(),

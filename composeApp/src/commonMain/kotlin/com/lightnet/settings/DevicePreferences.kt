@@ -12,6 +12,15 @@ class DevicePreferences(private val settings: Settings, deviceKey: String) {
     val visualizerBgColor = MutableStateFlow<String?>(
         settings.getStringOrNull("${prefix}_viz_bg_color")
     )
+    /** Visualizer view rotation in degrees. */
+    val visualizerRotation = MutableStateFlow(
+        settings.getFloat("${prefix}_viz_rotation", 0f)
+    )
+
+    fun setVisualizerRotation(degrees: Float) {
+        visualizerRotation.value = degrees
+        settings.putFloat("${prefix}_viz_rotation", degrees)
+    }
 
     fun setVisualizerBgEnabled(enabled: Boolean) {
         visualizerBgColorEnabled.value = enabled

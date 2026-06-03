@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.WbSunny
@@ -36,6 +37,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilledIconToggleButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -145,6 +147,8 @@ fun DeviceControllerScreen(
     var showPaletteSheet    by remember { mutableStateOf(false) }
     var showBrightnessSheet by remember { mutableStateOf(false) }
     var allPanelsOn         by remember(device) { mutableStateOf(device.cachedPowerState ?: false) }
+    var rotateMode          by remember(device) { mutableStateOf(false) }
+    var rotationAngle       by remember(device) { mutableFloatStateOf(devicePrefs.visualizerRotation.value) }
 
     LaunchedEffect(device, connectionState) {
         if (connectionState == ConnectionState.CONNECTED && device != null) {
@@ -206,6 +210,16 @@ fun DeviceControllerScreen(
                 },
                 title   = { Text(activeDevice.name) },
                 actions = {
+                    IconButton(onClick = {
+                        if (rotateMode) devicePrefs.setVisualizerRotation(rotationAngle) // save on exit
+                        rotateMode = !rotateMode
+                    }) {
+                        Icon(
+                            Icons.Default.Rotate90DegreesCcw,
+                            contentDescription = "Rotate view",
+                            tint = if (rotateMode) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                        )
+                    }
                     IconButton(onClick = { showSettings = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Device settings")
                     }
@@ -250,6 +264,9 @@ fun DeviceControllerScreen(
                             interactive   = !isReconnecting,
                             showPanelIds  = debugMode,
                             onTapWhileOff = { showOffMessage = true },
+                            rotationDegrees = rotationAngle,
+                            rotateMode    = rotateMode,
+                            onRotate      = { delta -> rotationAngle += delta },
                             modifier      = Modifier.fillMaxSize(),
                         )
                     }
