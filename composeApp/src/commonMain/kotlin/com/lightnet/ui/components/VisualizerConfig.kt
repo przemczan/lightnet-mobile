@@ -26,8 +26,8 @@ data class PanelVisualConfig(
     // ── Geometry ──────────────────────────────────────────────────────────────
     // All sizes below are in *panel-layout units* (edge length ≈ 100), multiplied by the
     // canvas `scale` at draw time so they stay proportional regardless of panel count.
-    val borderWidth: Float = 7f,
-    val panelPadding: Float = 3f,
+    val borderWidth: Float = 4f,
+    val panelPadding: Float = 5f,
     /** Corner rounding radius in layout units. 0 = sharp corners. */
     val cornerRadius: Float = 6f,
 
@@ -104,7 +104,7 @@ data class FeatheredShadow(
 /** Params for [ShadowImplementation.NativeBlur]. */
 data class NativeBlurShadow(
     /** Gaussian blur radius in layout units (multiplied by canvas `scale` → dp at draw time). */
-    val radius: Float = 8f,
+    val radius: Float = 6f,
 )
 
 /**

@@ -147,8 +147,9 @@ fun DeviceControllerScreen(
     var showPaletteSheet    by remember { mutableStateOf(false) }
     var showBrightnessSheet by remember { mutableStateOf(false) }
     var allPanelsOn         by remember(device) { mutableStateOf(device.cachedPowerState ?: false) }
-    var rotateMode          by remember(device) { mutableStateOf(false) }
-    var rotationAngle       by remember(device) { mutableFloatStateOf(devicePrefs.visualizerRotation.value) }
+    var rotateMode        by remember(device) { mutableStateOf(false) }
+    var rawRotationAngle  by remember(device) { mutableFloatStateOf(devicePrefs.visualizerRotation.value) }
+    val rotationAngle     = (rawRotationAngle / 5f).roundToInt() * 5f
 
     LaunchedEffect(device, connectionState) {
         if (connectionState == ConnectionState.CONNECTED && device != null) {
@@ -210,16 +211,6 @@ fun DeviceControllerScreen(
                 },
                 title   = { Text(activeDevice.name) },
                 actions = {
-                    IconButton(onClick = {
-                        if (rotateMode) devicePrefs.setVisualizerRotation(rotationAngle) // save on exit
-                        rotateMode = !rotateMode
-                    }) {
-                        Icon(
-                            Icons.Default.Rotate90DegreesCcw,
-                            contentDescription = "Rotate view",
-                            tint = if (rotateMode) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-                        )
-                    }
                     IconButton(onClick = { showSettings = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Device settings")
                     }
@@ -266,7 +257,7 @@ fun DeviceControllerScreen(
                             onTapWhileOff = { showOffMessage = true },
                             rotationDegrees = rotationAngle,
                             rotateMode    = rotateMode,
-                            onRotate      = { delta -> rotationAngle += delta },
+                            onRotate      = { delta -> rawRotationAngle += delta },
                             modifier      = Modifier.fillMaxSize(),
                         )
                     }
@@ -288,52 +279,65 @@ fun DeviceControllerScreen(
                     }
                 }
 
-                // Bottom centered toolbar — visible once panels are ready
-                if (snapshot != null && !isInitialLoading) {
-                    Row(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment     = Alignment.CenterVertically,
+                // Bottom centered toolbar — always visible; buttons disabled when disconnected
+                val isConnected = connectionState == ConnectionState.CONNECTED
+                Row(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        color          = MaterialTheme.colorScheme.surface,
+                        shape          = MaterialTheme.shapes.extraLarge,
+                        tonalElevation = 6.dp,
                     ) {
-                        Surface(
-                            color          = MaterialTheme.colorScheme.surface,
-                            shape          = MaterialTheme.shapes.extraLarge,
-                            tonalElevation = 6.dp,
+                        Row(
+                            Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment     = Alignment.CenterVertically,
                         ) {
-                            Row(
-                                Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment     = Alignment.CenterVertically,
+                            IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
+                                Icon(Icons.Default.Brush, contentDescription = "Pick color")
+                            }
+                            IconButton(onClick = { showPaletteSheet = true }, enabled = isConnected) {
+                                Icon(Icons.Default.Gradient, contentDescription = "Choose palette")
+                            }
+                            IconButton(onClick = { showBrightnessSheet = true }, enabled = isConnected) {
+                                Icon(Icons.Default.WbSunny, contentDescription = "Brightness")
+                            }
+                            IconButton(
+                                onClick = {
+                                    if (rotateMode) devicePrefs.setVisualizerRotation(rotationAngle)
+                                    rotateMode = !rotateMode
+                                },
+                                enabled = isConnected,
                             ) {
-                                IconButton(onClick = { showColorSheet = true }) {
-                                    Icon(Icons.Default.Brush, contentDescription = "Pick color")
-                                }
-                                IconButton(onClick = { showPaletteSheet = true }) {
-                                    Icon(Icons.Default.Gradient, contentDescription = "Choose palette")
-                                }
-                                IconButton(onClick = { showBrightnessSheet = true }) {
-                                    Icon(Icons.Default.WbSunny, contentDescription = "Brightness")
-                                }
-                                FilledIconToggleButton(
-                                    checked         = allPanelsOn,
-                                    onCheckedChange = { on ->
-                                        allPanelsOn = on
-                                        scope.launch { device.setPowerState(on) }
-                                    },
-                                ) {
-                                    Icon(
-                                        Icons.Default.PowerSettingsNew,
-                                        contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
-                                    )
-                                }
+                                Icon(
+                                    Icons.Default.Rotate90DegreesCcw,
+                                    contentDescription = "Rotate view",
+                                    tint = if (rotateMode && isConnected) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                                )
+                            }
+                            FilledIconToggleButton(
+                                checked         = allPanelsOn,
+                                onCheckedChange = { on ->
+                                    allPanelsOn = on
+                                    scope.launch { device.setPowerState(on) }
+                                },
+                                enabled         = isConnected,
+                            ) {
+                                Icon(
+                                    Icons.Default.PowerSettingsNew,
+                                    contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
+                                )
                             }
                         }
+                    }
 
-                        FloatingActionButton(onClick = { showSwitcherSheet = true }) {
-                            Icon(Icons.Default.SwapHoriz, contentDescription = "Switch device")
-                        }
+                    FloatingActionButton(onClick = { showSwitcherSheet = true }) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = "Switch device")
                     }
                 }
             }
