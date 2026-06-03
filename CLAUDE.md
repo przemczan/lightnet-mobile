@@ -44,8 +44,11 @@ All application code lives in `composeApp/src/`. The project uses a single Gradl
 | `device/` | Device domain layer: `LightnetDevice`, `LightnetDevicePanel`, panel services |
 | `geometry/` | `GeometryUtils.isInsidePolygon()` — ray-casting hit test used by the visualiser |
 | `discovery/` | `ServiceDiscovery` interface, `SavedDevice`, `DeviceRepository` |
-| `ui/screens/` | Compose screens: `MyDevicesScreen`, `DeviceDiscoveryScreen`, `DeviceControllerScreen` |
-| `ui/components/` | `LightnetDeviceVisualizer` — Compose Canvas renderer + gesture handling |
+| `network/` | `DnsResolver` — resolves mDNS hostnames to IPs |
+| `settings/` | `AppPreferences`, `DevicePreferences` — multiplatform-settings backed prefs |
+| `debug/` | `DebugLog` — in-app log buffer + debug mode flag |
+| `ui/screens/` | `MyDevicesScreen`, `DeviceControllerScreen`, `DeviceSettingsScreen`, `GlobalSettingsScreen`, `LibraryScreen`, `PaletteEditorScreen`, `DebugScreen`; bottom sheets: `AddDeviceSheet`, `EditDeviceSheet`, `ColorPickerSheet`, `DeviceSwitcherSheet` |
+| `ui/components/` | `LightnetDeviceVisualizer` + visualizer helpers (`VisualizerConfig`, `VisualizerAnimations`, `VisualizerGeometry`, `VisualizerShadows`); shared widgets: `StatusDot`, `DeviceListItem`, `HueRingColorPicker`, `ReconnectingBanner`, etc. |
 
 ### Binary protocol
 
@@ -70,7 +73,7 @@ Custom binary format over WebSocket. Every packet:
 
 `LightnetDevice.snapshot: StateFlow<DeviceSnapshot?>` is null while loading, set after the first edge list arrives, cleared on disconnect so the UI returns to the loading indicator during reconnect.
 
-`LightnetDevice.close()` calls `connector.close()` then cancels the device scope — always call this when the screen exits.
+`LightnetDevice.close()` calls `connector.close()` then cancels the device scope. **Do not call this from UI screens** — `App.kt` owns a persistent device pool (one `LightnetDevice` per saved device, keyed by `id`) that keeps connections alive across navigation. `close()` is called automatically when a device is removed from the pool or the app is disposed.
 
 ### Connector
 
@@ -78,22 +81,27 @@ Custom binary format over WebSocket. Every packet:
 
 `SocketConnector` — Ktor WebSocket with exponential back-off reconnect loop (1 s → doubles → 30 s cap). `CancellationException` breaks the loop on explicit `disconnect()` / `close()`.
 
-`MockConnector` — self-contained fake device; auto-responds to `GET_EDGES_LIST`, `GET_PANELS_STATES`, `TOGGLE`, `SET_COLOR` with properly encoded protocol packets. Used by **Demo Device** in `DeviceDiscoveryScreen`.
+`MockConnector` — self-contained fake device; auto-responds to `GET_EDGES_LIST`, `GET_PANELS_STATES`, `TOGGLE`, `SET_COLOR` with properly encoded protocol packets.
 
 ### Navigation
 
-Simple state-based back-stack in `App.kt` (`mutableStateListOf<AppScreen>`). No navigation library. `AppScreen` sealed class has three variants: `MyDevices`, `DeviceDiscovery`, `DeviceController(host, port)`. Device list state is lifted to `LightnetApp` and refreshed after every add/delete.
+State-based in `App.kt` — no navigation library, no sealed screen class. Three boolean/nullable vars drive routing: `showGlobalSettings`, `showDevice`, `activeDevice`. The default view is `MyDevicesScreen`; opening a device sets `activeDevice` and `showDevice = true`.
 
-`DeviceControllerScreen` uses `host == "mock"` to choose `MockConnector` vs `SocketConnector`. The `HttpClient` (with WebSockets plugin, OkHttp engine on Android) is created once in `MainActivity` and injected down through `LightnetApp`.
+Device add/edit is handled by `AddDeviceSheet` / `EditDeviceSheet` bottom sheets overlaid on whichever screen is active.
+
+The `HttpClient` (WebSockets plugin, OkHttp engine on Android) is created once in `MainActivity` and injected into `LightnetApp`. A per-connection `LightnetHttpClient` is constructed in `App.kt` from the resolved WebSocket host once connected, then wired into the device via `device.attachHttpClient(...)`.
 
 ### Visualiser
 
-`LightnetDeviceVisualizer` (Compose `Canvas`):
-- `BoxWithConstraints` computes bounding-box scale and offset so all panels fit the viewport
-- Polygons are the `(x1, y1)` vertex of each `EdgeCoords` entry, sorted by edge index
-- Two draw layers per panel: black fill (background) + coloured overlay (`alpha = brightness/255`) when `on == true`
-- Single `awaitEachGesture` block: tap (< 4 px movement) → toggle; drag → paint stroke (per-stroke visited set prevents double-toggle)
-- Hit testing via `GeometryUtils.isInsidePolygon()` in layout coordinates (before scale/offset)
+`LightnetDeviceVisualizer` (Compose `Canvas`), split across several files in `ui/components/`:
+
+- **`LightnetDeviceVisualizer.kt`** — layout, gesture handling, draw passes. `BoxWithConstraints` computes bounding-box scale/offset; polygons are sorted `(x1,y1)` vertices per edge index. Draw order per panel: drop shadow → background fill → active colour → border → inner shadow → selection overlay.
+- **`VisualizerConfig.kt`** — `PanelVisualConfig` data class: all visual knobs (padding, corner radius, border, shadow, inner shadow, animation style/speed). `PanelAnimationStyle`: `FromDirections`, `Rain`, `PopUp`, `Random`.
+- **`VisualizerAnimations.kt`** — `EntrancePlan` holds per-panel `animatables` (translation, `1f→0f`) and `scaleAnimatables` (scale, `0f→1f` for PopUp). `rememberEntrancePlan` keys on the panel list identity so animation re-runs on every reconnect.
+- **`VisualizerShadows.kt`** — drop shadow (Layered / Feathered / NativeBlur) and inner shadow helpers.
+- **`VisualizerGeometry.kt`** — `shrinkPolygon`, `buildPanelPath` (rounded-corner path).
+
+Gestures (`awaitEachGesture`): tap (< 4 px) → paint/toggle/select; drag → paint stroke (per-stroke visited set prevents double-toggle); long press (500 ms, no movement) → enter selection mode. Hit testing via `GeometryUtils.isInsidePolygon()` in layout coordinates (before scale/offset).
 
 ## Key Conventions
 

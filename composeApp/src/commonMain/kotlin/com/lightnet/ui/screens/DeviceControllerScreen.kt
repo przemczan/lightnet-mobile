@@ -1,5 +1,10 @@
 package com.lightnet.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -52,6 +58,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
@@ -104,9 +112,9 @@ fun DeviceControllerScreen(
     LaunchedEffect(device) { device?.refreshPanelStates() }
 
     var wasConnected    by remember(device) { mutableStateOf(device.connectionState.value == ConnectionState.CONNECTED) }
-    // Pre-seeded to true when the pool already has a snapshot so switching to a live
-    // device never shows a loading screen while appearance/power fetch in the background.
-    var deviceInfoReady by remember(device) { mutableStateOf(device.snapshot.value != null) }
+    // Pre-seeded to true only when snapshot AND power state are both already cached, so
+    // switching devices never renders the visualizer with the wrong on/off state.
+    var deviceInfoReady by remember(device) { mutableStateOf(device.snapshot.value != null && device.cachedPowerState != null) }
     LaunchedEffect(connectionState) {
         if (connectionState == ConnectionState.CONNECTED) wasConnected = true
     }
@@ -140,6 +148,11 @@ fun DeviceControllerScreen(
 
     LaunchedEffect(device, connectionState) {
         if (connectionState == ConnectionState.CONNECTED && device != null) {
+            // Fetch power state first so the visualizer unblocks with the correct on/off state.
+            val power = device.getPowerState()
+            if (power != null) allPanelsOn = power
+            deviceInfoReady = true
+
             paletteNamesLoading = true
             val app = device.loadAppearance()
             if (app != null) {
@@ -149,15 +162,19 @@ fun DeviceControllerScreen(
             }
             paletteNames        = device.getPalettes()
             paletteNamesLoading = false
-            val power = device.getPowerState()
-            if (power != null) allPanelsOn = power
-            deviceInfoReady = true
         }
     }
 
     var showSettings      by remember { mutableStateOf(false) }
     var showDebug         by remember { mutableStateOf(false) }
     var showSwitcherSheet by remember { mutableStateOf(false) }
+    var showOffMessage    by remember { mutableStateOf(false) }
+    LaunchedEffect(showOffMessage) {
+        if (showOffMessage) {
+            delay(2000)
+            showOffMessage = false
+        }
+    }
 
     if (showDebug) {
         DebugScreen(onBack = { showDebug = false })
@@ -225,17 +242,33 @@ fun DeviceControllerScreen(
 
                     snapshot != null -> Box(Modifier.fillMaxSize()) {
                         LightnetDeviceVisualizer(
-                            panels       = snapshot!!.panels,
-                            powerOn      = allPanelsOn,
-                            paintMode    = PaintMode.Paint,
-                            paintColor   = paintColor ?: Color(0xFFCF5B3C),
-                            interactive  = !isReconnecting,
-                            showPanelIds = debugMode,
-                            modifier     = Modifier.fillMaxSize(),
+                            panels        = snapshot!!.panels,
+                            powerOn       = allPanelsOn,
+                            brightness    = brightness,
+                            paintMode     = PaintMode.Paint,
+                            paintColor    = paintColor ?: Color(0xFFCF5B3C),
+                            interactive   = !isReconnecting,
+                            showPanelIds  = debugMode,
+                            onTapWhileOff = { showOffMessage = true },
+                            modifier      = Modifier.fillMaxSize(),
                         )
                     }
 
                     else -> LoadingState(label = "Connecting…")
+                }
+
+                Column(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp, start = 16.dp, end = 16.dp),
+                ) {
+                    AnimatedVisibility(
+                        visible = showOffMessage,
+                        enter   = fadeIn() + slideInVertically(),
+                        exit    = fadeOut() + slideOutVertically(),
+                    ) {
+                        Snackbar { Text("Turn the device on first") }
+                    }
                 }
 
                 // Bottom centered toolbar — visible once panels are ready
@@ -321,12 +354,10 @@ fun DeviceControllerScreen(
 
     if (showBrightnessSheet) {
         BrightnessSheet(
-            initialBrightness = brightness,
-            onSave            = { newBrightness ->
-                brightness = newBrightness
-                device.setAppearance(AppearanceRequest(brightness = newBrightness.toInt()))
-            },
-            onDismiss         = { showBrightnessSheet = false },
+            initialBrightness   = brightness,
+            onBrightnessChange  = { brightness = it },
+            onApply             = { device.setAppearance(AppearanceRequest(brightness = it.toInt())) },
+            onDismiss           = { showBrightnessSheet = false },
         )
     }
 
@@ -347,12 +378,20 @@ fun DeviceControllerScreen(
 @Composable
 private fun BrightnessSheet(
     initialBrightness: Float,
-    onSave: suspend (Float) -> Unit,
+    onBrightnessChange: (Float) -> Unit,
+    onApply: suspend (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     var brightness by remember { mutableFloatStateOf(initialBrightness) }
-    var isSaving   by remember { mutableStateOf(false) }
+    // Conflated channel: holds at most one pending value. Consumer calls API immediately,
+    // then waits 250 ms before picking up the next — throttles to at most 1 call per 250 ms.
+    val pending = remember { Channel<Float>(Channel.CONFLATED) }
+    LaunchedEffect(Unit) {
+        for (value in pending) {
+            onApply(value)
+            delay(250)
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -376,7 +415,11 @@ private fun BrightnessSheet(
                 Icon(Icons.Default.WbSunny, contentDescription = null)
                 Slider(
                     value         = brightness / 255f,
-                    onValueChange = { brightness = it * 255f },
+                    onValueChange = {
+                        brightness = it * 255f
+                        onBrightnessChange(brightness)
+                        pending.trySend(brightness)
+                    },
                     modifier      = Modifier.weight(1f),
                 )
                 Text(
@@ -393,27 +436,7 @@ private fun BrightnessSheet(
                     .padding(top = 8.dp),
                 horizontalArrangement = Arrangement.Center,
             ) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            isSaving = true
-                            onSave(brightness)
-                            isSaving = false
-                            onDismiss()
-                        }
-                    },
-                    enabled = !isSaving,
-                ) {
-                    if (isSaving) {
-                        CircularProgressIndicator(
-                            modifier    = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color       = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    } else {
-                        Text("OK")
-                    }
-                }
+                Button(onClick = onDismiss) { Text("OK") }
             }
         }
     }

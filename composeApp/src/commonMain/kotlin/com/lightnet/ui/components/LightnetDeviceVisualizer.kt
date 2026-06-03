@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextMeasurer
@@ -41,6 +42,7 @@ fun LightnetDeviceVisualizer(
     panels: List<LightnetDevicePanel>,
     modifier: Modifier = Modifier,
     powerOn: Boolean = true,
+    brightness: Float = 255f,
     paintMode: PaintMode = PaintMode.Paint,
     paintColor: Color = Color.White,
     interactive: Boolean = true,
@@ -49,6 +51,7 @@ fun LightnetDeviceVisualizer(
     selectedPanels: Set<Int> = emptySet(),
     onSelectionChange: (Set<Int>) -> Unit = {},
     onEnterSelectionMode: (firstPanelIndex: Int) -> Unit = {},
+    onTapWhileOff: (() -> Unit)? = null,
     config: PanelVisualConfig = PanelVisualConfig(),
 ) {
     val states = panels.map { it.state.collectAsState() }
@@ -62,6 +65,7 @@ fun LightnetDeviceVisualizer(
     val currentSelectedPanels    = rememberUpdatedState(selectedPanels)
     val currentOnSelectionChange = rememberUpdatedState(onSelectionChange)
     val currentOnEnterSelection  = rememberUpdatedState(onEnterSelectionMode)
+    val currentOnTapWhileOff     = rememberUpdatedState(onTapWhileOff)
 
     BoxWithConstraints(modifier) {
         if (panels.isEmpty()) return@BoxWithConstraints
@@ -100,6 +104,19 @@ fun LightnetDeviceVisualizer(
         val animOffsets = panels.indices.map { i ->
             entrancePlan.startOffsets[i] * entrancePlan.animatables[i].value
         }
+        val animScales = panels.indices.map { i -> entrancePlan.scaleAnimatables[i].value }
+
+        // Per-panel screen-space centers, used as scale pivots for the PopUp animation.
+        val panelScreenCenters = remember(panels, scale, offsetX, offsetY) {
+            panels.indices.map { i ->
+                val coords = panels[i].layout.edgesCoords.values
+                if (coords.isEmpty()) Offset.Zero
+                else Offset(
+                    x = coords.sumOf { (it.x1.toFloat() + offsetX) * scale.toDouble() }.toFloat() / coords.size,
+                    y = coords.sumOf { (it.y1.toFloat() + offsetY) * scale.toDouble() }.toFloat() / coords.size,
+                )
+            }
+        }
 
         // Per-panel screen-space geometry, shared by the shadow layer and the main canvas.
         // Rebuilt only when layout/scale or shape params change — never per animation frame.
@@ -135,7 +152,17 @@ fun LightnetDeviceVisualizer(
             }
         }
 
-        val gestureModifier = if (powerOn && (interactive || selectionMode)) {
+        val gestureModifier = if (!powerOn && currentOnTapWhileOff.value != null) {
+            Modifier.pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    currentOnTapWhileOff.value?.invoke()
+                    do {
+                        val event = awaitPointerEvent()
+                    } while (event.changes.any { it.pressed })
+                }
+            }
+        } else if (powerOn && (interactive || selectionMode)) {
             Modifier.pointerInput(panels, scale, offsetX, offsetY) {
                 val visitedInStroke = mutableSetOf<Int>()
 
@@ -206,7 +233,9 @@ fun LightnetDeviceVisualizer(
             ) {
                 rendered.forEach { r ->
                     translate(animOffsets[r.index].x, animOffsets[r.index].y) {
-                        drawNativeBlurShape(r.path, shadow)
+                        scale(animScales[r.index], pivot = panelScreenCenters[r.index]) {
+                            drawNativeBlurShape(r.path, shadow)
+                        }
                     }
                 }
             }
@@ -221,7 +250,9 @@ fun LightnetDeviceVisualizer(
             // a neighbour. (Layered / Feathered only; NativeBlur is handled by the layer above.)
             rendered.forEach { r ->
                 translate(animOffsets[r.index].x, animOffsets[r.index].y) {
-                    drawInCanvasShadow(r.points, r.path, shadow, config.cornerRadius)
+                    scale(animScales[r.index], pivot = panelScreenCenters[r.index]) {
+                        drawInCanvasShadow(r.points, r.path, shadow, config.cornerRadius)
+                    }
                 }
             }
 
@@ -230,27 +261,30 @@ fun LightnetDeviceVisualizer(
                 val panel = panels[r.index]
                 val state = states[r.index].value
                 translate(animOffsets[r.index].x, animOffsets[r.index].y) {
-                    drawPanelBackground(r.path, config)
+                    scale(animScales[r.index], pivot = panelScreenCenters[r.index]) {
+                        drawPanelBackground(r.path, config)
 
-                    if (powerOn) {
-                        drawPanelActiveColor(
-                            r.path,
-                            Color(
-                                red   = state.color.r / 255f,
-                                green = state.color.g / 255f,
-                                blue  = state.color.b / 255f,
-                            ),
-                        )
+                        if (powerOn) {
+                            val brightnessScale = (brightness / 255f).coerceIn(0f, 1f)
+                            drawPanelActiveColor(
+                                r.path,
+                                Color(
+                                    red   = state.color.r / 255f * brightnessScale,
+                                    green = state.color.g / 255f * brightnessScale,
+                                    blue  = state.color.b / 255f * brightnessScale,
+                                ),
+                            )
+                        }
+
+                        drawPanelBorder(r.path, config)
+
+                        // After the fill so the rim darkens the lit colour, giving a recessed look.
+                        drawInnerShadow(r.path, config.innerShadow)
+
+                        if (selectionMode) drawPanelSelection(r.path, isSelected = r.index in selectedPanels)
+
+                        if (showPanelIds) drawPanelLabel(panel.info.id.toString(), r.points, textMeasurer)
                     }
-
-                    drawPanelBorder(r.path, config)
-
-                    // After the fill so the rim darkens the lit colour, giving a recessed look.
-                    drawInnerShadow(r.path, config.innerShadow)
-
-                    if (selectionMode) drawPanelSelection(r.path, isSelected = r.index in selectedPanels)
-
-                    if (showPanelIds) drawPanelLabel(panel.info.id.toString(), r.points, textMeasurer)
                 }
             }
         }

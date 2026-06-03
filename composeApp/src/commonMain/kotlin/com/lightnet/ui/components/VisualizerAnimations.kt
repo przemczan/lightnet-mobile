@@ -3,6 +3,8 @@ package com.lightnet.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +29,8 @@ internal data class EntrancePlan(
     val startOffsets: List<Offset>,
     val staggerMs: List<Long>,
     val animatables: List<Animatable<Float, AnimationVector1D>>,
+    /** For PopUp style: per-panel scale factor (0→1). For other styles: all pre-snapped to 1f. */
+    val scaleAnimatables: List<Animatable<Float, AnimationVector1D>>,
 )
 
 /**
@@ -41,8 +45,11 @@ internal fun buildEntrancePlan(
     screenXCenters: List<Float>,
 ): EntrancePlan {
     val style = when (config.animationStyle) {
-        PanelAnimationStyle.Random ->
-            if (Random.nextBoolean()) PanelAnimationStyle.FromDirections else PanelAnimationStyle.Rain
+        PanelAnimationStyle.Random -> listOf(
+            PanelAnimationStyle.FromDirections,
+            PanelAnimationStyle.Rain,
+            PanelAnimationStyle.PopUp,
+        ).random()
         else -> config.animationStyle
     }
 
@@ -59,6 +66,7 @@ internal fun buildEntrancePlan(
                 },
                 staggerMs = List(panelCount) { (Random.nextFloat() * 120f).toLong() },
                 animatables = animatables,
+                scaleAnimatables = List(panelCount) { Animatable(1f) },
             )
         }
 
@@ -72,6 +80,17 @@ internal fun buildEntrancePlan(
                 startOffsets = List(panelCount) { Offset(0f, -viewH * 1.1f) },
                 staggerMs = List(panelCount) { rank[it] * 40L },
                 animatables = animatables,
+                scaleAnimatables = List(panelCount) { Animatable(1f) },
+            )
+        }
+
+        PanelAnimationStyle.PopUp -> {
+            EntrancePlan(
+                style = style,
+                startOffsets = List(panelCount) { Offset.Zero },
+                staggerMs = List(panelCount) { (Random.nextFloat() * 220f).toLong() },
+                animatables = animatables,
+                scaleAnimatables = List(panelCount) { Animatable(0f) },
             )
         }
 
@@ -96,14 +115,31 @@ internal fun rememberEntrancePlan(
     }
 
     LaunchedEffect(panels) {
-        plan.animatables.forEach { it.snapTo(1f) }
-        plan.animatables.forEachIndexed { i, anim ->
-            launch {
-                if (plan.staggerMs[i] > 0) delay(plan.staggerMs[i])
-                anim.animateTo(
-                    targetValue = 0f,
-                    animationSpec = tween(durationMillis = config.animationSpeedMs, easing = FastOutSlowInEasing),
-                )
+        if (plan.style == PanelAnimationStyle.PopUp) {
+            plan.animatables.forEach { it.snapTo(1f) }
+            plan.scaleAnimatables.forEach { it.snapTo(0f) }
+            plan.scaleAnimatables.forEachIndexed { i, anim ->
+                launch {
+                    if (plan.staggerMs[i] > 0) delay(plan.staggerMs[i])
+                    anim.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                    )
+                }
+            }
+        } else {
+            plan.animatables.forEach { it.snapTo(1f) }
+            plan.animatables.forEachIndexed { i, anim ->
+                launch {
+                    if (plan.staggerMs[i] > 0) delay(plan.staggerMs[i])
+                    anim.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(durationMillis = config.animationSpeedMs, easing = FastOutSlowInEasing),
+                    )
+                }
             }
         }
     }

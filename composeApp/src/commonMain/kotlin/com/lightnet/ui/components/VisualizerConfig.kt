@@ -10,6 +10,9 @@ enum class PanelAnimationStyle {
     /** Panels drop from the top, staggered left-to-right like rain. */
     Rain,
 
+ah    /** Panels grow from zero size to full size with a slight bounce, staggered randomly. */
+    PopUp,
+
     /** Pick one of the concrete styles at random on each appearance. */
     Random,
 }
