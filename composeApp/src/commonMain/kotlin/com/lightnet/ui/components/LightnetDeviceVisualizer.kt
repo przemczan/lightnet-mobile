@@ -3,7 +3,6 @@ package com.lightnet.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -57,8 +56,6 @@ fun LightnetDeviceVisualizer(
     onEnterSelectionMode: (firstPanelIndex: Int) -> Unit = {},
     onTapWhileOff: (() -> Unit)? = null,
     rotationDegrees: Float = 0f,
-    rotateMode: Boolean = false,
-    onRotate: (deltaDegrees: Float) -> Unit = {},
     config: PanelVisualConfig = PanelVisualConfig(),
 ) {
     val states = panels.map { it.state.collectAsState() }
@@ -73,7 +70,6 @@ fun LightnetDeviceVisualizer(
     val currentOnSelectionChange = rememberUpdatedState(onSelectionChange)
     val currentOnEnterSelection  = rememberUpdatedState(onEnterSelectionMode)
     val currentOnTapWhileOff     = rememberUpdatedState(onTapWhileOff)
-    val currentOnRotate          = rememberUpdatedState(onRotate)
 
     BoxWithConstraints(modifier) {
         if (panels.isEmpty()) return@BoxWithConstraints
@@ -182,15 +178,7 @@ fun LightnetDeviceVisualizer(
             }
         }
 
-        val gestureModifier = if (rotateMode) {
-            // Rotate mode overrides paint/select: horizontal swipe spins the view (works powered off).
-            Modifier.pointerInput(Unit) {
-                detectHorizontalDragGestures { change, dragAmount ->
-                    change.consume()
-                    currentOnRotate.value(dragAmount * config.rotateSensitivity)
-                }
-            }
-        } else if (!powerOn && currentOnTapWhileOff.value != null) {
+        val gestureModifier = if (!powerOn && currentOnTapWhileOff.value != null) {
             Modifier.pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)

@@ -45,10 +45,6 @@ data class PanelVisualConfig(
     val animationStyle: PanelAnimationStyle = PanelAnimationStyle.Random,
     /** Per-panel animation duration in ms. */
     val animationSpeedMs: Int = 400,
-
-    // ── Rotation ──────────────────────────────────────────────────────────────
-    /** Degrees of view rotation per px of horizontal swipe while in rotate mode. */
-    val rotateSensitivity: Float = 0.35f,
 )
 
 /** Shadow rendering technique, shared by [ShadowConfig] (drop) and [InnerShadowConfig] (inner). */

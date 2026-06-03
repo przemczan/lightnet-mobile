@@ -33,11 +33,11 @@ import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilledIconToggleButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -147,7 +147,7 @@ fun DeviceControllerScreen(
     var showPaletteSheet    by remember { mutableStateOf(false) }
     var showBrightnessSheet by remember { mutableStateOf(false) }
     var allPanelsOn         by remember(device) { mutableStateOf(device.cachedPowerState ?: false) }
-    var rotateMode        by remember(device) { mutableStateOf(false) }
+    var showRotateSheet   by remember(device) { mutableStateOf(false) }
     var rawRotationAngle  by remember(device) { mutableFloatStateOf(devicePrefs.visualizerRotation.value) }
     val rotationAngle     = (rawRotationAngle / 5f).roundToInt() * 5f
 
@@ -256,8 +256,6 @@ fun DeviceControllerScreen(
                             showPanelIds  = debugMode,
                             onTapWhileOff = { showOffMessage = true },
                             rotationDegrees = rotationAngle,
-                            rotateMode    = rotateMode,
-                            onRotate      = { delta -> rawRotationAngle += delta },
                             modifier      = Modifier.fillMaxSize(),
                         )
                     }
@@ -308,17 +306,10 @@ fun DeviceControllerScreen(
                                 Icon(Icons.Default.WbSunny, contentDescription = "Brightness")
                             }
                             IconButton(
-                                onClick = {
-                                    if (rotateMode) devicePrefs.setVisualizerRotation(rotationAngle)
-                                    rotateMode = !rotateMode
-                                },
+                                onClick = { showRotateSheet = true },
                                 enabled = isConnected,
                             ) {
-                                Icon(
-                                    Icons.Default.Rotate90DegreesCcw,
-                                    contentDescription = "Rotate view",
-                                    tint = if (rotateMode && isConnected) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-                                )
+                                Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = "Rotate view")
                             }
                             FilledIconToggleButton(
                                 checked         = allPanelsOn,
@@ -382,6 +373,22 @@ fun DeviceControllerScreen(
         )
     }
 
+    if (showRotateSheet) {
+        RotateSheet(
+            initial       = rawRotationAngle,
+            onAngleChange = { rawRotationAngle = it },
+            onConfirm     = {
+                devicePrefs.setVisualizerRotation(rotationAngle)
+                showRotateSheet = false
+            },
+            onDismiss     = {
+                // Revert the live preview to the last saved angle.
+                rawRotationAngle = devicePrefs.visualizerRotation.value
+                showRotateSheet = false
+            },
+        )
+    }
+
     if (showSwitcherSheet) {
         DeviceSwitcherSheet(
             devices         = devices,
@@ -390,6 +397,64 @@ fun DeviceControllerScreen(
             onManageDevices = onManageDevices,
             onDismiss       = { showSwitcherSheet = false },
         )
+    }
+}
+
+// ── Rotate sheet ──────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RotateSheet(
+    initial: Float,
+    onAngleChange: (Float) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var angle by remember { mutableFloatStateOf(initial) }
+    val snapped = (angle / 5f).roundToInt() * 5f
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState       = rememberModalBottomSheetState(),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Rotate view", style = MaterialTheme.typography.titleMedium)
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = null)
+                Slider(
+                    value         = angle,
+                    onValueChange = { angle = it; onAngleChange(it) },
+                    valueRange    = 0f..360f,
+                    modifier      = Modifier.weight(1f),
+                )
+                Text(
+                    "${snapped.roundToInt()}°",
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(44.dp),
+                )
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            ) {
+                OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+                Button(onClick = onConfirm) { Text("OK") }
+            }
+        }
     }
 }
 
