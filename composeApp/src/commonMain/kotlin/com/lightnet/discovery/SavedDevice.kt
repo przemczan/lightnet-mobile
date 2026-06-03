@@ -1,6 +1,13 @@
 package com.lightnet.discovery
 
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
+
+@OptIn(ExperimentalUuidApi::class)
+fun generateDeviceId(): String = Uuid.random().toString()
+
 data class SavedDevice(
+    val id: String,
     val name: String,
     /** Override IP/hostname entered by the user. Empty string means not set — use hostName or lastIP. */
     val host: String = "",
@@ -31,10 +38,11 @@ fun SavedDevice.toDiscovered() = DiscoveredDevice(name, host.ifEmpty { lastIP ?:
  * falls back to IP (the saved override host, or its last known IP). The friendly name is
  * never used, since the user is free to rename a device.
  */
-fun DiscoveredDevice.isSameAs(saved: SavedDevice): Boolean =
-    if (hostName != null && saved.hostName != null) {
-        hostName.equals(saved.hostName, ignoreCase = true)
-    } else {
-        val savedIp = saved.host.ifEmpty { saved.lastIP }
-        host.isNotEmpty() && host == savedIp
+fun DiscoveredDevice.isSameAs(saved: SavedDevice): Boolean {
+    if (hostName != null && saved.hostName != null && hostName.equals(saved.hostName, ignoreCase = true)) return true
+    if (host.isNotEmpty()) {
+        if (saved.lastIP != null && host == saved.lastIP) return true
+        if (saved.host.isNotEmpty() && host == saved.host) return true
     }
+    return false
+}

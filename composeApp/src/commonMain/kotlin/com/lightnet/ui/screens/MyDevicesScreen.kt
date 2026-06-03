@@ -89,7 +89,7 @@ fun MyDevicesScreen(
                         contentPadding      = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(devices, key = { it.name }) { device ->
+                        items(devices, key = { it.id }) { device ->
                             HomeDeviceCard(
                                 device      = device,
                                 onClick     = { onOpenDevice(device) },

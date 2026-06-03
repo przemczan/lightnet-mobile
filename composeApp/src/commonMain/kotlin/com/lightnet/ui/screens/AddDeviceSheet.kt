@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.lightnet.discovery.DiscoveredDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.ServiceDiscovery
+import com.lightnet.discovery.generateDeviceId
 import com.lightnet.discovery.isSameAs
 import com.lightnet.ui.components.SectionHeader
 import io.ktor.client.HttpClient
@@ -113,11 +114,13 @@ fun AddDeviceSheet(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         items(discovered, key = { it.name }) { d ->
+                            val matchedSaved = existingDevices.firstOrNull { d.isSameAs(it) }
                             DiscoveredDeviceRow(
                                 device       = d,
-                                alreadySaved = existingDevices.any { d.isSameAs(it) },
+                                savedName    = matchedSaved?.name,
                                 onAdd        = {
                                     onAdd(SavedDevice(
+                                        id       = generateDeviceId(),
                                         name     = d.name,
                                         host     = "",
                                         port     = d.port,
@@ -180,9 +183,10 @@ fun AddDeviceSheet(
                     Button(
                         onClick = {
                             onAdd(SavedDevice(
-                                name   = name.trim(),
-                                host   = host.trim(),
-                                port   = port.toIntOrNull() ?: 80,
+                                id   = generateDeviceId(),
+                                name = name.trim(),
+                                host = host.trim(),
+                                port = port.toIntOrNull() ?: 80,
                             ))
                             onDismiss()
                         },
@@ -214,7 +218,7 @@ private suspend fun testConnection(
 @Composable
 private fun DiscoveredDeviceRow(
     device: DiscoveredDevice,
-    alreadySaved: Boolean,
+    savedName: String?,
     onAdd: () -> Unit,
 ) {
     Row(
@@ -223,7 +227,7 @@ private fun DiscoveredDeviceRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(device.name, style = MaterialTheme.typography.bodyMedium)
+            Text(savedName ?: device.name, style = MaterialTheme.typography.bodyMedium)
             Text(
                 device.hostName ?: device.host,
                 style = MaterialTheme.typography.bodySmall,
@@ -239,7 +243,7 @@ private fun DiscoveredDeviceRow(
                 )
             }
         }
-        if (alreadySaved) {
+        if (savedName != null) {
             Text(
                 "Saved",
                 style = MaterialTheme.typography.labelSmall,

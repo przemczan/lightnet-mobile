@@ -49,7 +49,7 @@ fun LightnetApp(
             mutableStateOf(activeDevice?.effectiveHost?.ifEmpty { null })
         }
 
-        val device = remember(activeDevice?.host, activeDevice?.port) {
+        val device = remember(activeDevice?.id) {
             activeDevice?.let { d ->
                 LightnetDevice(
                     SocketConnector(
@@ -60,7 +60,7 @@ fun LightnetApp(
                         client          = httpClient,
                         onConnectedWith = { connectedHost ->
                             connectedWsHost = connectedHost
-                            scope.launch { deviceRepository.updateLastIP(d.name, connectedHost) }
+                            scope.launch { deviceRepository.updateLastIP(d.id, connectedHost) }
                         },
                     )
                 )
@@ -76,7 +76,7 @@ fun LightnetApp(
             device?.snapshot?.collect { snap ->
                 val count = snap?.panels?.size ?: return@collect
                 activeDevice?.let { d ->
-                    deviceRepository.updatePanelCount(d.name, count)
+                    deviceRepository.updatePanelCount(d.id, count)
                     refreshDevices()
                 }
             }
@@ -132,14 +132,14 @@ fun LightnetApp(
             EditDeviceSheet(
                 device    = target,
                 onSave    = { original, updated ->
-                    deviceRepository.update(original.name, updated)
+                    deviceRepository.update(original.id, updated)
                     refreshDevices()
-                    if (activeDevice?.name == original.name) activeDevice = updated
+                    if (activeDevice?.id == original.id) activeDevice = updated
                 },
                 onDelete  = { d ->
-                    deviceRepository.remove(d.name)
+                    deviceRepository.remove(d.id)
                     refreshDevices()
-                    if (activeDevice?.name == d.name) {
+                    if (activeDevice?.id == d.id) {
                         activeDevice = null
                         showDevice   = false
                     }
