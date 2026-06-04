@@ -10,12 +10,15 @@ import com.lightnet.api.websocket.ConnectorState
 import com.lightnet.api.websocket.MessageApiService
 import com.lightnet.api.websocket.model.PanelInfo
 import com.lightnet.api.websocket.model.PanelLayout
+import com.lightnet.api.websocket.model.PanelState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 enum class ConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
@@ -35,8 +38,21 @@ class LightnetDevice(
     private val panelsListService   = PanelsListService(messageApiService, scope)
     private val panelsStatesService = PanelsStatesService(messageApiService, panelsListService, scope)
 
+    private val _livePreview = MutableStateFlow(false)
+    /** When on, panels render from mirrored animation packets instead of polled states. */
+    val livePreview: StateFlow<Boolean> = _livePreview
+
+    private val panelMirrorService  = PanelMirrorService(messageApiService, panelsListService, panelsStatesService, _livePreview, scope)
+
     private val _connectionState = MutableStateFlow(ConnectionState.IDLE)
     val connectionState: StateFlow<ConnectionState> = _connectionState
+
+    // Source of panel render state: mirrored packets while live preview is on, else polled.
+    // Empty mirror emissions are ignored downstream, so panels keep their last frame.
+    private val renderStates: Flow<List<PanelState>> =
+        combine(_livePreview, panelsStatesService.states, panelMirrorService.states) { live, polled, mirror ->
+            if (live) mirror else polled
+        }
 
     private val _snapshot = MutableStateFlow<DeviceSnapshot?>(null)
     val snapshot: StateFlow<DeviceSnapshot?> = _snapshot
@@ -88,6 +104,12 @@ class LightnetDevice(
         if (connectionState.value == ConnectionState.CONNECTED) panelsStatesService.refresh()
     }
 
+    /** Toggles live animation preview. Re-polls real state when turning off so the view re-syncs. */
+    fun setLivePreview(on: Boolean) {
+        _livePreview.value = on
+        if (!on) refreshPanelStates()
+    }
+
     fun close() {
         connector.close()
         scope.cancel()
@@ -129,7 +151,7 @@ class LightnetDevice(
                 messageApiService = messageApiService,
                 info              = info,
                 layout            = layouts.first { it.panelId == info.id },
-                panelsStates      = panelsStatesService.states,
+                panelsStates      = renderStates,
                 scope             = scope,
                 initialState      = cachedStates.find { it.panelId == info.id },
             )

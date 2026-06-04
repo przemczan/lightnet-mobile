@@ -70,21 +70,25 @@ object DebugLog {
     private val responseToRequest = requestToResponse.entries.associate { (k, v) -> v to k }
 
     fun logWsSent(type: MessageType, bytes: Int, payload: ByteArray? = null) {
+        if (!debugMode.value) return
         if (type in requestToResponse) inFlight[type] = source.markNow()
         append(DebugLogEntry.WsSent(nextId++, now(), type, bytes, payload))
     }
 
     fun logWsReceived(type: MessageType, bytes: Int, payload: ByteArray? = null) {
+        if (!debugMode.value) return
         val durationMs = responseToRequest[type]
             ?.let { inFlight.remove(it)?.elapsedNow()?.inWholeMilliseconds }
         append(DebugLogEntry.WsReceived(nextId++, now(), type, bytes, durationMs, payload))
     }
 
     fun logHttp(host: String, method: String, path: String, statusCode: Int, durationMs: Long, body: String? = null) {
+        if (!debugMode.value) return
         append(DebugLogEntry.Http(nextId++, now(), host, method, path, statusCode, durationMs, body))
     }
 
     fun logWsConnect(host: String, port: Int, status: ConnectStatus, detail: String? = null) {
+        if (!debugMode.value) return
         append(DebugLogEntry.WsConnect(nextId++, now(), host, port, status, detail))
     }
 
