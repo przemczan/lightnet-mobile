@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -48,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -109,9 +111,13 @@ fun DeviceControllerScreen(
 
     val connectionState by device.connectionState.collectAsState()
     val snapshot        by device.snapshot.collectAsState()
+    val livePreview     by device.livePreview.collectAsState()
 
     // Refresh panel states on screen entry when already connected.
     LaunchedEffect(device) { device?.refreshPanelStates() }
+
+    // Turn off live preview when the visualizer screen leaves composition.
+    DisposableEffect(device) { onDispose { device.setLivePreview(false) } }
 
     var wasConnected    by remember(device) { mutableStateOf(device.connectionState.value == ConnectionState.CONNECTED) }
     // Pre-seeded to true only when snapshot AND power state are both already cached, so
@@ -310,6 +316,16 @@ fun DeviceControllerScreen(
                                 enabled = isConnected,
                             ) {
                                 Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = "Rotate view")
+                            }
+                            FilledIconToggleButton(
+                                checked         = livePreview,
+                                onCheckedChange = { device.setLivePreview(it) },
+                                enabled         = isConnected,
+                            ) {
+                                Icon(
+                                    Icons.Default.Visibility,
+                                    contentDescription = if (livePreview) "Stop live preview" else "Live preview",
+                                )
                             }
                             FilledIconToggleButton(
                                 checked         = allPanelsOn,

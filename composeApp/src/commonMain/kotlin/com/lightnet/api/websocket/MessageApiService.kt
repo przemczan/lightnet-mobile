@@ -3,7 +3,9 @@ package com.lightnet.api.websocket
 import com.lightnet.api.websocket.protocol.MessageParser
 import com.lightnet.api.websocket.protocol.MessageType
 import com.lightnet.api.websocket.protocol.message.Message
+import com.lightnet.api.websocket.protocol.message.MirrorBatch
 import com.lightnet.api.websocket.protocol.message.decodeEdgesList
+import com.lightnet.api.websocket.protocol.message.decodeMirrorBatch
 import com.lightnet.api.websocket.protocol.message.decodePanelsStates
 import com.lightnet.api.websocket.protocol.message.IncomingMessage
 import com.lightnet.api.websocket.protocol.model.PanelEdgeInfoModel
@@ -29,6 +31,10 @@ class MessageApiService(
     val panelsStates: Flow<List<PanelStateModel>> = _messages
         .filter { it.type == MessageType.PANELS_STATES }
         .map { decodePanelsStates(it.payload) }
+
+    val mirrorBatches: Flow<MirrorBatch> = _messages
+        .filter { it.type == MessageType.MIRROR_BATCH }
+        .map { decodeMirrorBatch(it.payload) }
 
     init {
         scope.launch {

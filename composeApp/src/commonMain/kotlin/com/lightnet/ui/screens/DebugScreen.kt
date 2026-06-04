@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -29,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +62,15 @@ fun DebugScreen(
     val displayEntries = remember(entries) { entries.asReversed() }
 
     var selectedEntry by remember { mutableStateOf<DebugLogEntry?>(null) }
+    var autoScroll by remember { mutableStateOf(true) }
+    val listState = rememberLazyListState()
+
+    // Newest entries are at the top (index 0); keep them in view while auto-scroll is on.
+    LaunchedEffect(displayEntries.firstOrNull()?.id, autoScroll) {
+        if (autoScroll && displayEntries.isNotEmpty()) {
+            listState.animateScrollToItem(0)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -70,6 +82,17 @@ fun DebugScreen(
                     }
                 },
                 actions = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Auto-scroll",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Checkbox(
+                            checked = autoScroll,
+                            onCheckedChange = { autoScroll = it },
+                        )
+                    }
                     IconButton(onClick = { DebugLog.clear() }) {
                         Icon(Icons.Default.DeleteSweep, contentDescription = "Clear log")
                     }
@@ -92,6 +115,7 @@ fun DebugScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 4.dp),
                 ) {
