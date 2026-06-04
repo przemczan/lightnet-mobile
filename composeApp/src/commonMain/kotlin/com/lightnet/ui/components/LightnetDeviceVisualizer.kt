@@ -36,6 +36,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
 
 enum class PaintMode { Paint, Erase, Stamp }
@@ -291,7 +292,7 @@ fun LightnetDeviceVisualizer(
                         drawPanelBackground(r.path, config)
 
                         if (powerOn) {
-                            val brightnessScale = (brightness / 255f).coerceIn(0f, 1f)
+                            val brightnessScale = (brightness / 255f).coerceIn(0f, 1f).pow(0.45f)
                             drawPanelActiveColor(
                                 r.path,
                                 Color(

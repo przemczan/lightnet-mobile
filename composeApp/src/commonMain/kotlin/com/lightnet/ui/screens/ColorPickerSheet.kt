@@ -89,9 +89,8 @@ fun ColorPickerSheet(
                                 color   = swatchColor,
                                 label   = baseColorLabels.getOrElse(i) { "" },
                                 onClick = {
-                                    val (h, s, v) = colorToHsv(swatchColor)
-                                    hue = h; saturation = s; brightness = v
-                                    onPick(hsvToColor(hue, saturation, brightness))
+                                    onPick(swatchColor)
+                                    onDismiss()
                                 },
                             )
                             FilledTonalIconButton(

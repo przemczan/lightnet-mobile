@@ -517,6 +517,7 @@ private fun BrightnessSheet(
                 Icon(Icons.Default.WbSunny, contentDescription = null)
                 Slider(
                     value         = brightness / 255f,
+                    valueRange    = 1f / 255f..1f,
                     onValueChange = {
                         brightness = it * 255f
                         onBrightnessChange(brightness)
