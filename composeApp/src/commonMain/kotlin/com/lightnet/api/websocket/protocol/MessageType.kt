@@ -7,7 +7,8 @@ enum class MessageType(val value: Int) {
     GET_PANELS_STATES(5),
     PANELS_STATES(6),
     EDGES_LIST(7),
-    MIRROR_BATCH(9);
+    MIRROR_BATCH(9),
+    SET_MIRROR(10);
 
     companion object {
         fun fromValue(value: Int): MessageType? = entries.find { it.value == value }

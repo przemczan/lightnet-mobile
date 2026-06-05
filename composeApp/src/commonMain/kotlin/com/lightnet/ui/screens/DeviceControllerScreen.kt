@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
@@ -90,6 +91,7 @@ fun DeviceControllerScreen(
     device: LightnetDevice?,
     activeDevice: SavedDevice,
     devices: List<SavedDevice>,
+    httpClient: LightnetHttpClient?,
     onBack: () -> Unit,
     onSwitchDevice: (SavedDevice) -> Unit,
     onManageDevices: () -> Unit,
@@ -196,6 +198,7 @@ fun DeviceControllerScreen(
         DeviceSettingsScreen(
             savedDevice = activeDevice,
             device      = device,
+            httpClient  = httpClient,
             onBack      = { showSettings = false },
             onOpenDebug = { showDebug = true },
         )
