@@ -127,6 +127,7 @@ fun LightnetApp(
                 device          = device,
                 activeDevice    = activeDevice!!,
                 devices         = devices,
+                httpClient      = httpApiClient,
                 onBack          = { showDevice = false },
                 onSwitchDevice  = { d -> activeDevice = d },
                 onManageDevices = { showDevice = false },

@@ -11,6 +11,7 @@ import com.lightnet.api.websocket.MessageApiService
 import com.lightnet.api.websocket.model.PanelInfo
 import com.lightnet.api.websocket.model.PanelLayout
 import com.lightnet.api.websocket.model.PanelState
+import com.lightnet.api.websocket.protocol.message.SetMirrorMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -78,7 +79,12 @@ class LightnetDevice(
                     ConnectorState.DISCONNECTED,
                     ConnectorState.FAILED        -> ConnectionState.DISCONNECTED
                 }
-                if (cs == ConnectorState.CONNECTED) panelsListService.load()
+                if (cs == ConnectorState.CONNECTED) {
+                    panelsListService.load()
+                    // Mirroring is per-connection and defaults off on the controller, so a
+                    // reconnect while preview is on must re-enable it (and re-trigger the snapshot).
+                    if (_livePreview.value) messageApiService.send(SetMirrorMessage(true))
+                }
                 if (cs == ConnectorState.DISCONNECTED || cs == ConnectorState.FAILED) _snapshot.value = null
             }
         }
@@ -107,6 +113,11 @@ class LightnetDevice(
     /** Toggles live animation preview. Re-polls real state when turning off so the view re-syncs. */
     fun setLivePreview(on: Boolean) {
         _livePreview.value = on
+        // Opt in/out of the controller's MIRROR_BATCH stream. Enabling also makes the controller
+        // replay a snapshot of the current animation state, so the preview is correct at once.
+        if (connectionState.value == ConnectionState.CONNECTED) {
+            messageApiService.send(SetMirrorMessage(on))
+        }
         if (!on) refreshPanelStates()
     }
 

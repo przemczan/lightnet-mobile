@@ -51,6 +51,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.lightnet.api.http.LightnetApiException
 import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PaletteStop
@@ -58,17 +59,10 @@ import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val MAX_STOPS = 16
 private const val MAX_POSITION = 255
-
-/** The [MAX_STOPS] evenly-spread positions a stop may occupy: 0, 17, … 255. */
-private val STOP_SLOTS: List<Int> = (0 until MAX_STOPS).map { it * MAX_POSITION / (MAX_STOPS - 1) }
-
-/** Slots available to movable stops — everything except the fixed 0 and 255 ends. */
-private val MIDDLE_SLOTS: List<Int> = STOP_SLOTS.subList(1, STOP_SLOTS.size - 1)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,7 +125,11 @@ fun PaletteEditorScreen(
                                 if (result?.isSuccess == true) {
                                     onBack()
                                 } else {
-                                    snackbar.showSnackbar("Failed to save palette.")
+                                    val apiError = (result?.exceptionOrNull() as? LightnetApiException)?.error
+                                    snackbar.showSnackbar(
+                                        if (apiError != null) "Failed to save palette: $apiError"
+                                        else "Failed to save palette."
+                                    )
                                 }
                             }
                         },
@@ -164,8 +162,15 @@ fun PaletteEditorScreen(
                 GradientBar(
                     stops    = sortedStops,
                     onMove   = { fromPos, toPos ->
+                        val occupant = stops.find { it.position == toPos }
                         stops = stops
-                            .map { if (it.position == fromPos) it.copy(position = toPos) else it }
+                            .map { s ->
+                                when (s.position) {
+                                    fromPos -> s.copy(position = toPos)
+                                    toPos   -> if (occupant != null) s.copy(position = fromPos) else s
+                                    else    -> s
+                                }
+                            }
                             .sortedBy { it.position }
                             .toMutableList()
                     },
@@ -193,7 +198,7 @@ fun PaletteEditorScreen(
                             enabled  = stops.size < MAX_STOPS,
                             onClick  = {
                                 val taken = stops.map { it.position }.toSet()
-                                val free = MIDDLE_SLOTS.firstOrNull { it !in taken } ?: return@TextButton
+                                val free = (1..254).firstOrNull { it !in taken } ?: return@TextButton
                                 stops = (stops + PaletteStop(free, "#FFFFFF")).sortedBy { it.position }.toMutableList()
                             },
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -274,8 +279,6 @@ private fun GradientBar(
             val xPx = stop.position / 255f * widthPx
             val xDp = with(density) { (xPx - handleWidthPx / 2f).coerceIn(0f, widthPx - handleWidthPx).toDp() }
 
-            // Movable stops snap to the nearest free slot among all 14 middle slots,
-            // allowing them to jump over other stops when a free slot exists on the other side.
             val dragModifier = if (!isFixed) {
                 Modifier.pointerInput(idx) {
                     awaitEachGesture {
@@ -287,11 +290,8 @@ private fun GradientBar(
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) break
                             accX += change.position.x - change.previousPosition.x
-                            val rawTo  = ((accX / widthPx) * 255).roundToInt()
-                            // Recompute free slots each frame so jumps over other stops are allowed
-                            val taken  = currentStops.value.filter { it.position != draggingPos }.map { it.position }.toSet()
-                            val target = MIDDLE_SLOTS.filter { it !in taken }.minByOrNull { abs(it - rawTo) }
-                            if (target != null && target != draggingPos) {
+                            val target = ((accX / widthPx) * 255).roundToInt().coerceIn(1, 254)
+                            if (target != draggingPos) {
                                 onMove(draggingPos, target)
                                 draggingPos = target
                             }

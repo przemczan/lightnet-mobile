@@ -76,9 +76,8 @@ class PanelMirrorService(
             }
         }
         // Driver loop: advance every player and publish the frame. Idle while live preview is
-        // off — the controller broadcasts mirror frames regardless, but there's no point ticking
-        // or recomposing when nothing is showing them. Batches are still applied above so state
-        // is already current the moment preview is enabled.
+        // off — mirroring is opt-in, so the controller streams batches only while preview is on,
+        // and replays a state snapshot the instant it's enabled, making the view current at once.
         scope.launch(work) {
             while (true) {
                 if (livePreview.value) {
