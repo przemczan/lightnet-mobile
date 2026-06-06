@@ -2,7 +2,17 @@ package com.lightnet.api.http.model
 
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 
 object AnimationType {
     const val SOLID = "SOLID"
@@ -20,6 +30,31 @@ object RunnerType {
     const val WAVE = "WAVE"
     const val RIPPLE = "RIPPLE"
     const val CHASE = "CHASE"
+}
+
+/** Runner directionality source tokens (scene-authoring §8). */
+object RunnerSourceToken {
+    const val ROOT = "root"
+    const val LEAVES = "leaves"
+    const val ALL = "all"
+    fun panel(index: Int) = "panel:$index"
+}
+
+/**
+ * A layer's `group`. The firmware accepts either a name string or a number 1–254; named
+ * groups are required for `startAfter` (numeric groups are never interned). This serializer
+ * round-trips both wire forms into a [String], so `"group": 1` loads as `"1"` and the editor
+ * always re-saves a (named) string — playback-equivalent.
+ */
+internal object GroupIdSerializer : KSerializer<String> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("GroupId", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: String) {
+        (encoder as JsonEncoder).encodeJsonElement(JsonPrimitive(value))
+    }
+
+    override fun deserialize(decoder: Decoder): String =
+        (decoder as JsonDecoder).decodeJsonElement().jsonPrimitive.content
 }
 
 @Serializable
@@ -40,20 +75,28 @@ data class SceneStep(
     val loop: Boolean? = null,
     val pingpong: Boolean? = null,
     val params: List<Int>? = null,
+    // Runner directionality (WAVE/RIPPLE/CHASE) — never combine with `params`.
+    val source: String? = null,
+    val reverse: Boolean? = null,
+    val waveWidth: Int? = null,
+    val rippleWidth: Int? = null,
 )
 
 @Serializable
 data class SceneLayer(
-    val group: Int,
-    val panels: PanelTarget,
+    @Serializable(with = GroupIdSerializer::class) val group: String,
+    val panels: PanelTarget = PanelTarget.All,
     val palette: String? = null,
     val sequence: List<SceneStep>,
+    val startAfter: String? = null,
+    val async: Boolean? = null,
+    val fallback: PanelTarget? = null,
 )
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class SceneJson(
-    @EncodeDefault(EncodeDefault.Mode.ALWAYS) val schemaVersion: Int = 1,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS) val schemaVersion: Int = 2,
     val name: String? = null,
     val loop: Boolean? = null,
     val speed: Float? = null,

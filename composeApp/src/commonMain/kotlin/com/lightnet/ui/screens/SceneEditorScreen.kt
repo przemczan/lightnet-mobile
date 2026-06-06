@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -43,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -63,8 +65,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.lightnet.api.http.LightnetApiException
 import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.ColorRef
 import com.lightnet.api.http.model.PaletteJson
@@ -78,9 +80,11 @@ import com.lightnet.ui.components.PaintMode
 import com.lightnet.ui.components.colorRefToColor
 import com.lightnet.ui.screens.scene.AnimId
 import com.lightnet.ui.screens.scene.ColorMode
-import com.lightnet.ui.screens.scene.EditableGroup
+import com.lightnet.ui.screens.scene.EditableLayer
 import com.lightnet.ui.screens.scene.EditableScene
 import com.lightnet.ui.screens.scene.EditableStep
+import com.lightnet.ui.screens.scene.RunnerSrc
+import com.lightnet.ui.screens.scene.TargetKind
 import com.lightnet.ui.screens.scene.sceneFromJson
 import com.lightnet.ui.screens.scene.toSceneJson
 import com.lightnet.ui.screens.scene.validationError
@@ -109,11 +113,13 @@ fun SceneEditorScreen(
     // Reference data for colour previews / dropdowns.
     var palettesMap by remember { mutableStateOf<Map<String, PaletteJson>>(emptyMap()) }
     var baseColors  by remember { mutableStateOf<List<String>>(emptyList()) }
+    var tags        by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(httpClient) {
         palettesMap = httpClient?.runCatching { getPalettes() }?.getOrNull() ?: emptyMap()
     }
     LaunchedEffect(device) {
         baseColors = device?.loadAppearance()?.baseColors ?: device?.cachedAppearance?.baseColors ?: emptyList()
+        tags = device?.getTopology()?.tags?.values?.flatten()?.distinct()?.sorted() ?: emptyList()
     }
     val paletteNames = remember(palettesMap) { palettesMap.keys.sorted() }
 
@@ -138,11 +144,11 @@ fun SceneEditorScreen(
     }
 
     // Stop any preview playback whenever the editor leaves composition for good.
-    // Registered before the sub-screen early-returns so navigating into a group
+    // Registered before the sub-screen early-returns so navigating into a layer
     // (which swaps this screen out via return) does not trigger it.
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { stopPreview() } }
 
-    var editingGroup by remember { mutableStateOf<EditableGroup?>(null) }
+    var editingLayer by remember { mutableStateOf<EditableLayer?>(null) }
 
     val activeScene = scene
     if (activeScene == null) {
@@ -160,19 +166,21 @@ fun SceneEditorScreen(
         return
     }
 
-    // Effective palette stops for a group's colour previews (group override → scene default).
-    fun stopsFor(group: EditableGroup): List<PaletteStop>? =
-        (group.palette ?: activeScene.palette)?.let { palettesMap[it]?.stops }
+    // Effective palette stops for a layer's colour previews (layer override → scene default).
+    fun stopsFor(layer: EditableLayer): List<PaletteStop>? =
+        (layer.palette ?: activeScene.palette)?.let { palettesMap[it]?.stops }
 
-    editingGroup?.let { group ->
-        GroupEditorScreen(
-            group        = group,
-            index        = activeScene.groups.indexOf(group),
-            panels       = panels,
-            paletteNames = paletteNames,
-            paletteStops = stopsFor(group),
-            baseColors   = baseColors,
-            onBack       = { editingGroup = null },
+    editingLayer?.let { layer ->
+        LayerEditorScreen(
+            layer         = layer,
+            index         = activeScene.layers.indexOf(layer),
+            panels        = panels,
+            paletteNames  = paletteNames,
+            paletteStops  = stopsFor(layer),
+            baseColors    = baseColors,
+            tags          = tags,
+            otherNames    = activeScene.layers.filter { it !== layer }.map { it.name },
+            onBack        = { editingLayer = null },
         )
         return
     }
@@ -193,14 +201,10 @@ fun SceneEditorScreen(
                     TextButton(onClick = {
                         val err = activeScene.validationError()
                         if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@TextButton }
-                        scope.launch {
-                            val result = httpClient?.runCatching { saveScene(activeScene.toSceneJson(panels)) }
-                            if (result?.isSuccess == true) { stopPreview(); onBack() }
-                            else {
-                                val apiError = (result?.exceptionOrNull() as? LightnetApiException)?.error
-                                snackbar.showSnackbar(apiError?.let { "Failed to save: $it" } ?: "Failed to save scene.")
-                            }
-                        }
+                        runCatching {
+                            com.lightnet.settings.AppPreferences.scenes.save(activeScene.toSceneJson(panels))
+                        }.onSuccess { stopPreview(); onBack() }
+                         .onFailure { scope.launch { snackbar.showSnackbar("Failed to save scene.") } }
                     }) { Text("Save") }
                 },
             )
@@ -284,39 +288,44 @@ fun SceneEditorScreen(
                     }
                 }
             }
-            item { SettingsSectionTitle("GROUPS") }
-            activeScene.groups.forEach { group ->
-                item(key = group.id) {
-                    GroupCard(
-                        group        = group,
-                        index        = activeScene.groups.indexOf(group),
+            item { SettingsSectionTitle("LAYERS") }
+            activeScene.layers.forEach { layer ->
+                item(key = layer.id) {
+                    LayerCard(
+                        layer        = layer,
                         panelCount   = panels.size,
-                        paletteStops = stopsFor(group),
+                        paletteStops = stopsFor(layer),
                         baseColors   = baseColors,
-                        onEdit       = { editingGroup = group },
-                        onDelete     = { activeScene.groups.remove(group) },
+                        onEdit       = { editingLayer = layer },
+                        onDelete     = { activeScene.layers.remove(layer) },
                     )
                 }
             }
             item {
                 OutlinedButton(
-                    onClick  = { activeScene.groups.add(EditableGroup()) },
+                    onClick  = { activeScene.layers.add(EditableLayer(name = activeScene.nextLayerName())) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.size(8.dp)); Text("Add group")
+                    Spacer(Modifier.size(8.dp)); Text("Add layer")
                 }
             }
         }
     }
 }
 
-// ── Group card (summary in the scene list) ──────────────────────────────────────
+// ── Layer card (summary in the scene list) ──────────────────────────────────────
+
+private fun targetSummary(layer: EditableLayer, panelCount: Int): String = when (layer.targetKind) {
+    TargetKind.All      -> "All panels"
+    TargetKind.Specific -> "${layer.selected.size} of $panelCount panels"
+    TargetKind.Selector -> layer.selectorToken
+    TargetKind.Advanced -> "Advanced selector"
+}
 
 @Composable
-private fun GroupCard(
-    group: EditableGroup,
-    index: Int,
+private fun LayerCard(
+    layer: EditableLayer,
     panelCount: Int,
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
@@ -327,7 +336,7 @@ private fun GroupCard(
     Card(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text("Group ${index + 1}", style = MaterialTheme.typography.titleSmall)
+                Text(layer.name.ifBlank { "Layer" }, style = MaterialTheme.typography.titleSmall)
                 Box {
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More")
@@ -338,7 +347,11 @@ private fun GroupCard(
                 }
             }
             Text(
-                if (group.allPanels) "All panels" else "${group.selected.size} of $panelCount panels",
+                buildString {
+                    append(targetSummary(layer, panelCount))
+                    if (layer.async) append(" · async")
+                    layer.startAfter?.takeIf { it.isNotBlank() }?.let { append(" · after $it") }
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -346,7 +359,7 @@ private fun GroupCard(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                group.steps.forEach { step -> StepChip(step, paletteStops, baseColors) }
+                layer.steps.forEach { step -> StepChip(step, paletteStops, baseColors) }
             }
         }
     }
@@ -373,17 +386,19 @@ private fun StepChip(step: EditableStep, paletteStops: List<PaletteStop>?, baseC
     }
 }
 
-// ── Group editor (panel targeting + step sequence) ───────────────────────────────
+// ── Layer editor (name + panel targeting + step sequence) ────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GroupEditorScreen(
-    group: EditableGroup,
+private fun LayerEditorScreen(
+    layer: EditableLayer,
     index: Int,
     panels: List<LightnetDevicePanel>,
     paletteNames: List<String>,
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
+    tags: List<String>,
+    otherNames: List<String>,
     onBack: () -> Unit,
 ) {
     BackHandlerCompat(onBack = onBack)
@@ -392,6 +407,7 @@ private fun GroupEditorScreen(
     editingStep?.let { step ->
         StepEditorScreen(
             step         = step,
+            panels       = panels,
             paletteStops = paletteStops,
             baseColors   = baseColors,
             onBack       = { editingStep = null },
@@ -399,7 +415,7 @@ private fun GroupEditorScreen(
         return
     }
 
-    Scaffold(topBar = { EditorTopBar("Group ${index + 1}", onBack) }) { padding ->
+    Scaffold(topBar = { EditorTopBar(layer.name.ifBlank { "Layer ${index + 1}" }, onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
@@ -408,75 +424,219 @@ private fun GroupEditorScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            item {
+                TextField(
+                    value         = layer.name,
+                    onValueChange = { layer.name = it },
+                    label         = { Text("LAYER NAME") },
+                    singleLine    = true,
+                    modifier      = Modifier.fillMaxWidth(),
+                )
+            }
+
             item { SettingsSectionTitle("PANELS") }
+            item { PanelTargetEditor(layer, panels, tags) }
+
+            item { SettingsSectionTitle("PLAYBACK") }
             item {
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                            Text("All panels", style = MaterialTheme.typography.bodyLarge)
-                            Switch(checked = group.allPanels, onCheckedChange = { group.allPanels = it })
-                        }
-                        if (!group.allPanels) {
-                            HorizontalDivider()
-                            Text(
-                                "Tap panels to include (${group.selected.size} selected)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                            LightnetDeviceVisualizer(
-                                panels            = panels,
-                                modifier          = Modifier.fillMaxWidth().height(260.dp),
-                                interactive       = false,
-                                selectionMode     = true,
-                                selectedPanels    = group.selected,
-                                onSelectionChange = { group.selected = it },
-                                paintMode         = PaintMode.Paint,
-                            )
-                        }
+                    Column(Modifier.padding(horizontal = 12.dp)) {
+                        ToggleRow(
+                            "Async (loop independently)",
+                            layer.async,
+                            enabled = layer.startAfter.isNullOrBlank(),
+                        ) { layer.async = it }
+                        HorizontalDivider()
+                        LabeledDropdown(
+                            label    = "Start after",
+                            value    = layer.startAfter?.takeIf { it.isNotBlank() } ?: "Nothing (start immediately)",
+                            options  = listOf("Nothing (start immediately)") + otherNames,
+                            onSelect = { layer.startAfter = if (it == "Nothing (start immediately)") null else it },
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
                     }
                 }
             }
+
             if (paletteNames.isNotEmpty()) {
                 item {
                     Card(Modifier.fillMaxWidth()) {
                         PaletteDropdown(
                             label    = "Palette override (optional)",
-                            value    = group.palette,
+                            value    = layer.palette,
                             options  = paletteNames,
-                            onSelect = { group.palette = it },
+                            onSelect = { layer.palette = it },
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         )
                     }
                 }
             }
+
             item { SettingsSectionTitle("STEPS") }
             item {
                 Card(Modifier.fillMaxWidth()) {
                     Column {
-                        group.steps.forEachIndexed { i, step ->
+                        layer.steps.forEachIndexed { i, step ->
                             if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp))
                             StepRow(
                                 step         = step,
                                 paletteStops = paletteStops,
                                 baseColors   = baseColors,
-                                canRemove    = group.steps.size > 1,
+                                canRemove    = layer.steps.size > 1,
                                 canMoveUp    = i > 0,
-                                canMoveDown  = i < group.steps.lastIndex,
+                                canMoveDown  = i < layer.steps.lastIndex,
                                 onClick      = { editingStep = step },
-                                onRemove     = { group.steps.remove(step) },
-                                onMoveUp     = { group.steps.move(i, i - 1) },
-                                onMoveDown   = { group.steps.move(i, i + 1) },
+                                onRemove     = { layer.steps.remove(step) },
+                                onMoveUp     = { layer.steps.move(i, i - 1) },
+                                onMoveDown   = { layer.steps.move(i, i + 1) },
                             )
                         }
                         HorizontalDivider(Modifier.padding(horizontal = 12.dp))
                         TextButton(
-                            onClick  = { group.steps.add(EditableStep()) },
+                            onClick  = { layer.steps.add(EditableStep()) },
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         ) { Text("+ Add step") }
                     }
                 }
             }
+        }
+    }
+}
+
+// ── Panel target editor ──────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PanelTargetEditor(
+    layer: EditableLayer,
+    panels: List<LightnetDevicePanel>,
+    tags: List<String>,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(layer.targetKind == TargetKind.All, { layer.targetKind = TargetKind.All }, { Text("All") })
+                FilterChip(layer.targetKind == TargetKind.Specific, { layer.targetKind = TargetKind.Specific }, { Text("Specific") })
+                FilterChip(layer.targetKind == TargetKind.Selector, { layer.targetKind = TargetKind.Selector }, { Text("By role") })
+                if (layer.targetKind == TargetKind.Advanced) {
+                    FilterChip(true, {}, { Text("Advanced") })
+                }
+            }
+
+            when (layer.targetKind) {
+                TargetKind.All -> Unit
+                TargetKind.Specific -> {
+                    Text(
+                        "Tap panels to include (${layer.selected.size} selected)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    LightnetDeviceVisualizer(
+                        panels            = panels,
+                        modifier          = Modifier.fillMaxWidth().height(260.dp),
+                        interactive       = false,
+                        selectionMode     = true,
+                        selectedPanels    = layer.selected,
+                        onSelectionChange = { layer.selected = it },
+                        paintMode         = PaintMode.Paint,
+                    )
+                }
+                TargetKind.Selector -> SelectorEditor(layer, panels, tags)
+                TargetKind.Advanced -> Text(
+                    "This layer uses an advanced selector that can't be edited here. " +
+                        "Pick All, Specific, or By role to replace it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+private data class SelectorKind(val key: String, val label: String, val arg: ArgKind)
+private enum class ArgKind { None, DepthBand, Panel, Count, Fraction, Tag }
+
+private val SELECTOR_KINDS = listOf(
+    SelectorKind("root", "Root", ArgKind.None),
+    SelectorKind("leaves", "Leaves (tips)", ArgKind.None),
+    SelectorKind("branches", "Branches (forks)", ArgKind.None),
+    SelectorKind("even", "Even", ArgKind.None),
+    SelectorKind("odd", "Odd", ArgKind.None),
+    SelectorKind("depth", "Depth ring", ArgKind.DepthBand),
+    SelectorKind("subtree", "Subtree of panel", ArgKind.Panel),
+    SelectorKind("neighbors", "Neighbors of panel", ArgKind.Panel),
+    SelectorKind("first", "First N", ArgKind.Count),
+    SelectorKind("last", "Last N", ArgKind.Count),
+    SelectorKind("fraction", "Fraction (front..back)", ArgKind.Fraction),
+    SelectorKind("tag", "Tag", ArgKind.Tag),
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectorEditor(
+    layer: EditableLayer,
+    panels: List<LightnetDevicePanel>,
+    tags: List<String>,
+) {
+    val token = layer.selectorToken
+    val kindKey = token.substringBefore(':').ifBlank { "leaves" }
+    val kind = SELECTOR_KINDS.firstOrNull { it.key == kindKey } ?: SELECTOR_KINDS[1]
+    val arg = token.substringAfter(':', "")
+
+    fun defaultToken(k: SelectorKind): String = when (k.arg) {
+        ArgKind.None      -> k.key
+        ArgKind.DepthBand -> "${k.key}:1"
+        ArgKind.Panel     -> "${k.key}:${panels.firstOrNull()?.info?.id ?: 1}"
+        ArgKind.Count     -> "${k.key}:1"
+        ArgKind.Fraction  -> "${k.key}:0-0.5"
+        ArgKind.Tag       -> "${k.key}:${tags.firstOrNull() ?: "accent"}"
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LabeledDropdown(
+            label    = "Role",
+            value    = kind.label,
+            options  = SELECTOR_KINDS.map { it.label },
+            onSelect = { sel -> SELECTOR_KINDS.firstOrNull { it.label == sel }?.let { layer.selectorToken = defaultToken(it) } },
+        )
+
+        when (kind.arg) {
+            ArgKind.None -> Unit
+            ArgKind.DepthBand -> OutlinedTextField(
+                value         = arg,
+                onValueChange = { layer.selectorToken = "${kind.key}:$it" },
+                label         = { Text("Depth (e.g. 1 or 1-2)") },
+                singleLine    = true,
+                modifier      = Modifier.fillMaxWidth(),
+            )
+            ArgKind.Count -> OutlinedTextField(
+                value           = arg,
+                onValueChange   = { v -> layer.selectorToken = "${kind.key}:${v.filter { it.isDigit() }}" },
+                label           = { Text("Count") },
+                singleLine      = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier        = Modifier.fillMaxWidth(),
+            )
+            ArgKind.Fraction -> OutlinedTextField(
+                value         = arg,
+                onValueChange = { layer.selectorToken = "${kind.key}:$it" },
+                label         = { Text("Range 0-1 (e.g. 0-0.5)") },
+                singleLine    = true,
+                modifier      = Modifier.fillMaxWidth(),
+            )
+            ArgKind.Tag -> OutlinedTextField(
+                value         = arg,
+                onValueChange = { layer.selectorToken = "${kind.key}:$it" },
+                label         = { Text("Tag name") },
+                singleLine    = true,
+                modifier      = Modifier.fillMaxWidth(),
+            )
+            ArgKind.Panel -> LabeledDropdown(
+                label    = "Panel",
+                value    = arg.ifBlank { "—" },
+                options  = panels.map { it.info.id.toString() },
+                onSelect = { layer.selectorToken = "${kind.key}:$it" },
+            )
         }
     }
 }
@@ -532,6 +692,7 @@ private fun StepRow(
 @Composable
 private fun StepEditorScreen(
     step: EditableStep,
+    panels: List<LightnetDevicePanel>,
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
     onBack: () -> Unit,
@@ -557,7 +718,7 @@ private fun StepEditorScreen(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("Runners", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Runners (motion across panels)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(4.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AnimId.runnerTypes.forEach { t ->
@@ -587,6 +748,23 @@ private fun StepEditorScreen(
                         onValueChange = { step.durationMs = it.roundToInt() },
                         valueRange    = 0f..30000f,
                     )
+                }
+            }
+
+            // Runner directionality + width.
+            if (step.anim.isRunner) {
+                item { RunnerDirectionEditor(step, panels) }
+                if (step.anim.hasWidth) {
+                    item {
+                        Column {
+                            Text("${step.anim.widthLabel}  ${step.width}", style = MaterialTheme.typography.bodyLarge)
+                            Slider(
+                                value         = step.width.toFloat(),
+                                onValueChange = { step.width = it.roundToInt().coerceAtLeast(1) },
+                                valueRange    = 1f..16f,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -636,6 +814,31 @@ private fun StepEditorScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun RunnerDirectionEditor(step: EditableStep, panels: List<LightnetDevicePanel>) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Source", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(step.source == RunnerSrc.Root, { step.source = RunnerSrc.Root }, { Text("Root") })
+                FilterChip(step.source == RunnerSrc.Leaves, { step.source = RunnerSrc.Leaves }, { Text("Leaves") })
+                FilterChip(step.source == RunnerSrc.Panel, { step.source = RunnerSrc.Panel }, { Text("Panel") })
+                if (step.source == RunnerSrc.All) FilterChip(true, {}, { Text("All") })
+            }
+            if (step.source == RunnerSrc.Panel) {
+                LabeledDropdown(
+                    label    = "From panel",
+                    value    = step.sourcePanel.toString(),
+                    options  = panels.map { it.info.id.toString() },
+                    onSelect = { step.sourcePanel = it.toIntOrNull() ?: step.sourcePanel },
+                )
+            }
+            ToggleRow("Reverse direction", step.reverse) { step.reverse = it }
+        }
+    }
+}
+
 @Composable
 private fun ColorSlotRow(
     label: String,
@@ -660,10 +863,14 @@ private fun ColorSlotRow(
 }
 
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun ToggleRow(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.bodyLarge)
-        Switch(checked = checked, onCheckedChange = onChange)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
 }
 
@@ -703,6 +910,33 @@ private fun PaletteDropdown(
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("Device default") }, onClick = { onSelect(null); expanded = false })
+            options.forEach { name ->
+                DropdownMenuItem(text = { Text(name) }, onClick = { onSelect(name); expanded = false })
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LabeledDropdown(
+    label: String,
+    value: String,
+    options: List<String>,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        TextField(
+            value         = value,
+            onValueChange = {},
+            readOnly      = true,
+            label         = { Text(label) },
+            trailingIcon  = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier      = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { name ->
                 DropdownMenuItem(text = { Text(name) }, onClick = { onSelect(name); expanded = false })
             }

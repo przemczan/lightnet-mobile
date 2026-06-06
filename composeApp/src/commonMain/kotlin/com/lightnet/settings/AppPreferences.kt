@@ -6,8 +6,12 @@ object AppPreferences {
     private var settings: Settings? = null
     private val devicePrefsCache = mutableMapOf<String, DevicePreferences>()
 
+    lateinit var scenes: SceneRepository
+        private set
+
     fun init(settings: Settings) {
         this.settings = settings
+        scenes = SceneRepository(settings)
     }
 
     fun forDevice(deviceKey: String): DevicePreferences =

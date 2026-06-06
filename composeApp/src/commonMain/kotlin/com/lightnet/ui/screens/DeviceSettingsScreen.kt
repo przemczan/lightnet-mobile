@@ -97,6 +97,7 @@ fun DeviceSettingsScreen(
         DeviceInfoScreen(
             savedDevice = savedDevice,
             device      = device,
+            httpClient  = httpClient,
             onBack      = { showDeviceInfo = false },
         )
         return
@@ -206,6 +207,7 @@ private fun SettingsMenuItem(icon: ImageVector, label: String, onClick: () -> Un
 private fun DeviceInfoScreen(
     savedDevice: SavedDevice,
     device: LightnetDevice?,
+    httpClient: LightnetHttpClient?,
     onBack: () -> Unit,
 ) {
     BackHandlerCompat(onBack = onBack)
@@ -219,9 +221,16 @@ private fun DeviceInfoScreen(
     var powerMenuExpanded by remember { mutableStateOf(false) }
     val powerOptions = listOf("Always on", "Always off", "Restore last")
 
+    var logicalRoot      by remember { mutableStateOf<Int?>(null) }
+    var rootMenuExpanded by remember { mutableStateOf(false) }
+    val panelIds = remember(snapshot) { snapshot?.panels?.map { it.info.id } ?: emptyList() }
+
     LaunchedEffect(device) {
         val config = device?.getConfiguration() ?: return@LaunchedEffect
         powerStateOnBoot = config.powerStateOnBoot
+    }
+    LaunchedEffect(httpClient) {
+        logicalRoot = httpClient?.runCatching { getTopology().logicalRoot }?.getOrNull()
     }
 
     Scaffold(
@@ -284,6 +293,52 @@ private fun DeviceInfoScreen(
                                                 device?.setConfiguration(ConfigurationRequest(powerStateOnBoot = index))
                                             }
                                         },
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        // Logical root — re-centres depth/subtree selectors and the default
+                        // runner source for scenes. 0 (default) means the physical root.
+                        ExposedDropdownMenuBox(
+                            expanded         = rootMenuExpanded,
+                            onExpandedChange = { rootMenuExpanded = it },
+                        ) {
+                            val rootLabel = logicalRoot
+                                ?.takeIf { it != 0 && it in panelIds }
+                                ?.let { "Panel $it" }
+                                ?: "Default (panel 1)"
+                            TextField(
+                                value         = rootLabel,
+                                onValueChange = {},
+                                readOnly      = true,
+                                label         = { Text("Root panel") },
+                                trailingIcon  = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = rootMenuExpanded)
+                                },
+                                modifier = Modifier
+                                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                    .fillMaxWidth(),
+                            )
+                            ExposedDropdownMenu(
+                                expanded         = rootMenuExpanded,
+                                onDismissRequest = { rootMenuExpanded = false },
+                            ) {
+                                fun selectRoot(value: Int) {
+                                    logicalRoot      = value
+                                    rootMenuExpanded = false
+                                    scope.launch { httpClient?.runCatching { setLogicalRoot(value) } }
+                                }
+                                DropdownMenuItem(
+                                    text    = { Text("Default (panel 1)") },
+                                    onClick = { selectRoot(0) },
+                                )
+                                panelIds.forEach { id ->
+                                    DropdownMenuItem(
+                                        text    = { Text("Panel $id") },
+                                        onClick = { selectRoot(id) },
                                     )
                                 }
                             }
