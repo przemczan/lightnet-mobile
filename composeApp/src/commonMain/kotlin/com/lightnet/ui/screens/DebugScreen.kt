@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -58,6 +59,7 @@ fun DebugScreen(
 ) {
     BackHandlerCompat(onBack = onBack)
 
+    val debugMode by DebugLog.debugMode.collectAsState()
     val entries by DebugLog.entries.collectAsState()
     val displayEntries = remember(entries) { entries.asReversed() }
 
@@ -91,6 +93,20 @@ fun DebugScreen(
                         Checkbox(
                             checked = autoScroll,
                             onCheckedChange = { autoScroll = it },
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            "Debug",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Switch(
+                            checked         = debugMode,
+                            onCheckedChange = { DebugLog.debugMode.value = it },
                         )
                     }
                     IconButton(onClick = { DebugLog.clear() }) {

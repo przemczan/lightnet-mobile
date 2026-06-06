@@ -5,6 +5,7 @@ import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
 import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.api.http.model.ConfigurationResponse
+import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.api.websocket.Connector
 import com.lightnet.api.websocket.ConnectorState
 import com.lightnet.api.websocket.MessageApiService
@@ -150,6 +151,14 @@ class LightnetDevice(
 
     suspend fun setConfiguration(req: ConfigurationRequest) {
         httpClient?.runCatching { setConfiguration(req) }
+    }
+
+    suspend fun getTopology(): TopologyResponse? =
+        httpClient?.runCatching { getTopology() }?.getOrNull()
+
+    /** Set the logical root panel index (0 resets to the physical root). */
+    suspend fun setLogicalRoot(root: Int) {
+        httpClient?.runCatching { setLogicalRoot(root) }
     }
 
     // ────────────────────────────────────────────────────────────────────────

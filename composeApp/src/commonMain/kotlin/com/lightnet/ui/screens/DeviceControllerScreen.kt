@@ -25,14 +25,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gradient
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.FloatingActionButton
@@ -44,6 +49,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -60,17 +67,21 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.AppearanceRequest
+import com.lightnet.api.http.model.PaletteJson
+import com.lightnet.api.http.model.SceneJson
 import com.lightnet.device.ConnectionState
+import com.lightnet.settings.AppPreferences
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.debug.DebugLog
-import com.lightnet.settings.AppPreferences
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
 import lightnet.composeapp.generated.resources.Res
@@ -147,34 +158,36 @@ fun DeviceControllerScreen(
 
     var brightness          by remember(device) { mutableStateOf(device.cachedAppearance?.brightness?.toFloat() ?: 128f) }
     var palette             by remember(device) { mutableStateOf(device.cachedAppearance?.palette) }
-    var paletteNames        by remember(device) { mutableStateOf<List<String>>(emptyList()) }
-    var paletteNamesLoading by remember(device) { mutableStateOf(false) }
+    var palettes            by remember(device) { mutableStateOf<List<PaletteJson>>(emptyList()) }
+    var palettesLoading     by remember(device) { mutableStateOf(false) }
     var baseColors          by remember(device) { mutableStateOf(device.cachedAppearance?.baseColors ?: emptyList()) }
     var paintColor          by remember { mutableStateOf<Color?>(null) }
     var showColorSheet      by remember { mutableStateOf(false) }
     var showPaletteSheet    by remember { mutableStateOf(false) }
     var showBrightnessSheet by remember { mutableStateOf(false) }
+    var showScenesSheet     by remember { mutableStateOf(false) }
+    var showSpeedSheet      by remember { mutableStateOf(false) }
     var allPanelsOn         by remember(device) { mutableStateOf(device.cachedPowerState ?: false) }
     var showRotateSheet   by remember(device) { mutableStateOf(false) }
     var rawRotationAngle  by remember(device) { mutableFloatStateOf(devicePrefs.visualizerRotation.value) }
     val rotationAngle     = (rawRotationAngle / 5f).roundToInt() * 5f
 
-    LaunchedEffect(device, connectionState) {
+    LaunchedEffect(device, connectionState, httpClient) {
         if (connectionState == ConnectionState.CONNECTED && device != null) {
             // Fetch power state first so the visualizer unblocks with the correct on/off state.
             val power = device.getPowerState()
             if (power != null) allPanelsOn = power
             deviceInfoReady = true
 
-            paletteNamesLoading = true
+            palettesLoading = true
             val app = device.loadAppearance()
             if (app != null) {
                 brightness = app.brightness.toFloat()
                 palette    = app.palette
                 baseColors = app.baseColors
             }
-            paletteNames        = device.getPalettes()
-            paletteNamesLoading = false
+            palettes        = httpClient?.runCatching { getPalettes().values.toList() }?.getOrNull() ?: emptyList()
+            palettesLoading = false
         }
     }
 
@@ -288,6 +301,7 @@ fun DeviceControllerScreen(
 
                 // Bottom centered toolbar — always visible; buttons disabled when disconnected
                 val isConnected = connectionState == ConnectionState.CONNECTED
+                var showOverflowMenu by remember { mutableStateOf(false) }
                 Row(
                     Modifier
                         .align(Alignment.BottomCenter)
@@ -314,11 +328,11 @@ fun DeviceControllerScreen(
                             IconButton(onClick = { showBrightnessSheet = true }, enabled = isConnected) {
                                 Icon(Icons.Default.WbSunny, contentDescription = "Brightness")
                             }
-                            IconButton(
-                                onClick = { showRotateSheet = true },
-                                enabled = isConnected,
-                            ) {
-                                Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = "Rotate view")
+                            IconButton(onClick = { showSpeedSheet = true }, enabled = isConnected) {
+                                Icon(Icons.Default.Speed, contentDescription = "Speed")
+                            }
+                            IconButton(onClick = { showScenesSheet = true }) {
+                                Icon(Icons.Default.Movie, contentDescription = "Scenes")
                             }
                             FilledIconToggleButton(
                                 checked         = livePreview,
@@ -342,6 +356,22 @@ fun DeviceControllerScreen(
                                     Icons.Default.PowerSettingsNew,
                                     contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
                                 )
+                            }
+                            Box {
+                                IconButton(onClick = { showOverflowMenu = true }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "More")
+                                }
+                                DropdownMenu(
+                                    expanded         = showOverflowMenu,
+                                    onDismissRequest = { showOverflowMenu = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text         = { Text("Rotate view") },
+                                        leadingIcon  = { Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = null) },
+                                        onClick      = { showOverflowMenu = false; showRotateSheet = true },
+                                        enabled      = isConnected,
+                                    )
+                                }
                             }
                         }
                     }
@@ -372,8 +402,8 @@ fun DeviceControllerScreen(
 
     if (showPaletteSheet) {
         PaletteSheet(
-            paletteNames   = paletteNames,
-            isLoading      = paletteNamesLoading,
+            palettes       = palettes,
+            isLoading      = palettesLoading,
             currentPalette = palette,
             onSelect       = { name ->
                 palette = name
@@ -383,12 +413,26 @@ fun DeviceControllerScreen(
         )
     }
 
+    if (showScenesSheet) {
+        ScenesSheet(
+            httpClient = httpClient,
+            onDismiss  = { showScenesSheet = false },
+        )
+    }
+
     if (showBrightnessSheet) {
         BrightnessSheet(
             initialBrightness   = brightness,
             onBrightnessChange  = { brightness = it },
             onApply             = { device.setAppearance(AppearanceRequest(brightness = it.toInt())) },
             onDismiss           = { showBrightnessSheet = false },
+        )
+    }
+
+    if (showSpeedSheet) {
+        SpeedSheet(
+            httpClient = httpClient,
+            onDismiss  = { showSpeedSheet = false },
         )
     }
 
@@ -548,12 +592,76 @@ private fun BrightnessSheet(
     }
 }
 
+// ── Speed sheet ───────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SpeedSheet(
+    httpClient: LightnetHttpClient?,
+    onDismiss: () -> Unit,
+) {
+    var speed by remember { mutableFloatStateOf(1f) }
+    val pending = remember { Channel<Float>(Channel.CONFLATED) }
+    LaunchedEffect(Unit) {
+        for (value in pending) {
+            httpClient?.runCatching { setSceneSpeed(value) }
+            delay(250)
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState       = rememberModalBottomSheetState(),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Speed", style = MaterialTheme.typography.titleMedium)
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Speed, contentDescription = null)
+                Slider(
+                    value         = speed,
+                    valueRange    = 0.1f..10f,
+                    onValueChange = {
+                        speed = (it * 10).roundToInt() / 10f
+                        pending.trySend(speed)
+                    },
+                    modifier      = Modifier.weight(1f),
+                )
+                Text(
+                    "${speed.oneDecimal()}×",
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(44.dp),
+                )
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Button(onClick = onDismiss) { Text("OK") }
+            }
+        }
+    }
+}
+
 // ── Palette sheet ─────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PaletteSheet(
-    paletteNames: List<String>,
+    palettes: List<PaletteJson>,
     isLoading: Boolean,
     currentPalette: String?,
     onSelect: suspend (String) -> Unit,
@@ -588,35 +696,54 @@ private fun PaletteSheet(
                 ) {
                     CircularProgressIndicator()
                 }
-                paletteNames.isEmpty() -> Text(
+                palettes.isEmpty() -> Text(
                     "No palettes available on this device.",
                     style    = MaterialTheme.typography.bodySmall,
                     color    = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
-                else -> paletteNames.forEach { name ->
-                    Row(
+                else -> palettes.forEach { pal ->
+                    val gradientStops = remember(pal.stops) {
+                        pal.stops.sortedBy { it.position }.map { stop ->
+                            (stop.position / 255f) to (parseHexColor(stop.color) ?: Color.White)
+                        }.toTypedArray()
+                    }
+                    Column(
                         Modifier
                             .fillMaxWidth()
                             .clickable(enabled = applyingPalette == null) {
                                 scope.launch {
-                                    applyingPalette = name
-                                    onSelect(name)
+                                    applyingPalette = pal.name
+                                    onSelect(pal.name)
                                     applyingPalette = null
                                 }
                             }
-                            .padding(vertical = 14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment     = Alignment.CenterVertically,
+                            .padding(vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(name, style = MaterialTheme.typography.bodyMedium)
-                        when {
-                            applyingPalette == name -> CircularProgressIndicator()
-                            name == currentPalette  -> Icon(
-                                Icons.Default.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                        if (gradientStops.isNotEmpty()) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(16.dp)
+                                    .clip(MaterialTheme.shapes.extraSmall)
+                                    .background(Brush.horizontalGradient(colorStops = gradientStops))
                             )
+                        }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment     = Alignment.CenterVertically,
+                        ) {
+                            Text(pal.name, style = MaterialTheme.typography.bodyMedium)
+                            when {
+                                applyingPalette == pal.name -> CircularProgressIndicator(Modifier.size(20.dp))
+                                pal.name == currentPalette  -> Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                         }
                     }
                     HorizontalDivider()
@@ -635,4 +762,80 @@ private fun PaletteSheet(
             }
         }
     }
+}
+
+// ── Scenes sheet ──────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScenesSheet(
+    httpClient: LightnetHttpClient?,
+    onDismiss: () -> Unit,
+) {
+    val scope    = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    var scenes   by remember { mutableStateOf(AppPreferences.scenes.getAll()) }
+    var playing  by remember { mutableStateOf<String?>(null) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState       = rememberModalBottomSheetState(),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
+        ) {
+            Text(
+                "Scenes",
+                style    = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+
+            when {
+                scenes.isEmpty() -> Text(
+                    "No scenes yet. Add scenes in Settings → Scenes.",
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+                else -> scenes.forEach { scene ->
+                    val name = scene.name ?: "Unnamed"
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = playing == null) {
+                                scope.launch {
+                                    if (httpClient == null) {
+                                        snackbar.showSnackbar("Connect a device to play scenes.")
+                                        return@launch
+                                    }
+                                    playing = name
+                                    runCatching { httpClient.playSceneInline(scene) }
+                                        .onFailure { snackbar.showSnackbar("Failed to play \"$name\".") }
+                                    playing = null
+                                    onDismiss()
+                                }
+                            }
+                            .padding(vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Text(name, style = MaterialTheme.typography.bodyMedium)
+                        if (playing == name) CircularProgressIndicator(Modifier.size(20.dp))
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }
+
+        SnackbarHost(snackbar)
+    }
+}
+
+private fun Float.oneDecimal(): String {
+    val r = (this * 10).roundToInt()
+    return "${r / 10}.${r % 10}"
 }

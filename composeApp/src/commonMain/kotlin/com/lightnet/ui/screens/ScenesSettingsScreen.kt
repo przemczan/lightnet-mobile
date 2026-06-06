@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,7 +32,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,9 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetHttpClient
-import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.device.LightnetDevice
+import com.lightnet.settings.AppPreferences
 import com.lightnet.ui.BackHandlerCompat
 import kotlinx.coroutines.launch
 
@@ -61,21 +59,12 @@ fun ScenesSettingsScreen(
     val scope    = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    var scenes       by remember { mutableStateOf<List<SceneInfo>>(emptyList()) }
-    var isLoading    by remember { mutableStateOf(false) }
-    var deleteTarget by remember { mutableStateOf<SceneInfo?>(null) }
-
+    var scenes       by remember { mutableStateOf(AppPreferences.scenes.getAll()) }
+    var deleteTarget by remember { mutableStateOf<SceneJson?>(null) }
     var showEditor   by remember { mutableStateOf(false) }
     var editingScene by remember { mutableStateOf<SceneJson?>(null) }
 
-    suspend fun reload() {
-        if (httpClient == null) return
-        isLoading = true
-        scenes    = httpClient.runCatching { getScenes() }.getOrNull() ?: emptyList()
-        isLoading = false
-    }
-
-    LaunchedEffect(httpClient) { reload() }
+    fun reload() { scenes = AppPreferences.scenes.getAll() }
 
     if (showEditor) {
         SceneEditorScreen(
@@ -85,7 +74,7 @@ fun ScenesSettingsScreen(
             onBack     = {
                 showEditor   = false
                 editingScene = null
-                scope.launch { reload() }
+                reload()
             },
         )
         return
@@ -110,11 +99,16 @@ fun ScenesSettingsScreen(
         },
     ) { padding ->
         when {
-            httpClient == null -> CenteredHint("Connect a device to manage scenes.", padding)
-            isLoading && scenes.isEmpty() -> Box(
-                Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
-            scenes.isEmpty() -> CenteredHint("No scenes yet. Tap + to create one.", padding)
+            scenes.isEmpty() -> Box(
+                Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "No scenes yet. Tap + to create one.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 contentPadding = PaddingValues(
@@ -123,21 +117,22 @@ fun ScenesSettingsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(scenes, key = { it.name }) { scene ->
+                items(scenes, key = { it.name ?: "" }) { scene ->
                     SceneItem(
                         scene  = scene,
                         onPlay = {
                             scope.launch {
-                                val r = httpClient.runCatching { playSceneByName(scene.name) }
+                                if (httpClient == null) {
+                                    snackbar.showSnackbar("Connect a device to play scenes.")
+                                    return@launch
+                                }
+                                val r = runCatching { httpClient.playSceneInline(scene) }
                                 if (r.isFailure) snackbar.showSnackbar("Failed to play \"${scene.name}\".")
                             }
                         },
                         onEdit = {
-                            scope.launch {
-                                val full = httpClient.runCatching { getScene(scene.name) }.getOrNull()
-                                if (full != null) { editingScene = full; showEditor = true }
-                                else snackbar.showSnackbar("Failed to open \"${scene.name}\".")
-                            }
+                            editingScene = scene
+                            showEditor   = true
                         },
                         onDelete = { deleteTarget = scene },
                     )
@@ -154,10 +149,8 @@ fun ScenesSettingsScreen(
             confirmButton    = {
                 TextButton(onClick = {
                     deleteTarget = null
-                    scope.launch {
-                        httpClient?.runCatching { deleteScene(target.name) }
-                        reload()
-                    }
+                    AppPreferences.scenes.delete(target.name ?: return@TextButton)
+                    reload()
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
@@ -167,7 +160,7 @@ fun ScenesSettingsScreen(
 
 @Composable
 private fun SceneItem(
-    scene: SceneInfo,
+    scene: SceneJson,
     onPlay: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -178,7 +171,7 @@ private fun SceneItem(
             Modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
             Arrangement.SpaceBetween, Alignment.CenterVertically,
         ) {
-            Text(scene.name, style = MaterialTheme.typography.bodyLarge)
+            Text(scene.name ?: "Unnamed", style = MaterialTheme.typography.bodyLarge)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onPlay) {
                     Icon(Icons.Default.PlayArrow, contentDescription = "Play")
@@ -194,16 +187,5 @@ private fun SceneItem(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun CenteredHint(text: String, padding: PaddingValues) {
-    Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-        Text(
-            text,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }

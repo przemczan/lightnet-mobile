@@ -22,6 +22,9 @@ enum class ColorMode { None, Single, FromTo }
 /** One type-specific parameter (firmware `params[index]`). */
 data class ParamSpec(val label: String, val min: Int, val max: Int, val default: Int)
 
+/** Runner directionality source. */
+enum class RunnerSrc { Root, Leaves, All, Panel }
+
 enum class AnimId(
     val display: String,
     val isRunner: Boolean,
@@ -29,6 +32,8 @@ enum class AnimId(
     val params: List<ParamSpec>,
     val wireName: String?,            // value for SceneStep.type / .runner; null = GAP
     val supportsLoopFlags: Boolean = true,
+    val widthLabel: String? = null,   // runner band/ring width (rings); null = no width
+    val defaultWidth: Int = 0,
 ) {
     SOLID("Solid", false, ColorMode.Single, emptyList(), "SOLID"),
     FADE("Fade", false, ColorMode.FromTo, emptyList(), "FADE"),
@@ -43,16 +48,15 @@ enum class AnimId(
     STROBE("Strobe", false, ColorMode.Single, listOf(ParamSpec("Frequency (Hz)", 1, 30, 8)), "STROBE"),
     REACTIVE("Reactive", false, ColorMode.FromTo, listOf(ParamSpec("Decay", 0, 255, 180)), "REACTIVE"),
     GAP("Gap (hold)", false, ColorMode.None, emptyList(), null, supportsLoopFlags = false),
-    WAVE("Wave", true, ColorMode.Single, listOf(ParamSpec("Width (panels)", 1, 16, 3)), "WAVE"),
-    RIPPLE(
-        "Ripple", true, ColorMode.Single,
-        listOf(ParamSpec("Ring width", 1, 16, 2), ParamSpec("Origin panel", 0, 99, 0)), "RIPPLE",
-    ),
-    CHASE("Chase", true, ColorMode.Single, emptyList(), "CHASE"),
+    WAVE("Wave", true, ColorMode.Single, emptyList(), "WAVE", supportsLoopFlags = false, widthLabel = "Width (rings)", defaultWidth = 3),
+    RIPPLE("Ripple", true, ColorMode.Single, emptyList(), "RIPPLE", supportsLoopFlags = false, widthLabel = "Ring width", defaultWidth = 2),
+    CHASE("Chase", true, ColorMode.Single, emptyList(), "CHASE", supportsLoopFlags = false),
     ;
 
     /** Param list seeded to defaults for this animation. */
     fun defaultParams(): List<Int> = params.map { it.default }
+
+    val hasWidth: Boolean get() = widthLabel != null
 
     companion object {
         val panelTypes: List<AnimId> = entries.filter { !it.isRunner }
@@ -66,6 +70,13 @@ enum class AnimId(
         }
     }
 }
+
+// ── Panel targeting (editor representation) ──────────────────────────────────────
+// A flat, Compose-friendly view of a layer's `panels`. The visual picker drives
+// [Specific]; role/tag presets drive [Selector]; anything the UI can't model (an
+// `exclude`/`any`/`all`/`not` object) is preserved read-only as [Advanced].
+
+enum class TargetKind { All, Specific, Selector, Advanced }
 
 // ── Mutable editor model ────────────────────────────────────────────────────────
 // Compose snapshot-state classes so edits recompose in place. Converted to the
@@ -82,6 +93,10 @@ class EditableStep(
     loop: Boolean = false,
     pingpong: Boolean = false,
     params: List<Int> = anim.defaultParams(),
+    source: RunnerSrc = RunnerSrc.Root,
+    sourcePanel: Int = 1,
+    reverse: Boolean = false,
+    width: Int = anim.defaultWidth,
 ) {
     val id: Long = nextId()
     var anim by mutableStateOf(anim)
@@ -91,25 +106,43 @@ class EditableStep(
     var loop by mutableStateOf(loop)
     var pingpong by mutableStateOf(pingpong)
     var params by mutableStateOf(params)
+    // Runner-only fields.
+    var source by mutableStateOf(source)
+    var sourcePanel by mutableStateOf(sourcePanel)
+    var reverse by mutableStateOf(reverse)
+    var width by mutableStateOf(width)
 
-    /** Switch animation type, re-seeding params to the new type's defaults. */
+    /** Switch animation type, re-seeding params/width to the new type's defaults. */
     fun changeAnim(next: AnimId) {
         anim = next
         params = next.defaultParams()
+        width = next.defaultWidth
         if (!next.supportsLoopFlags) { loop = false; pingpong = false }
     }
 }
 
-class EditableGroup(
-    allPanels: Boolean = true,
-    selected: Set<Int> = emptySet(),   // 0-based indices into the device panel list
+class EditableLayer(
+    name: String = "",
+    targetKind: TargetKind = TargetKind.All,
+    selected: Set<Int> = emptySet(),     // 0-based indices into the device panel list
+    selectorToken: String = "leaves",
+    rawTarget: PanelTarget? = null,
     palette: String? = null,
+    async: Boolean = false,
+    startAfter: String? = null,
+    fallback: PanelTarget? = null,
     steps: List<EditableStep> = listOf(EditableStep()),
 ) {
     val id: Long = nextId()
-    var allPanels by mutableStateOf(allPanels)
+    var name by mutableStateOf(name)
+    var targetKind by mutableStateOf(targetKind)
     var selected by mutableStateOf(selected)
+    var selectorToken by mutableStateOf(selectorToken)
+    var rawTarget by mutableStateOf(rawTarget)
     var palette by mutableStateOf(palette)
+    var async by mutableStateOf(async)
+    var startAfter by mutableStateOf(startAfter)
+    var fallback by mutableStateOf(fallback)  // round-trip passthrough (no UI yet)
     val steps = steps.toMutableStateList()
 }
 
@@ -118,25 +151,50 @@ class EditableScene(
     loop: Boolean = true,
     speed: Float = 1f,
     palette: String? = null,
-    groups: List<EditableGroup> = listOf(EditableGroup()),
+    layers: List<EditableLayer> = listOf(EditableLayer(name = "layer1")),
 ) {
     var name by mutableStateOf(name)
     var loop by mutableStateOf(loop)
     var speed by mutableStateOf(speed)
     var palette by mutableStateOf(palette)
-    val groups = groups.toMutableStateList()
+    val layers = layers.toMutableStateList()
+
+    /** A unique auto-name for a freshly added layer. */
+    fun nextLayerName(): String {
+        var n = layers.size + 1
+        val taken = layers.map { it.name }.toSet()
+        while ("layer$n" in taken) n++
+        return "layer$n"
+    }
 }
 
 // ── Conversion: editor ⇄ SceneJson ──────────────────────────────────────────────
 // The visualizer reports 0-based list positions; the firmware addresses panels from
 // 1 via PanelInfo.id. Map through panels[idx].info.id, never by adding 1.
 
+private fun EditableStep.runnerSourceToken(): String? = when (source) {
+    RunnerSrc.Root   -> null                 // default — omit
+    RunnerSrc.Leaves -> "leaves"
+    RunnerSrc.All    -> "all"
+    RunnerSrc.Panel  -> "panel:$sourcePanel"
+}
+
 private fun EditableStep.toSceneStep(): SceneStep {
     val a = anim
     if (a == AnimId.GAP) return SceneStep(duration = durationMs)
+    if (a.isRunner) {
+        return SceneStep(
+            runner      = a.wireName,
+            color       = colorA,
+            duration    = durationMs,
+            source      = runnerSourceToken(),
+            reverse     = if (reverse) true else null,
+            waveWidth   = if (a == AnimId.WAVE && a.hasWidth) width else null,
+            rippleWidth = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
+        )
+    }
     return SceneStep(
-        type      = if (a.isRunner) null else a.wireName,
-        runner    = if (a.isRunner) a.wireName else null,
+        type      = a.wireName,
         color     = if (a.colorMode == ColorMode.Single) colorA else null,
         colorFrom = if (a.colorMode == ColorMode.FromTo) colorA else null,
         colorTo   = if (a.colorMode == ColorMode.FromTo) colorB else null,
@@ -147,79 +205,117 @@ private fun EditableStep.toSceneStep(): SceneStep {
     )
 }
 
-private fun EditableGroup.toPanelTarget(panels: List<LightnetDevicePanel>): PanelTarget =
-    if (allPanels) PanelTarget.All
-    else PanelTarget.Include(selected.sorted().mapNotNull { panels.getOrNull(it)?.info?.id })
+private fun EditableLayer.toPanelTarget(panels: List<LightnetDevicePanel>): PanelTarget =
+    when (targetKind) {
+        TargetKind.All -> PanelTarget.All
+        TargetKind.Specific -> PanelTarget.Include(selected.sorted().mapNotNull { panels.getOrNull(it)?.info?.id })
+        TargetKind.Selector ->
+            selectorToken.trim().let { if (it.isBlank() || it == "all") PanelTarget.All else PanelTarget.Selector(it) }
+        TargetKind.Advanced -> rawTarget ?: PanelTarget.All
+    }
 
 fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson = SceneJson(
     name    = name.trim().ifBlank { null },
     loop    = loop,
     speed   = speed,
     palette = palette,
-    layers  = groups.mapIndexed { idx, g ->
+    layers  = layers.map { l ->
         SceneLayer(
-            group    = idx + 1,
-            panels   = g.toPanelTarget(panels),
-            palette  = g.palette,
-            sequence = g.steps.map { it.toSceneStep() },
+            group      = l.name.trim(),
+            panels     = l.toPanelTarget(panels),
+            palette    = l.palette,
+            sequence   = l.steps.map { it.toSceneStep() },
+            startAfter = l.startAfter?.trim()?.ifBlank { null },
+            async      = if (l.async) true else null,
+            fallback   = l.fallback,
         )
     },
 )
 
+private fun parseRunnerSource(token: String?): Pair<RunnerSrc, Int> = when {
+    token == null || token == "root" -> RunnerSrc.Root to 1
+    token == "leaves"                -> RunnerSrc.Leaves to 1
+    token == "all"                   -> RunnerSrc.All to 1
+    token.startsWith("panel:")       -> RunnerSrc.Panel to (token.removePrefix("panel:").toIntOrNull() ?: 1)
+    else                             -> RunnerSrc.Root to 1
+}
+
 private fun stepFrom(step: SceneStep): EditableStep {
     val anim = AnimId.fromStep(step)
+    val (src, srcPanel) = parseRunnerSource(step.source)
     return EditableStep(
-        anim       = anim,
-        colorA     = step.color ?: step.colorFrom ?: ColorRef.Hex("#FF0000"),
-        colorB     = step.colorTo ?: ColorRef.Hex("#0000FF"),
-        durationMs = step.duration ?: 1000,
-        loop       = step.loop == true,
-        pingpong   = step.pingpong == true,
-        params     = step.params ?: anim.defaultParams(),
+        anim        = anim,
+        colorA      = step.color ?: step.colorFrom ?: ColorRef.Hex("#FF0000"),
+        colorB      = step.colorTo ?: ColorRef.Hex("#0000FF"),
+        durationMs  = step.duration ?: 1000,
+        loop        = step.loop == true,
+        pingpong    = step.pingpong == true,
+        params      = step.params ?: anim.defaultParams(),
+        source      = src,
+        sourcePanel = srcPanel,
+        reverse     = step.reverse == true,
+        width       = step.waveWidth ?: step.rippleWidth ?: step.params?.getOrNull(0) ?: anim.defaultWidth,
     )
 }
 
-private fun panelTargetToSelection(target: PanelTarget, panels: List<LightnetDevicePanel>): Pair<Boolean, Set<Int>> =
+private fun layerFromTarget(target: PanelTarget, panels: List<LightnetDevicePanel>): EditableLayer.() -> Unit = {
     when (target) {
-        is PanelTarget.All -> true to emptySet()
-        is PanelTarget.Include ->
-            false to target.indices.mapNotNull { id -> panels.indexOfFirst { it.info.id == id }.takeIf { it >= 0 } }.toSet()
-        is PanelTarget.Exclude -> {
-            val excluded = target.indices.toSet()
-            false to panels.indices.filter { panels[it].info.id !in excluded }.toSet()
+        is PanelTarget.All -> targetKind = TargetKind.All
+        is PanelTarget.Include -> {
+            targetKind = TargetKind.Specific
+            selected = target.indices.mapNotNull { id -> panels.indexOfFirst { it.info.id == id }.takeIf { it >= 0 } }.toSet()
+        }
+        is PanelTarget.Selector -> {
+            targetKind = TargetKind.Selector
+            selectorToken = target.token
+        }
+        is PanelTarget.Exclude, is PanelTarget.Raw -> {
+            targetKind = TargetKind.Advanced
+            rawTarget = target
         }
     }
+}
 
 fun sceneFromJson(json: SceneJson, panels: List<LightnetDevicePanel>): EditableScene = EditableScene(
     name    = json.name ?: "",
     loop    = json.loop ?: true,
     speed   = json.speed ?: 1f,
     palette = json.palette,
-    groups  = json.layers.map { layer ->
-        val (all, selected) = panelTargetToSelection(layer.panels, panels)
-        EditableGroup(
-            allPanels = all,
-            selected  = selected,
-            palette   = layer.palette,
-            steps     = layer.sequence.map { stepFrom(it) }.ifEmpty { listOf(EditableStep()) },
-        )
-    }.ifEmpty { listOf(EditableGroup()) },
+    layers  = json.layers.mapIndexed { idx, layer ->
+        EditableLayer(
+            name       = layer.group.ifBlank { "layer${idx + 1}" },
+            palette    = layer.palette,
+            async      = layer.async == true,
+            startAfter = layer.startAfter,
+            fallback   = layer.fallback,
+            steps      = layer.sequence.map { stepFrom(it) }.ifEmpty { listOf(EditableStep()) },
+        ).apply(layerFromTarget(layer.panels, panels))
+    }.ifEmpty { listOf(EditableLayer(name = "layer1")) },
 )
 
 // ── Validation ──────────────────────────────────────────────────────────────────
 
-private val nameRegex = Regex("^[A-Za-z0-9_-]{1,18}$")
+private val sceneNameRegex = Regex("^[A-Za-z0-9_-]{1,18}$")
+private val groupNameRegex = Regex("^[A-Za-z0-9_-]{1,15}$")
 
 /** Returns the first validation error message, or null when the scene is valid to save/preview. */
 fun EditableScene.validationError(): String? {
-    if (!nameRegex.matches(name.trim())) return "Name must be 1–18 chars (letters, digits, - or _)."
-    if (groups.isEmpty()) return "Add at least one group."
-    groups.forEachIndexed { gi, g ->
-        if (g.steps.isEmpty()) return "Group ${gi + 1} needs at least one step."
-        if (!g.allPanels && g.selected.isEmpty()) return "Group ${gi + 1} has no panels selected."
-        g.steps.forEachIndexed { si, s ->
-            val isLast = si == g.steps.lastIndex
-            if (s.durationMs <= 0 && !isLast) return "Group ${gi + 1} step ${si + 1}: duration must be > 0."
+    if (!sceneNameRegex.matches(name.trim())) return "Name must be 1–18 chars (letters, digits, - or _)."
+    if (layers.isEmpty()) return "Add at least one layer."
+    val names = layers.map { it.name.trim() }
+    if (names.toSet().size != names.size) return "Layer names must be unique."
+    layers.forEachIndexed { li, l ->
+        val label = l.name.ifBlank { "Layer ${li + 1}" }
+        if (!groupNameRegex.matches(l.name.trim())) return "$label: name must be 1–15 chars (letters, digits, - or _)."
+        if (l.steps.isEmpty()) return "$label needs at least one step."
+        if (l.targetKind == TargetKind.Specific && l.selected.isEmpty()) return "$label has no panels selected."
+        l.startAfter?.trim()?.takeIf { it.isNotBlank() }?.let { dep ->
+            if (dep == l.name.trim()) return "$label cannot start after itself."
+            if (dep !in names) return "$label: \"$dep\" is not a layer name."
+        }
+        l.steps.forEachIndexed { si, s ->
+            val isLast = si == l.steps.lastIndex
+            if (s.durationMs <= 0 && !isLast) return "$label step ${si + 1}: duration must be > 0."
         }
     }
     return null

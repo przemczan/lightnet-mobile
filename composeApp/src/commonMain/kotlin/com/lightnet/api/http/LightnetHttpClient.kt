@@ -11,9 +11,11 @@ import com.lightnet.api.http.model.FirmwareStatusResponse
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PanelEdgeResponse
 import com.lightnet.api.http.model.PanelStateResponse
+import com.lightnet.api.http.model.LogicalRootRequest
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.SceneStatus
+import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.debug.DebugLog
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpSend
@@ -165,6 +167,16 @@ class LightnetHttpClient(private val baseUrl: String) {
 
     suspend fun setPowerState(on: Boolean) =
         client.post("$baseUrl/api/state/power") { jsonBody(PowerStateBody(on)) }.voidOrThrow()
+
+    // endregion
+
+    // region Topology
+
+    suspend fun getTopology(): TopologyResponse =
+        client.get("$baseUrl/api/topology").bodyOrThrow()
+
+    suspend fun setLogicalRoot(root: Int) =
+        client.put("$baseUrl/api/topology/root") { jsonBody(LogicalRootRequest(root)) }.voidOrThrow()
 
     // endregion
 
