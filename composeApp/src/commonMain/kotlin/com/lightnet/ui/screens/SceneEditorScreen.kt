@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,7 +31,9 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -43,6 +46,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -51,6 +55,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
@@ -77,6 +82,7 @@ import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.components.ColorRefPickerSheet
 import com.lightnet.ui.components.LightnetDeviceVisualizer
 import com.lightnet.ui.components.PaintMode
+import com.lightnet.ui.components.SpeedSlider
 import com.lightnet.ui.components.colorRefToColor
 import com.lightnet.ui.screens.scene.AnimId
 import com.lightnet.ui.screens.scene.ColorMode
@@ -93,7 +99,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.snapshotFlow
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -135,6 +143,20 @@ fun SceneEditorScreen(
         }
     }
 
+    var isDirty by remember { mutableStateOf(false) }
+    var showExitConfirm by remember { mutableStateOf(false) }
+    var storeOnDevice by remember { mutableStateOf(false) }
+
+    // Track dirty state once panels are loaded so panel-ID mapping is stable.
+    val activeSceneForTracking = scene
+    LaunchedEffect(activeSceneForTracking, panels.isEmpty()) {
+        if (activeSceneForTracking == null || panels.isEmpty()) return@LaunchedEffect
+        val initialJson = activeSceneForTracking.toSceneJson(panels)
+        snapshotFlow { activeSceneForTracking.toSceneJson(panels) }
+            .drop(1)
+            .collect { current -> isDirty = current != initialJson }
+    }
+
     // Best-effort cleanup that survives leaving the screen.
     val cleanupScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     fun stopPreview() {
@@ -142,11 +164,6 @@ fun SceneEditorScreen(
         val c = httpClient
         if (c != null) cleanupScope.launch(NonCancellable) { runCatching { c.stopScene() } }
     }
-
-    // Stop any preview playback whenever the editor leaves composition for good.
-    // Registered before the sub-screen early-returns so navigating into a layer
-    // (which swaps this screen out via return) does not trigger it.
-    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { stopPreview() } }
 
     var editingLayer by remember { mutableStateOf<EditableLayer?>(null) }
 
@@ -185,7 +202,11 @@ fun SceneEditorScreen(
         return
     }
 
-    BackHandlerCompat(onBack = { stopPreview(); onBack() })
+    fun requestBack() {
+        if (isDirty) showExitConfirm = true else onBack()
+    }
+
+    BackHandlerCompat(onBack = ::requestBack)
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -193,7 +214,7 @@ fun SceneEditorScreen(
             TopAppBar(
                 title          = { Text(activeScene.name.ifBlank { "New scene" }) },
                 navigationIcon = {
-                    IconButton(onClick = { stopPreview(); onBack() }) {
+                    IconButton(onClick = ::requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -201,10 +222,19 @@ fun SceneEditorScreen(
                     TextButton(onClick = {
                         val err = activeScene.validationError()
                         if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@TextButton }
-                        runCatching {
-                            com.lightnet.settings.AppPreferences.scenes.save(activeScene.toSceneJson(panels))
-                        }.onSuccess { stopPreview(); onBack() }
-                         .onFailure { scope.launch { snackbar.showSnackbar("Failed to save scene.") } }
+                        val sceneJson = activeScene.toSceneJson(panels)
+                        val localOk = runCatching { com.lightnet.settings.AppPreferences.scenes.save(sceneJson) }.isSuccess
+                        if (!localOk) { scope.launch { snackbar.showSnackbar("Failed to save scene.") }; return@TextButton }
+                        isDirty = false
+                        if (storeOnDevice && httpClient != null) {
+                            scope.launch {
+                                val ok = httpClient.runCatching { saveScene(sceneJson) }.isSuccess
+                                if (!ok) snackbar.showSnackbar("Saved locally but failed to save to device.")
+                                onBack()
+                            }
+                        } else {
+                            onBack()
+                        }
                     }) { Text("Save") }
                 },
             )
@@ -262,6 +292,31 @@ fun SceneEditorScreen(
                 )
             }
             item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = httpClient != null) { storeOnDevice = !storeOnDevice }
+                        .padding(end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked         = storeOnDevice,
+                        onCheckedChange = { storeOnDevice = it },
+                        enabled         = httpClient != null,
+                    )
+                    Column {
+                        Text("Also save to device", style = MaterialTheme.typography.bodyMedium)
+                        if (httpClient == null) {
+                            Text(
+                                "Connect a device to enable",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
@@ -270,11 +325,10 @@ fun SceneEditorScreen(
                         }
                         HorizontalDivider()
                         Column(Modifier.padding(vertical = 8.dp)) {
-                            Text("Speed  ${activeScene.speed.oneDecimal()}×", style = MaterialTheme.typography.bodyLarge)
-                            Slider(
-                                value         = activeScene.speed,
-                                onValueChange = { activeScene.speed = (it * 10).roundToInt() / 10f },
-                                valueRange    = 0.1f..10f,
+                            Text("Speed", style = MaterialTheme.typography.bodyLarge)
+                            SpeedSlider(
+                                speed         = activeScene.speed,
+                                onSpeedChange = { activeScene.speed = it },
                             )
                         }
                         HorizontalDivider()
@@ -311,6 +365,20 @@ fun SceneEditorScreen(
                 }
             }
         }
+    }
+
+    if (showExitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirm = false },
+            title            = { Text("Discard changes?") },
+            text             = { Text("You have unsaved changes. Leave without saving?") },
+            confirmButton    = {
+                TextButton(onClick = { showExitConfirm = false; onBack() }) { Text("Discard") }
+            },
+            dismissButton    = {
+                TextButton(onClick = { showExitConfirm = false }) { Text("Keep editing") }
+            },
+        )
     }
 }
 
@@ -631,11 +699,11 @@ private fun SelectorEditor(
                 singleLine    = true,
                 modifier      = Modifier.fillMaxWidth(),
             )
-            ArgKind.Panel -> LabeledDropdown(
-                label    = "Panel",
-                value    = arg.ifBlank { "—" },
-                options  = panels.map { it.info.id.toString() },
-                onSelect = { layer.selectorToken = "${kind.key}:$it" },
+            ArgKind.Panel -> PanelPickerField(
+                label           = "Panel",
+                selectedPanelId = arg.toIntOrNull(),
+                panels          = panels,
+                onPick          = { layer.selectorToken = "${kind.key}:$it" },
             )
         }
     }
@@ -817,23 +885,58 @@ private fun StepEditorScreen(
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun RunnerDirectionEditor(step: EditableStep, panels: List<LightnetDevicePanel>) {
+    val isRipple = step.anim == AnimId.RIPPLE
+    // Geometric WAVE/CHASE sweep a straight axis (steered by `angle`, no origin → no source).
+    // Geometric RIPPLE expands as circular rings, so it has no axis (`angle` ignored) but uses
+    // `source` as its centre. Topology mode always uses `source`.
+    val showAngle  = step.geometric && !isRipple
+    val showSource = !step.geometric || isRipple
+
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Source", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Directionality", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(step.source == RunnerSrc.Root, { step.source = RunnerSrc.Root }, { Text("Root") })
-                FilterChip(step.source == RunnerSrc.Leaves, { step.source = RunnerSrc.Leaves }, { Text("Leaves") })
-                FilterChip(step.source == RunnerSrc.Panel, { step.source = RunnerSrc.Panel }, { Text("Panel") })
-                if (step.source == RunnerSrc.All) FilterChip(true, {}, { Text("All") })
+                // Topology = sweep the wiring graph; Geometric = use the physical layout (axis
+                // sweep for wave/chase, circular rings for ripple).
+                FilterChip(!step.geometric, { step.geometric = false }, { Text("Topology") })
+                FilterChip(step.geometric, { step.geometric = true }, { Text("Geometric") })
             }
-            if (step.source == RunnerSrc.Panel) {
-                LabeledDropdown(
-                    label    = "From panel",
-                    value    = step.sourcePanel.toString(),
-                    options  = panels.map { it.info.id.toString() },
-                    onSelect = { step.sourcePanel = it.toIntOrNull() ?: step.sourcePanel },
+
+            if (showAngle) {
+                Column {
+                    Text("Angle  ${step.angle}°", style = MaterialTheme.typography.bodyLarge)
+                    Slider(
+                        value         = step.angle.toFloat(),
+                        onValueChange = { step.angle = it.roundToInt() },
+                        valueRange    = 0f..359f,
+                    )
+                }
+            }
+
+            if (showSource) {
+                // For a geometric ripple this is the ring centre; "Leaves" then means one ripple
+                // per leaf, expanding inward together.
+                Text(
+                    if (step.geometric) "Ripple centre" else "Source",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(step.source == RunnerSrc.Root,   { step.source = RunnerSrc.Root },   { Text("Root") })
+                    FilterChip(step.source == RunnerSrc.Leaves, { step.source = RunnerSrc.Leaves }, { Text("Leaves") })
+                    FilterChip(step.source == RunnerSrc.Panel,  { step.source = RunnerSrc.Panel },  { Text("Panel") })
+                    if (step.source == RunnerSrc.All) FilterChip(true, {}, { Text("All") })
+                }
+                if (step.source == RunnerSrc.Panel) {
+                    PanelPickerField(
+                        label           = "From panel",
+                        selectedPanelId = step.sourcePanel,
+                        panels          = panels,
+                        onPick          = { step.sourcePanel = it },
+                    )
+                }
             }
+
             ToggleRow("Reverse direction", step.reverse) { step.reverse = it }
         }
     }
@@ -944,12 +1047,91 @@ private fun LabeledDropdown(
     }
 }
 
+// ── Visual panel picker ────────────────────────────────────────────────────────
+// Replaces a panel-id dropdown with a tappable field that opens the device
+// visualizer; tapping a panel selects it and closes the sheet.
+
+@Composable
+private fun PanelPickerField(
+    label: String,
+    selectedPanelId: Int?,
+    panels: List<LightnetDevicePanel>,
+    onPick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var show by remember { mutableStateOf(false) }
+    Card(modifier = modifier.fillMaxWidth().clickable { show = true }) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            Arrangement.SpaceBetween,
+            Alignment.CenterVertically,
+        ) {
+            Column {
+                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    selectedPanelId?.let { "Panel $it" } ?: "Tap to choose",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Choose panel")
+        }
+    }
+    if (show) {
+        PanelPickerSheet(
+            title           = label,
+            panels          = panels,
+            selectedPanelId = selectedPanelId,
+            onPick          = { onPick(it); show = false },
+            onDismiss       = { show = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PanelPickerSheet(
+    title: String,
+    panels: List<LightnetDevicePanel>,
+    selectedPanelId: Int?,
+    onPick: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Visualizer selection works on list indices; map to/from panel ids at the edges.
+    val selectedIndex = remember(panels, selectedPanelId) {
+        panels.indexOfFirst { it.info.id == selectedPanelId }
+    }
+    val selectedSet = if (selectedIndex >= 0) setOf(selectedIndex) else emptySet()
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Tap a panel to select it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            LightnetDeviceVisualizer(
+                panels            = panels,
+                modifier          = Modifier.fillMaxWidth().height(340.dp),
+                interactive       = false,
+                selectionMode     = true,
+                selectedPanels    = selectedSet,
+                showPanelIds      = true,
+                onSelectionChange = { newSet ->
+                    // Newly tapped panel (toggle semantics); tapping the current one keeps it.
+                    val picked = (newSet - selectedSet).firstOrNull() ?: selectedIndex.takeIf { it >= 0 }
+                    if (picked != null) onPick(panels[picked].info.id) else onDismiss()
+                },
+            )
+        }
+    }
+}
+
 private fun <T> MutableList<T>.move(from: Int, to: Int) {
     if (from == to || from !in indices || to !in indices) return
     add(to, removeAt(from))
 }
 
-private fun Float.oneDecimal(): String {
-    val r = (this * 10).roundToInt()
-    return "${r / 10}.${r % 10}"
-}

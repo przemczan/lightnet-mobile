@@ -22,7 +22,7 @@ enum class ColorMode { None, Single, FromTo }
 /** One type-specific parameter (firmware `params[index]`). */
 data class ParamSpec(val label: String, val min: Int, val max: Int, val default: Int)
 
-/** Runner directionality source. */
+/** Where a runner emanates from (independent of directionality mode). */
 enum class RunnerSrc { Root, Leaves, All, Panel }
 
 enum class AnimId(
@@ -93,8 +93,10 @@ class EditableStep(
     loop: Boolean = false,
     pingpong: Boolean = false,
     params: List<Int> = anim.defaultParams(),
+    geometric: Boolean = false,
     source: RunnerSrc = RunnerSrc.Root,
     sourcePanel: Int = 1,
+    angle: Int = 0,
     reverse: Boolean = false,
     width: Int = anim.defaultWidth,
 ) {
@@ -107,8 +109,10 @@ class EditableStep(
     var pingpong by mutableStateOf(pingpong)
     var params by mutableStateOf(params)
     // Runner-only fields.
-    var source by mutableStateOf(source)
+    var geometric by mutableStateOf(geometric) // true = geometric sweep, false = topology
+    var source by mutableStateOf(source)        // emanation origin (independent of directionality)
     var sourcePanel by mutableStateOf(sourcePanel)
+    var angle by mutableStateOf(angle)          // geometric sweep direction, degrees [0,360)
     var reverse by mutableStateOf(reverse)
     var width by mutableStateOf(width)
 
@@ -173,7 +177,7 @@ class EditableScene(
 // 1 via PanelInfo.id. Map through panels[idx].info.id, never by adding 1.
 
 private fun EditableStep.runnerSourceToken(): String? = when (source) {
-    RunnerSrc.Root   -> null                 // default — omit
+    RunnerSrc.Root   -> null       // default — omit
     RunnerSrc.Leaves -> "leaves"
     RunnerSrc.All    -> "all"
     RunnerSrc.Panel  -> "panel:$sourcePanel"
@@ -183,14 +187,20 @@ private fun EditableStep.toSceneStep(): SceneStep {
     val a = anim
     if (a == AnimId.GAP) return SceneStep(duration = durationMs)
     if (a.isRunner) {
+        val isRipple = a == AnimId.RIPPLE
+        // Geometric wave/chase use `angle` (no source); geometric ripple + all topology use
+        // `source` (no angle). Only emit the field the firmware actually reads for this combo.
+        val usesSource = !geometric || isRipple
         return SceneStep(
-            runner      = a.wireName,
-            color       = colorA,
-            duration    = durationMs,
-            source      = runnerSourceToken(),
-            reverse     = if (reverse) true else null,
-            waveWidth   = if (a == AnimId.WAVE && a.hasWidth) width else null,
-            rippleWidth = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
+            runner         = a.wireName,
+            color          = colorA,
+            duration       = durationMs,
+            source         = if (usesSource) runnerSourceToken() else null,
+            directionality = if (geometric) "geometric" else null,
+            angle          = if (geometric && !isRipple) angle else null,
+            reverse        = if (reverse) true else null,
+            waveWidth      = if (a == AnimId.WAVE && a.hasWidth) width else null,
+            rippleWidth    = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
         )
     }
     return SceneStep(
@@ -215,6 +225,9 @@ private fun EditableLayer.toPanelTarget(panels: List<LightnetDevicePanel>): Pane
     }
 
 fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson = SceneJson(
+    // Geometric directionality is a v3 feature; keep v2 for everything else so scenes still
+    // load on older controllers that don't understand `directionality:geometric`.
+    schemaVersion = if (layers.any { l -> l.steps.any { it.geometric } }) 3 else 2,
     name    = name.trim().ifBlank { null },
     loop    = loop,
     speed   = speed,
@@ -232,17 +245,23 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson = Sc
     },
 )
 
-private fun parseRunnerSource(token: String?): Pair<RunnerSrc, Int> = when {
-    token == null || token == "root" -> RunnerSrc.Root to 1
-    token == "leaves"                -> RunnerSrc.Leaves to 1
-    token == "all"                   -> RunnerSrc.All to 1
-    token.startsWith("panel:")       -> RunnerSrc.Panel to (token.removePrefix("panel:").toIntOrNull() ?: 1)
-    else                             -> RunnerSrc.Root to 1
+// Returns (isGeometric, origin, panelIndex). Accepts both the new `directionality` field
+// and the legacy `source: "geometric"` encoding for back-compat with older scenes.
+private fun parseRunnerSource(source: String?, directionality: String?): Triple<Boolean, RunnerSrc, Int> {
+    val isGeometric = directionality == "geometric" || source == "geometric"
+    val (origin, panel) = when {
+        source == null || source == "root" || source == "geometric" -> RunnerSrc.Root to 1
+        source == "leaves"             -> RunnerSrc.Leaves to 1
+        source == "all"                -> RunnerSrc.All to 1
+        source.startsWith("panel:")    -> RunnerSrc.Panel to (source.removePrefix("panel:").toIntOrNull() ?: 1)
+        else                           -> RunnerSrc.Root to 1
+    }
+    return Triple(isGeometric, origin, panel)
 }
 
 private fun stepFrom(step: SceneStep): EditableStep {
     val anim = AnimId.fromStep(step)
-    val (src, srcPanel) = parseRunnerSource(step.source)
+    val (isGeometric, src, srcPanel) = parseRunnerSource(step.source, step.directionality)
     return EditableStep(
         anim        = anim,
         colorA      = step.color ?: step.colorFrom ?: ColorRef.Hex("#FF0000"),
@@ -251,8 +270,10 @@ private fun stepFrom(step: SceneStep): EditableStep {
         loop        = step.loop == true,
         pingpong    = step.pingpong == true,
         params      = step.params ?: anim.defaultParams(),
+        geometric   = isGeometric,
         source      = src,
         sourcePanel = srcPanel,
+        angle       = step.angle ?: 0,
         reverse     = step.reverse == true,
         width       = step.waveWidth ?: step.rippleWidth ?: step.params?.getOrNull(0) ?: anim.defaultWidth,
     )
