@@ -40,7 +40,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilledIconToggleButton
@@ -92,6 +91,7 @@ import com.lightnet.ui.components.LightnetDeviceVisualizer
 import com.lightnet.ui.components.LoadingState
 import com.lightnet.ui.components.PaintMode
 import com.lightnet.ui.components.ReconnectingBanner
+import com.lightnet.ui.components.SpeedSlider
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.roundToInt
@@ -222,16 +222,22 @@ fun DeviceControllerScreen(
         modifier = modifier,
         topBar   = {
             TopAppBar(
+                // Device quick-select lives on the left of the toolbar so it is always visible.
                 navigationIcon = {
-                    Image(
-                        painter           = painterResource(Res.drawable.logo_mark),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .padding(start = 8.dp),
-                    )
+                    IconButton(onClick = { showSwitcherSheet = true }) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = "Switch device")
+                    }
                 },
-                title   = { Text(activeDevice.name) },
+                title   = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Image(
+                            painter           = painterResource(Res.drawable.logo_mark),
+                            contentDescription = null,
+                            modifier          = Modifier.size(28.dp),
+                        )
+                        Text(activeDevice.name)
+                    }
+                },
                 actions = {
                     IconButton(onClick = { showSettings = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Device settings")
@@ -374,10 +380,6 @@ fun DeviceControllerScreen(
                                 }
                             }
                         }
-                    }
-
-                    FloatingActionButton(onClick = { showSwitcherSheet = true }) {
-                        Icon(Icons.Default.SwapHoriz, contentDescription = "Switch device")
                     }
                 }
             }
@@ -623,28 +625,14 @@ private fun SpeedSheet(
         ) {
             Text("Speed", style = MaterialTheme.typography.titleMedium)
 
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment     = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Default.Speed, contentDescription = null)
-                Slider(
-                    value         = speed,
-                    valueRange    = 0.1f..10f,
-                    onValueChange = {
-                        speed = (it * 10).roundToInt() / 10f
-                        pending.trySend(speed)
-                    },
-                    modifier      = Modifier.weight(1f),
-                )
-                Text(
-                    "${speed.oneDecimal()}×",
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.width(44.dp),
-                )
-            }
+            SpeedSlider(
+                speed         = speed,
+                onSpeedChange = {
+                    speed = it
+                    pending.trySend(it)
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             Row(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -835,7 +823,3 @@ private fun ScenesSheet(
     }
 }
 
-private fun Float.oneDecimal(): String {
-    val r = (this * 10).roundToInt()
-    return "${r / 10}.${r % 10}"
-}

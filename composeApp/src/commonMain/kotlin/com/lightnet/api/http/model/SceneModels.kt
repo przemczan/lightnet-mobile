@@ -37,6 +37,7 @@ object RunnerSourceToken {
     const val ROOT = "root"
     const val LEAVES = "leaves"
     const val ALL = "all"
+    const val GEOMETRIC = "geometric"
     fun panel(index: Int) = "panel:$index"
 }
 
@@ -77,6 +78,8 @@ data class SceneStep(
     val params: List<Int>? = null,
     // Runner directionality (WAVE/RIPPLE/CHASE) — never combine with `params`.
     val source: String? = null,
+    val directionality: String? = null,  // "topology" (default) or "geometric"
+    val angle: Int? = null,              // geometric sweep direction in degrees
     val reverse: Boolean? = null,
     val waveWidth: Int? = null,
     val rippleWidth: Int? = null,
