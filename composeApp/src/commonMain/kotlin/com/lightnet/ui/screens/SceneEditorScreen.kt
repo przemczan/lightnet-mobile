@@ -1,5 +1,10 @@
 package com.lightnet.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,14 +29,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,10 +76,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.model.BlendMode
 import com.lightnet.api.http.model.ColorRef
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PaletteStop
@@ -84,6 +94,8 @@ import com.lightnet.ui.components.LightnetDeviceVisualizer
 import com.lightnet.ui.components.PaintMode
 import com.lightnet.ui.components.SpeedSlider
 import com.lightnet.ui.components.colorRefToColor
+import com.lightnet.ui.colorToHex
+import com.lightnet.ui.parseHexColor
 import com.lightnet.ui.screens.scene.AnimId
 import com.lightnet.ui.screens.scene.ColorMode
 import com.lightnet.ui.screens.scene.EditableLayer
@@ -92,6 +104,7 @@ import com.lightnet.ui.screens.scene.EditableStep
 import com.lightnet.ui.screens.scene.RunnerSrc
 import com.lightnet.ui.screens.scene.TargetKind
 import com.lightnet.ui.screens.scene.sceneFromJson
+import com.lightnet.ui.screens.scene.toPreviewSceneJson
 import com.lightnet.ui.screens.scene.toSceneJson
 import com.lightnet.ui.screens.scene.validationError
 import kotlinx.coroutines.CoroutineScope
@@ -166,6 +179,7 @@ fun SceneEditorScreen(
     }
 
     var editingLayer by remember { mutableStateOf<EditableLayer?>(null) }
+    var previewExpanded by remember { mutableStateOf(true) }
 
     val activeScene = scene
     if (activeScene == null) {
@@ -240,22 +254,20 @@ fun SceneEditorScreen(
             )
         },
         bottomBar = {
-            Row(
-                Modifier.fillMaxWidth().padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+            BottomAppBar {
                 OutlinedButton(
                     onClick = {
                         val err = activeScene.validationError()
                         if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@OutlinedButton }
                         device?.setLivePreview(true)
-                        scope.launch { httpClient?.runCatching { playSceneInline(activeScene.toSceneJson(panels)) } }
+                        scope.launch { httpClient?.runCatching { playSceneInline(activeScene.toPreviewSceneJson(panels)) } }
                     },
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                     Spacer(Modifier.size(8.dp)); Text("Preview")
                 }
+                Spacer(Modifier.size(12.dp))
                 OutlinedButton(onClick = { stopPreview() }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.Stop, contentDescription = null)
                     Spacer(Modifier.size(8.dp)); Text("Stop")
@@ -263,105 +275,114 @@ fun SceneEditorScreen(
             }
         },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 16.dp,
-                start = 16.dp, end = 16.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+        Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
             if (panels.isNotEmpty()) {
-                item {
-                    Card(Modifier.fillMaxWidth()) {
-                        LightnetDeviceVisualizer(
-                            panels      = panels,
-                            modifier    = Modifier.fillMaxWidth().height(220.dp),
-                            interactive = false,
-                        )
-                    }
-                }
-            }
-            item {
-                TextField(
-                    value         = activeScene.name,
-                    onValueChange = { activeScene.name = it },
-                    label         = { Text("NAME") },
-                    singleLine    = true,
-                    modifier      = Modifier.fillMaxWidth(),
+                VisualizerPreviewCard(
+                    panels   = panels,
+                    expanded = previewExpanded,
+                    onToggle = { previewExpanded = !previewExpanded },
                 )
             }
-            item {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = httpClient != null) { storeOnDevice = !storeOnDevice }
-                        .padding(end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(
-                        checked         = storeOnDevice,
-                        onCheckedChange = { storeOnDevice = it },
-                        enabled         = httpClient != null,
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(
+                    top = 8.dp, bottom = padding.calculateBottomPadding() + 16.dp,
+                    start = 16.dp, end = 16.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                item {
+                    TextField(
+                        value         = activeScene.name,
+                        onValueChange = { activeScene.name = it },
+                        label         = { Text("NAME") },
+                        singleLine    = true,
+                        modifier      = Modifier.fillMaxWidth(),
                     )
-                    Column {
-                        Text("Also save to device", style = MaterialTheme.typography.bodyMedium)
-                        if (httpClient == null) {
-                            Text(
-                                "Connect a device to enable",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
                 }
-            }
-            item {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                            Text("Loop", style = MaterialTheme.typography.bodyLarge)
-                            Switch(checked = activeScene.loop, onCheckedChange = { activeScene.loop = it })
-                        }
-                        HorizontalDivider()
-                        Column(Modifier.padding(vertical = 8.dp)) {
-                            Text("Speed", style = MaterialTheme.typography.bodyLarge)
-                            SpeedSlider(
-                                speed         = activeScene.speed,
-                                onSpeedChange = { activeScene.speed = it },
-                            )
-                        }
-                        HorizontalDivider()
-                        PaletteDropdown(
-                            label    = "Default palette",
-                            value    = activeScene.palette,
-                            options  = paletteNames,
-                            onSelect = { activeScene.palette = it },
-                            modifier = Modifier.padding(vertical = 8.dp),
+                item {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = httpClient != null) { storeOnDevice = !storeOnDevice }
+                            .padding(end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked         = storeOnDevice,
+                            onCheckedChange = { storeOnDevice = it },
+                            enabled         = httpClient != null,
                         )
+                        Column {
+                            Text("Also save to device", style = MaterialTheme.typography.bodyMedium)
+                            if (httpClient == null) {
+                                Text(
+                                    "Connect a device to enable",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 }
-            }
-            item { SettingsSectionTitle("LAYERS") }
-            activeScene.layers.forEach { layer ->
-                item(key = layer.id) {
-                    LayerCard(
-                        layer        = layer,
-                        panelCount   = panels.size,
-                        paletteStops = stopsFor(layer),
-                        baseColors   = baseColors,
-                        onEdit       = { editingLayer = layer },
-                        onDelete     = { activeScene.layers.remove(layer) },
-                    )
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                                Text("Loop", style = MaterialTheme.typography.bodyLarge)
+                                Switch(checked = activeScene.loop, onCheckedChange = { activeScene.loop = it })
+                            }
+                            HorizontalDivider()
+                            Column(Modifier.padding(vertical = 8.dp)) {
+                                Text("Speed", style = MaterialTheme.typography.bodyLarge)
+                                SpeedSlider(
+                                    speed         = activeScene.speed,
+                                    onSpeedChange = { activeScene.speed = it },
+                                )
+                            }
+                            HorizontalDivider()
+                            PaletteDropdown(
+                                label    = "Default palette",
+                                value    = activeScene.palette,
+                                options  = paletteNames,
+                                onSelect = { activeScene.palette = it },
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                            HorizontalDivider()
+                            BackgroundColorRow(
+                                hex      = activeScene.background,
+                                onChange = { activeScene.background = it },
+                            )
+                        }
+                    }
                 }
-            }
-            item {
-                OutlinedButton(
-                    onClick  = { activeScene.layers.add(EditableLayer(name = activeScene.nextLayerName())) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.size(8.dp)); Text("Add layer")
+                item { SettingsSectionTitle("LAYERS") }
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column {
+                            activeScene.layers.forEachIndexed { i, layer ->
+                                if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp))
+                                LayerRow(
+                                    layer        = layer,
+                                    panelCount   = panels.size,
+                                    paletteStops = stopsFor(layer),
+                                    baseColors   = baseColors,
+                                    canMoveUp    = i > 0,
+                                    canMoveDown  = i < activeScene.layers.lastIndex,
+                                    onEdit       = { editingLayer = layer },
+                                    onDelete     = { activeScene.layers.remove(layer) },
+                                    onMoveUp     = { activeScene.layers.move(i, i - 1) },
+                                    onMoveDown   = { activeScene.layers.move(i, i + 1) },
+                                    onTogglePreview = { layer.includedInPreview = !layer.includedInPreview },
+                                )
+                            }
+                            HorizontalDivider(Modifier.padding(horizontal = 12.dp))
+                            TextButton(
+                                onClick  = { activeScene.layers.add(EditableLayer(name = activeScene.nextLayerName())) },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            ) { Text("+ Add layer") }
+                        }
+                    }
                 }
             }
         }
@@ -382,7 +403,52 @@ fun SceneEditorScreen(
     }
 }
 
-// ── Layer card (summary in the scene list) ──────────────────────────────────────
+// ── Visualizer preview (pinned above the scrolling form, foldable) ───────────────
+
+@Composable
+private fun VisualizerPreviewCard(
+    panels: List<LightnetDevicePanel>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                Arrangement.SpaceBetween, Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Preview",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse preview" else "Expand preview",
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter   = expandVertically() + fadeIn(),
+                exit    = shrinkVertically() + fadeOut(),
+            ) {
+                LightnetDeviceVisualizer(
+                    panels      = panels,
+                    modifier    = Modifier.fillMaxWidth().height(220.dp),
+                    interactive = false,
+                )
+            }
+        }
+    }
+}
+
+// ── Layer row (summary in the scene list) ───────────────────────────────────────
+
+/** Sentinel shown in the blend dropdown for "no explicit blend" (null → firmware default). */
+private const val BLEND_DEFAULT = "default"
 
 private fun targetSummary(layer: EditableLayer, panelCount: Int): String = when (layer.targetKind) {
     TargetKind.All      -> "All panels"
@@ -392,19 +458,45 @@ private fun targetSummary(layer: EditableLayer, panelCount: Int): String = when 
 }
 
 @Composable
-private fun LayerCard(
+private fun LayerRow(
     layer: EditableLayer,
     panelCount: Int,
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onTogglePreview: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onEdit)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .alpha(if (layer.includedInPreview) 1f else 0.5f),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                IconButton(onClick = onTogglePreview) {
+                    Icon(
+                        if (layer.includedInPreview) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = if (layer.includedInPreview) "Hide from preview" else "Show in preview",
+                    )
+                }
                 Text(layer.name.ifBlank { "Layer" }, style = MaterialTheme.typography.titleSmall)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up")
+                }
+                IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down")
+                }
                 Box {
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More")
@@ -414,21 +506,22 @@ private fun LayerCard(
                     }
                 }
             }
-            Text(
-                buildString {
-                    append(targetSummary(layer, panelCount))
-                    if (layer.async) append(" · async")
-                    layer.startAfter?.takeIf { it.isNotBlank() }?.let { append(" · after $it") }
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                layer.steps.forEach { step -> StepChip(step, paletteStops, baseColors) }
-            }
+        }
+        Text(
+            buildString {
+                append(targetSummary(layer, panelCount))
+                append(" · blend: ${layer.blend ?: "default"}")
+                if (layer.async) append(" · async")
+                layer.startAfter?.takeIf { it.isNotBlank() }?.let { append(" · after $it") }
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            layer.steps.forEach { step -> StepChip(step, paletteStops, baseColors) }
         }
     }
 }
@@ -520,6 +613,14 @@ private fun LayerEditorScreen(
                             value    = layer.startAfter?.takeIf { it.isNotBlank() } ?: "Nothing (start immediately)",
                             options  = listOf("Nothing (start immediately)") + otherNames,
                             onSelect = { layer.startAfter = if (it == "Nothing (start immediately)") null else it },
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                        HorizontalDivider()
+                        LabeledDropdown(
+                            label    = "Blend (how this layer composites)",
+                            value    = layer.blend ?: BLEND_DEFAULT,
+                            options  = listOf(BLEND_DEFAULT) + BlendMode.all,
+                            onSelect = { layer.blend = if (it == BLEND_DEFAULT) null else it },
                             modifier = Modifier.padding(vertical = 8.dp),
                         )
                     }
@@ -939,6 +1040,49 @@ private fun RunnerDirectionEditor(step: EditableStep, panels: List<LightnetDevic
 
             ToggleRow("Reverse direction", step.reverse) { step.reverse = it }
         }
+    }
+}
+
+/** Background colour picker row: tap the swatch to open [ColorPickerSheet]; "Reset" clears the override (→ black). */
+@Composable
+private fun BackgroundColorRow(
+    hex: String?,
+    onChange: (String?) -> Unit,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+    val color = remember(hex) { parseHexColor(hex ?: "#000000") ?: Color.Black }
+
+    Row(
+        Modifier.fillMaxWidth().clickable { showPicker = true }.padding(vertical = 8.dp),
+        Arrangement.SpaceBetween, Alignment.CenterVertically,
+    ) {
+        Column {
+            Text("Background", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                hex ?: "Default (black)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (hex != null) {
+                TextButton(onClick = { onChange(null) }) { Text("Reset") }
+            }
+            Box(
+                Modifier.size(32.dp).clip(MaterialTheme.shapes.small)
+                    .background(color)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
+            )
+        }
+    }
+
+    if (showPicker) {
+        ColorPickerSheet(
+            initial        = color,
+            showBaseColors = false,
+            onPick         = { onChange(colorToHex(it)) },
+            onDismiss      = { showPicker = false },
+        )
     }
 }
 

@@ -113,7 +113,7 @@ class PanelMirrorService(
                 forEachTarget(record.address) { it.on = on }
             }
             IicPacketType.ANIMATION_PREPARE.value -> {
-                if (p.size < IIC_META_SIZE + 16) return
+                if (p.size < IIC_META_SIZE + 20) return
                 val state = decodeAnimationPrepare(p, IIC_META_SIZE)
                 forEachTarget(record.address) { it.player.prepare(state) }
             }
@@ -124,9 +124,10 @@ class PanelMirrorService(
                 forEachTarget(record.address) { it.player.start(seqId, groupId, now, controllerMs) }
             }
             IicPacketType.ANIMATION_CONTROL.value -> {
-                if (p.size < IIC_META_SIZE + 1) return
+                if (p.size < IIC_META_SIZE + 2) return
                 val cmd = u8(p, IIC_META_SIZE)
-                forEachTarget(record.address) { it.player.control(cmd, now) }
+                val groupId = u8(p, IIC_META_SIZE + 1)
+                forEachTarget(record.address) { it.player.control(cmd, groupId, now) }
             }
             IicPacketType.ANIMATION_UPDATE_PARAMS.value -> {
                 if (p.size < IIC_META_SIZE + 4) return
@@ -154,6 +155,11 @@ class PanelMirrorService(
                     ColorRgbModel(u8(p, off), u8(p, off + 1), u8(p, off + 2))
                 }
                 forEachTarget(record.address) { it.player.setBaseColors(colors) }
+            }
+            IicPacketType.SET_BACKGROUND.value -> {
+                if (p.size < IIC_META_SIZE + 3) return
+                val color = ColorRgbModel(u8(p, IIC_META_SIZE), u8(p, IIC_META_SIZE + 1), u8(p, IIC_META_SIZE + 2))
+                forEachTarget(record.address) { it.player.setBackground(color) }
             }
             // SET_GLOBAL_BRIGHTNESS is applied at render time via the appearance brightness slider.
         }

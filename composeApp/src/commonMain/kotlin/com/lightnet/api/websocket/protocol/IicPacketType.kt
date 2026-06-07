@@ -16,7 +16,8 @@ enum class IicPacketType(val value: Int) {
     ANIMATION_UPDATE_PARAMS(16),
     SET_PALETTE(17),
     SET_BASE_COLORS(18),
-    SET_GLOBAL_BRIGHTNESS(19);
+    SET_GLOBAL_BRIGHTNESS(19),
+    SET_BACKGROUND(20);
 
     companion object {
         fun fromValue(value: Int): IicPacketType? = entries.find { it.value == value }

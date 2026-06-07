@@ -195,8 +195,9 @@ class PanelAnimationPlayerTest {
 
     @Test
     fun decodePrepare_roundTrip() {
-        // Hand-build the raw I²C PacketAnimationPrepare bytes (5-byte meta + 16-byte body) for a
-        // FADE black→amber over 1000ms, then decode and drive a player — covering the byte offsets.
+        // Hand-build the raw I²C PacketAnimationPrepare bytes (5-byte meta + 20-byte v6 body) for a
+        // FADE black→amber over 1000ms with add blend at composeOrder 2 and a 250ms onset, then
+        // decode and drive a player — covering the byte offsets including the v6 compositor fields.
         val bytes = byteArrayOf(
             12, 1, 0, 0, 0,          // meta: type=12, version=1, headerCrc=0 (ignored by decode)
             ANIM_FADE.toByte(),      // animType
@@ -208,6 +209,9 @@ class PanelAnimationPlayerTest {
             0, 200.toByte(), 100, 50,// colorTo:   kind=RGB, 200,100,50
             0,                       // param1
             0,                       // param2
+            COMPOSE_ADD.toByte(),    // composeMode
+            2,                       // composeOrder
+            0xFA.toByte(), 0x00,     // startDelayMs = 250 (LE)
         )
         val state = decodeAnimationPrepare(bytes)
         assertEquals(ANIM_FADE, state.animType)
@@ -215,12 +219,54 @@ class PanelAnimationPlayerTest {
         assertEquals(1000, state.durationMs)
         assertEquals(ColorRef.rgb(0, 0, 0), state.colorFrom)
         assertEquals(ColorRef.rgb(200, 100, 50), state.colorTo)
+        assertEquals(COMPOSE_ADD, state.composeMode)
+        assertEquals(2, state.composeOrder)
+        assertEquals(250, state.startDelayMs)
 
+        // Drive it: with a 250ms onset, elapsed 750 → animElapsed 500 → fade midpoint.
+        // Sole layer over a black background with ADD blend → just the source colour.
         val player = PanelAnimationPlayer()
         player.prepare(state)
         player.start(seqId = 1, groupId = 1, nowMs = 0)
-        player.tick(nowMs = 500)
+        player.tick(nowMs = 750)
         assertEquals(rgb(100, 50, 25), player.currentColor)  // fade(500) from refgen
+    }
+
+    @Test
+    fun compositor_layersBlendNotOverwrite() {
+        // Two layers on one panel: a solid blue base (order 0) and an additive red accent
+        // (order 1). The compositor adds them instead of the accent overwriting the base.
+        val player = PanelAnimationPlayer()
+        player.prepare(
+            AnimationState(animType = ANIM_SOLID, groupId = 1, durationMs = 0,
+                colorTo = ColorRef.rgb(0, 0, 200), composeMode = COMPOSE_NORMAL, composeOrder = 0)
+        )
+        player.start(seqId = 1, groupId = 1, nowMs = 0)
+        player.prepare(
+            AnimationState(animType = ANIM_SOLID, groupId = 2, durationMs = 0,
+                colorTo = ColorRef.rgb(200, 0, 0), composeMode = COMPOSE_ADD, composeOrder = 1)
+        )
+        player.start(seqId = 2, groupId = 2, nowMs = 0)
+        player.tick(nowMs = 10)
+        assertEquals(rgb(200, 0, 200), player.currentColor)
+    }
+
+    @Test
+    fun compositor_modifierDimsBelow() {
+        // A MOD_BRIGHTNESS layer (order 1) at 50% halves the solid base (order 0).
+        val player = PanelAnimationPlayer()
+        player.prepare(
+            AnimationState(animType = ANIM_SOLID, groupId = 1, durationMs = 0,
+                colorTo = ColorRef.rgb(200, 100, 50), composeOrder = 0)
+        )
+        player.start(seqId = 1, groupId = 1, nowMs = 0)
+        player.prepare(
+            AnimationState(animType = ANIM_MOD_BRIGHTNESS, groupId = 2, durationMs = 0,
+                param1 = 128, param2 = 128, composeOrder = 1)
+        )
+        player.start(seqId = 2, groupId = 2, nowMs = 0)
+        player.tick(nowMs = 10)
+        assertEquals(rgb(100, 50, 25), player.currentColor)
     }
 
     @Test

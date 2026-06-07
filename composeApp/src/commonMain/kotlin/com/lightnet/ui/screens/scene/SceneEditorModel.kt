@@ -34,6 +34,7 @@ enum class AnimId(
     val supportsLoopFlags: Boolean = true,
     val widthLabel: String? = null,   // runner band/ring width (rings); null = no width
     val defaultWidth: Int = 0,
+    val isModifier: Boolean = false,  // MOD_* — params are the from→to scalar, emitted as from/to
 ) {
     SOLID("Solid", false, ColorMode.Single, emptyList(), "SOLID"),
     FADE("Fade", false, ColorMode.FromTo, emptyList(), "FADE"),
@@ -47,6 +48,19 @@ enum class AnimId(
     HUE_CYCLE("Hue cycle", false, ColorMode.None, listOf(ParamSpec("Speed", 0, 255, 25)), "HUE_CYCLE"),
     STROBE("Strobe", false, ColorMode.Single, listOf(ParamSpec("Frequency (Hz)", 1, 30, 8)), "STROBE"),
     REACTIVE("Reactive", false, ColorMode.FromTo, listOf(ParamSpec("Decay", 0, 255, 180)), "REACTIVE"),
+    // Modifier layers — transform the colour composited below them (params = from→to scalar).
+    MOD_BRIGHTNESS(
+        "Modifier · Brightness", false, ColorMode.None,
+        listOf(ParamSpec("From", 0, 255, 255), ParamSpec("To", 0, 255, 64)), "MOD_BRIGHTNESS", isModifier = true,
+    ),
+    MOD_SATURATION(
+        "Modifier · Saturation", false, ColorMode.None,
+        listOf(ParamSpec("From", 0, 255, 255), ParamSpec("To", 0, 255, 0)), "MOD_SATURATION", isModifier = true,
+    ),
+    MOD_HUE_SHIFT(
+        "Modifier · Hue shift", false, ColorMode.None,
+        listOf(ParamSpec("From", 0, 255, 0), ParamSpec("To", 0, 255, 255)), "MOD_HUE_SHIFT", isModifier = true,
+    ),
     GAP("Gap (hold)", false, ColorMode.None, emptyList(), null, supportsLoopFlags = false),
     WAVE("Wave", true, ColorMode.Single, emptyList(), "WAVE", supportsLoopFlags = false, widthLabel = "Width (rings)", defaultWidth = 3),
     RIPPLE("Ripple", true, ColorMode.Single, emptyList(), "RIPPLE", supportsLoopFlags = false, widthLabel = "Ring width", defaultWidth = 2),
@@ -134,6 +148,7 @@ class EditableLayer(
     palette: String? = null,
     async: Boolean = false,
     startAfter: String? = null,
+    blend: String? = null,
     fallback: PanelTarget? = null,
     steps: List<EditableStep> = listOf(EditableStep()),
 ) {
@@ -146,8 +161,12 @@ class EditableLayer(
     var palette by mutableStateOf(palette)
     var async by mutableStateOf(async)
     var startAfter by mutableStateOf(startAfter)
+    var blend by mutableStateOf(blend)        // null = default (normal; runners use max)
     var fallback by mutableStateOf(fallback)  // round-trip passthrough (no UI yet)
     val steps = steps.toMutableStateList()
+
+    // Editor-only: hides this layer from the live preview without affecting the saved scene.
+    var includedInPreview by mutableStateOf(true)
 }
 
 class EditableScene(
@@ -155,12 +174,14 @@ class EditableScene(
     loop: Boolean = true,
     speed: Float = 1f,
     palette: String? = null,
+    background: String? = null,
     layers: List<EditableLayer> = listOf(EditableLayer(name = "layer1")),
 ) {
     var name by mutableStateOf(name)
     var loop by mutableStateOf(loop)
     var speed by mutableStateOf(speed)
     var palette by mutableStateOf(palette)
+    var background by mutableStateOf(background)  // compositor base #RRGGBB; null = black
     val layers = layers.toMutableStateList()
 
     /** A unique auto-name for a freshly added layer. */
@@ -203,6 +224,16 @@ private fun EditableStep.toSceneStep(): SceneStep {
             rippleWidth    = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
         )
     }
+    if (a.isModifier) {
+        // Modifier: emit the from→to scalar (params[0]/params[1]) as the `from`/`to` keys.
+        return SceneStep(
+            type     = a.wireName,
+            duration = durationMs,
+            loop     = if (loop) true else null,
+            from     = params.getOrElse(0) { a.params[0].default },
+            to       = params.getOrElse(1) { a.params[1].default },
+        )
+    }
     return SceneStep(
         type      = a.wireName,
         color     = if (a.colorMode == ColorMode.Single) colorA else null,
@@ -224,26 +255,50 @@ private fun EditableLayer.toPanelTarget(panels: List<LightnetDevicePanel>): Pane
         TargetKind.Advanced -> rawTarget ?: PanelTarget.All
     }
 
-fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson = SceneJson(
-    // Geometric directionality is a v3 feature; keep v2 for everything else so scenes still
-    // load on older controllers that don't understand `directionality:geometric`.
-    schemaVersion = if (layers.any { l -> l.steps.any { it.geometric } }) 3 else 2,
-    name    = name.trim().ifBlank { null },
-    loop    = loop,
-    speed   = speed,
-    palette = palette,
-    layers  = layers.map { l ->
-        SceneLayer(
-            group      = l.name.trim(),
-            panels     = l.toPanelTarget(panels),
-            palette    = l.palette,
-            sequence   = l.steps.map { it.toSceneStep() },
-            startAfter = l.startAfter?.trim()?.ifBlank { null },
-            async      = if (l.async) true else null,
-            fallback   = l.fallback,
-        )
-    },
-)
+fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
+    val usesCompositing = background != null ||
+        layers.any { l -> l.blend != null || l.steps.any { it.anim.isModifier } }
+    val usesGeometric = layers.any { l -> l.steps.any { it.geometric } }
+
+    return SceneJson(
+        // Pick the lowest schema that still expresses the features used, so scenes keep loading
+        // on older controllers: v4 = blend/modifier/background, v3 = geometric directionality.
+        schemaVersion = when {
+            usesCompositing -> 4
+            usesGeometric   -> 3
+            else            -> 2
+        },
+        name       = name.trim().ifBlank { null },
+        loop       = loop,
+        speed      = speed,
+        background = background,
+        palette    = palette,
+        layers     = layers.map { l ->
+            SceneLayer(
+                group      = l.name.trim(),
+                panels     = l.toPanelTarget(panels),
+                palette    = l.palette,
+                sequence   = l.steps.map { it.toSceneStep() },
+                startAfter = l.startAfter?.trim()?.ifBlank { null },
+                async      = if (l.async) true else null,
+                blend      = l.blend,
+                fallback   = l.fallback,
+            )
+        },
+    )
+}
+
+/**
+ * Same as [toSceneJson] but drops layers the user has hidden from the live preview
+ * (via [EditableLayer.includedInPreview]). Saving always persists every layer —
+ * this view only affects what gets sent to the device for previewing.
+ */
+fun EditableScene.toPreviewSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
+    val full = toSceneJson(panels)
+    if (layers.all { it.includedInPreview }) return full
+    val keep = layers.indices.filter { layers[it].includedInPreview }.toSet()
+    return full.copy(layers = full.layers.filterIndexed { i, _ -> i in keep })
+}
 
 // Returns (isGeometric, origin, panelIndex). Accepts both the new `directionality` field
 // and the legacy `source: "geometric"` encoding for back-compat with older scenes.
@@ -262,6 +317,10 @@ private fun parseRunnerSource(source: String?, directionality: String?): Triple<
 private fun stepFrom(step: SceneStep): EditableStep {
     val anim = AnimId.fromStep(step)
     val (isGeometric, src, srcPanel) = parseRunnerSource(step.source, step.directionality)
+    val params = when {
+        anim.isModifier -> listOf(step.from ?: anim.params[0].default, step.to ?: anim.params[1].default)
+        else            -> step.params ?: anim.defaultParams()
+    }
     return EditableStep(
         anim        = anim,
         colorA      = step.color ?: step.colorFrom ?: ColorRef.Hex("#FF0000"),
@@ -269,7 +328,7 @@ private fun stepFrom(step: SceneStep): EditableStep {
         durationMs  = step.duration ?: 1000,
         loop        = step.loop == true,
         pingpong    = step.pingpong == true,
-        params      = step.params ?: anim.defaultParams(),
+        params      = params,
         geometric   = isGeometric,
         source      = src,
         sourcePanel = srcPanel,
@@ -298,16 +357,18 @@ private fun layerFromTarget(target: PanelTarget, panels: List<LightnetDevicePane
 }
 
 fun sceneFromJson(json: SceneJson, panels: List<LightnetDevicePanel>): EditableScene = EditableScene(
-    name    = json.name ?: "",
-    loop    = json.loop ?: true,
-    speed   = json.speed ?: 1f,
-    palette = json.palette,
-    layers  = json.layers.mapIndexed { idx, layer ->
+    name       = json.name ?: "",
+    loop       = json.loop ?: true,
+    speed      = json.speed ?: 1f,
+    palette    = json.palette,
+    background = json.background,
+    layers     = json.layers.mapIndexed { idx, layer ->
         EditableLayer(
             name       = layer.group.ifBlank { "layer${idx + 1}" },
             palette    = layer.palette,
             async      = layer.async == true,
             startAfter = layer.startAfter,
+            blend      = layer.blend,
             fallback   = layer.fallback,
             steps      = layer.sequence.map { stepFrom(it) }.ifEmpty { listOf(EditableStep()) },
         ).apply(layerFromTarget(layer.panels, panels))

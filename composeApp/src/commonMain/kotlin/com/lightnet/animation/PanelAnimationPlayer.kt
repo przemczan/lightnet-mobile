@@ -13,6 +13,16 @@ const val ANIM_HUE_CYCLE = 6
 const val ANIM_STROBE = 7
 const val ANIM_REACTIVE = 8
 
+// Modifier layer types (transform the colour composited below them).
+const val ANIM_MOD_BRIGHTNESS = 10
+const val ANIM_MOD_SATURATION = 11
+const val ANIM_MOD_HUE_SHIFT = 12
+
+fun isModifierType(t: Int) = t in ANIM_MOD_BRIGHTNESS..ANIM_MOD_HUE_SHIFT
+
+// Max concurrent composited layers per panel (firmware MAX_ANIM_SLOTS).
+const val MAX_ANIM_SLOTS = 4
+
 // Animation flags (bitfield).
 const val FLAG_LOOP = 0x01
 const val FLAG_PINGPONG = 0x02
@@ -68,13 +78,16 @@ data class AnimationState(
     val colorTo: ColorRef = ColorRef.rgb(0, 0, 0),
     val param1: Int = 0,
     val param2: Int = 0,
+    val composeMode: Int = COMPOSE_NORMAL,
+    val composeOrder: Int = 0,
+    val startDelayMs: Int = 0,
 )
 
 /**
  * Decodes a PacketAnimationPrepare body into an [AnimationState]. [payload] is the raw I²C packet
- * (a [metaSize]-byte Protocol::PacketMeta followed by the 16-byte body). Mirrors the firmware
- * struct layout: animType, group_id, flags, transitionMs, durationMs(u16), colorFrom(4), colorTo(4),
- * param1, param2.
+ * (a [metaSize]-byte Protocol::PacketMeta followed by the 20-byte v6 body). Mirrors the firmware
+ * struct: animType, group_id, flags, transitionMs, durationMs(u16), colorFrom(4), colorTo(4),
+ * param1, param2, composeMode, composeOrder, startDelayMs(u16).
  */
 fun decodeAnimationPrepare(payload: ByteArray, metaSize: Int = 5): AnimationState {
     fun u8(i: Int) = payload[metaSize + i].toInt() and 0xFF
@@ -89,24 +102,22 @@ fun decodeAnimationPrepare(payload: ByteArray, metaSize: Int = 5): AnimationStat
         colorTo = ColorRef.fromBytes(payload, metaSize + 10),
         param1 = u8(14),
         param2 = u8(15),
+        composeMode = u8(16),
+        composeOrder = u8(17),
+        startDelayMs = u16(18),
     )
 }
 
 /**
- * Faithful Kotlin port of the firmware Lightnet::AnimationPlayer (lib/Lightnet/Panel/AnimationPlayer.cpp).
- * One instance drives one panel locally so the app can preview panel-local animations
- * (FADE/BREATHE/PULSE/…) without per-frame network traffic.
+ * Faithful Kotlin port of the firmware Lightnet::AnimationPlayer (lib/Lightnet/Panel/AnimationPlayer.cpp)
+ * as of protocol v6: a per-panel **layer compositor**. Up to [MAX_ANIM_SLOTS] layers (groups) run
+ * concurrently; each tick resolves every started slot to one contribution and folds them in
+ * composeOrder onto the background base (see [ColorCompose]). One instance previews one panel.
  *
- * Integer math mirrors the firmware exactly (lerp8, q8 fractions, parabolic breathe) so the
- * preview tracks the hardware. Time is supplied by the caller as monotonic milliseconds; elapsed
- * is computed in 16-bit modular arithmetic to match the panel's uint16 millis() wrap.
- *
- * Differences from firmware, all behaviourally inert for color output:
- *  - no 16 ms internal frame gate (the driver loop sets cadence; output depends only on elapsed),
- *  - [currentColor] stands in for the LED controller, including FLAG_CURRENT_* resolution.
+ * Integer math mirrors the firmware exactly so the preview tracks the hardware. Time is supplied as
+ * monotonic milliseconds; elapsed uses 16-bit modular arithmetic to match the panel's uint16 millis().
  */
 class PanelAnimationPlayer {
-    // Output — the resolved color for the current frame. Also the "live LED color".
     var currentColor: ColorRgbModel = ColorRgbModel(0, 0, 0)
         private set
 
@@ -118,45 +129,53 @@ class PanelAnimationPlayer {
         ColorRgbModel(0, 0, 0),
         ColorRgbModel(0, 0, 0),
     )
+    private var backgroundColor = ColorRgbModel(0, 0, 0)
 
     init {
         palette[0] = GradientStop(0, 255, 255, 255)
         palette[1] = GradientStop(255, 255, 255, 255)
     }
 
-    // 4-deep animation queue.
-    private val queue = Array(4) { AnimationState() }
-    private var queueHead = 0
-    private var queueCount = 0
+    /** One composited layer (firmware AnimationPlayer::Slot). */
+    private class Slot {
+        var occupied = false
+        var started = false
+        var holding = false
+        var paused = false
+        var pausedElapsedMs = 0
+        var groupId = 0
+        var cur = AnimationState()
+        var hasPending = false
+        var pending = AnimationState()
+        var reactiveLevel = 0
+        var reactiveDecayRate = 0
+        var reactiveTriggerMs = 0L
+        var startMs = 0L
+        var controllerStartMs = 0L
+        var outColor = ColorRgbModel(0, 0, 0)
 
-    // Playback state.
-    private var animType = ANIM_SOLID
-    private var groupId = 0
-    private var flags = 0
-    private var transitionMs = 0
-    private var durationMs = 0
-    private var startMs = 0L
-    private var startControllerMs = 0L
-    private var paused = false
-    private var pausedElapsedMs = 0
+        fun clear() {
+            occupied = false; started = false; holding = false; paused = false
+            pausedElapsedMs = 0; groupId = 0; hasPending = false
+            reactiveLevel = 0; reactiveDecayRate = 0; reactiveTriggerMs = 0L
+            startMs = 0L; controllerStartMs = 0L
+        }
+    }
+
+    private val slots = Array(MAX_ANIM_SLOTS) { Slot() }
     private var lastStartSeqId = 0xFF
     private var lastParamsSeqId = 0xFF
+    private var reactiveNowMs = 0L
 
-    // Reactive state.
-    private var reactiveLevel = 0
-    private var reactiveDecayRate = 0
-    private var reactiveTriggerMs = 0L
+    val isAnimating: Boolean
+        get() = slots.any { it.occupied && it.started && (it.cur.animType != ANIM_SOLID || it.reactiveLevel > 0) }
 
-    val isAnimating: Boolean get() = animType != ANIM_SOLID || reactiveLevel > 0
+    // ── External color writes / baseline seeding ──
 
-    // ── External color writes (SET_COLOR) and baseline seeding ──────────────────
-
-    /** Directly sets the LED color, as the firmware's SET_COLOR handler does (independent of the queue). */
+    /** Directly sets the LED color, as the firmware's SET_COLOR handler does. */
     fun setColorDirect(color: ColorRgbModel) {
         currentColor = color
     }
-
-    // ── Palette / base colors ────────────────────────────────────────────────────
 
     fun setPalette(stops: List<GradientStop>) {
         if (stops.isEmpty()) return
@@ -166,12 +185,16 @@ class PanelAnimationPlayer {
     }
 
     fun setBaseColors(colors: List<ColorRgbModel>) {
-        for (i in 0 until BASE_COLORS_COUNT) {
-            if (i < colors.size) baseColors[i] = colors[i]
-        }
+        for (i in 0 until BASE_COLORS_COUNT) if (i < colors.size) baseColors[i] = colors[i]
     }
 
-    // ── ColorRef resolution ────────────────────────────────────────────────────
+    /** Compositor base colour (PACKET_SET_BACKGROUND); idle panels display it. */
+    fun setBackground(color: ColorRgbModel) {
+        backgroundColor = color
+        if (slots.none { it.occupied }) currentColor = color
+    }
+
+    // ── ColorRef resolution ──
 
     private fun resolveColorRef(ref: ColorRef): ColorRgbModel = when (ref.kind) {
         COLORREF_RGB -> ColorRgbModel(ref.a, ref.b, ref.c)
@@ -180,230 +203,223 @@ class PanelAnimationPlayer {
         else -> ColorRgbModel(255, 255, 255)
     }
 
-    private fun resolveCurrentColors(): Pair<ColorRgbModel, ColorRgbModel> {
-        val anim = queue[queueHead]
-        return resolveColorRef(anim.colorFrom) to resolveColorRef(anim.colorTo)
+    private fun resolveColors(a: AnimationState) = resolveColorRef(a.colorFrom) to resolveColorRef(a.colorTo)
+
+    // ── Slot management ──
+
+    private fun findSlot(groupId: Int): Slot? = slots.firstOrNull { it.occupied && it.groupId == groupId }
+
+    private fun allocSlot(groupId: Int): Slot? {
+        findSlot(groupId)?.let { return it }
+        val free = slots.firstOrNull { !it.occupied } ?: return null
+        free.clear(); free.occupied = true; free.groupId = groupId
+        return free
     }
 
-    // ── Packet handlers ────────────────────────────────────────────────────────
+    // ── Packet handlers ──
 
     fun prepare(state: AnimationState) {
-        if (queueCount >= 4) return
-        val idx = (queueHead + queueCount) % 4
-        queue[idx] = state
-        queueCount++
+        val s = allocSlot(state.groupId) ?: return
+        s.pending = state
+        s.hasPending = true
     }
 
     fun start(seqId: Int, groupId: Int, nowMs: Long, controllerMs: Long = nowMs) {
         if (seqId == lastStartSeqId) return
         lastStartSeqId = seqId
+        val s = findSlot(groupId) ?: return
+        if (!s.hasPending) return
 
-        for (i in 0 until queueCount) {
-            val idx = (queueHead + i) % 4
-            if (queue[idx].groupId != groupId) continue
+        s.cur = s.pending
+        s.hasPending = false
+        s.started = true
+        s.holding = false
+        s.paused = false
+        s.pausedElapsedMs = 0
+        s.startMs = nowMs
+        s.controllerStartMs = controllerMs
 
-            // Already running — let it finish; advanceQueue() picks up the next prepared step.
-            if (i == 0 && this.groupId != 0) return
+        // Resolve FLAG_CURRENT_* against the live composited colour.
+        if (s.cur.flags and FLAG_CURRENT_COLOR_FROM != 0) {
+            s.cur = s.cur.copy(colorFrom = ColorRef.rgb(currentColor.r, currentColor.g, currentColor.b))
+        }
+        if (s.cur.flags and FLAG_CURRENT_COLOR_TO != 0) {
+            s.cur = s.cur.copy(colorTo = ColorRef.rgb(currentColor.r, currentColor.g, currentColor.b))
+        }
 
-            if (i > 0) {
-                // Rotate the matching animation to the head.
-                val temp = queue[idx]
-                var j = idx
-                while (j != queueHead) {
-                    val prev = if (j > 0) j - 1 else 3
-                    queue[j] = queue[prev]
-                    j = prev
-                }
-                queue[queueHead] = temp
-
-                // Drop the displaced running animation (now at position 1) so it doesn't restart.
-                var k = 1
-                while (k < queueCount - 1) {
-                    queue[(queueHead + k) % 4] = queue[(queueHead + k + 1) % 4]
-                    k++
-                }
-                queueCount--
-            }
-
-            val anim = queue[queueHead]
-            animType = anim.animType
-            this.groupId = anim.groupId
-            flags = anim.flags
-            transitionMs = anim.transitionMs
-            durationMs = anim.durationMs
-            startMs = nowMs
-            startControllerMs = controllerMs
-            paused = false
-            pausedElapsedMs = 0
-
-            // Resolve FLAG_CURRENT_* against the live color (our currentColor shadow).
-            var head = queue[queueHead]
-            if (flags and FLAG_CURRENT_COLOR_FROM != 0) {
-                head = head.copy(colorFrom = ColorRef.rgb(currentColor.r, currentColor.g, currentColor.b))
-            }
-            if (flags and FLAG_CURRENT_COLOR_TO != 0) {
-                head = head.copy(colorTo = ColorRef.rgb(currentColor.r, currentColor.g, currentColor.b))
-            }
-            queue[queueHead] = head
-
-            if (animType == ANIM_REACTIVE) {
-                reactiveDecayRate = head.param1
-                reactiveTriggerMs = startMs
-                reactiveLevel = 0
-            }
-            return
+        if (s.cur.animType == ANIM_REACTIVE) {
+            s.reactiveDecayRate = s.cur.param1
+            s.reactiveTriggerMs = nowMs
+            s.reactiveLevel = 0
         }
     }
 
-    fun control(cmd: Int, nowMs: Long) {
-        when (cmd) {
-            ANIM_CTRL_STOP -> {
-                queueCount = 0
-                queueHead = 0
-                animType = ANIM_SOLID
-                groupId = 0
-                reactiveLevel = 0
-                startControllerMs = 0L
+    fun control(cmd: Int, groupId: Int, nowMs: Long) {
+        for (s in slots) {
+            if (!s.occupied) continue
+            if (groupId != 0 && s.groupId != groupId) continue
+            when (cmd) {
+                ANIM_CTRL_STOP -> s.clear()
+                ANIM_CTRL_PAUSE -> if (s.started && !s.paused) {
+                    s.paused = true; s.pausedElapsedMs = u16(nowMs - s.startMs)
+                }
+                ANIM_CTRL_RESUME -> if (s.paused) {
+                    s.paused = false; s.startMs = nowMs - s.pausedElapsedMs
+                }
+                ANIM_CTRL_CLEAR_QUEUE -> s.hasPending = false
             }
-            ANIM_CTRL_PAUSE -> if (animType != ANIM_SOLID) {
-                paused = true
-                pausedElapsedMs = u16(nowMs - startMs)
-            }
-            ANIM_CTRL_RESUME -> if (paused && animType != ANIM_SOLID) {
-                paused = false
-                startMs = nowMs - pausedElapsedMs
-            }
-            ANIM_CTRL_CLEAR_QUEUE -> if (queueCount > 1) queueCount = 1
         }
     }
 
     fun updateParams(seqId: Int, groupId: Int, paramType: Int, value: Int, nowMs: Long) {
         if (seqId == lastParamsSeqId) return
         lastParamsSeqId = seqId
-        if (groupId != 0 && groupId != this.groupId) return
-
-        when (paramType) {
-            PARAM_TRIGGER -> if (animType == ANIM_REACTIVE) {
-                reactiveLevel = value
-                reactiveTriggerMs = nowMs
+        if (paramType != PARAM_TRIGGER) return
+        for (s in slots) {
+            if (!s.occupied || !s.started) continue
+            if (groupId != 0 && s.groupId != groupId) continue
+            if (s.cur.animType == ANIM_REACTIVE) {
+                s.reactiveLevel = value; s.reactiveTriggerMs = nowMs
             }
-            // PARAM_BRIGHTNESS_MULT / PARAM_SPEED_SCALE are TODOs in the firmware.
         }
     }
 
-    /**
-     * Adjusts [startMs] so elapsed time matches the controller's clock, correcting accumulated drift.
-     * Called once per MIRROR_BATCH so the mobile's animation phase tracks the hardware exactly.
-     */
+    /** Aligns each started slot's phase to the controller clock, correcting accumulated drift. */
     fun resync(controllerNow: Long, mobileNow: Long) {
-        if (startControllerMs <= 0L) return
-        startMs = mobileNow - (controllerNow - startControllerMs)
+        for (s in slots) {
+            if (s.started && s.controllerStartMs > 0L) s.startMs = mobileNow - (controllerNow - s.controllerStartMs)
+        }
     }
 
-    // ── Tick ────────────────────────────────────────────────────────────────────
+    // ── Tick / compositor ──
 
     fun tick(nowMs: Long) {
-        if (queueCount == 0 && reactiveLevel == 0) return
-        if (paused) return
-
         reactiveNowMs = nowMs
-        val elapsed = u16(nowMs - startMs)
+        val contrib = ArrayList<CompositeLayer>(MAX_ANIM_SLOTS)
 
-        if (durationMs > 0 && elapsed >= durationMs && (flags and FLAG_LOOP) == 0 && animType != ANIM_REACTIVE) {
-            computeFrame(durationMs)
-            advanceQueue(nowMs)
-            return
+        for (s in slots) {
+            if (!s.occupied || !s.started) continue
+
+            val elapsed = if (s.paused) s.pausedElapsedMs else u16(nowMs - s.startMs)
+
+            // Transparent before onset.
+            if (!s.holding && elapsed < s.cur.startDelayMs) continue
+
+            var animElapsed = if (elapsed >= s.cur.startDelayMs) elapsed - s.cur.startDelayMs else 0
+
+            if (!s.paused && !s.holding && s.cur.durationMs > 0 &&
+                animElapsed >= s.cur.durationMs &&
+                (s.cur.flags and FLAG_LOOP) == 0 && s.cur.animType != ANIM_REACTIVE
+            ) {
+                s.holding = true
+            }
+
+            animElapsed = when {
+                s.holding && s.cur.durationMs > 0 -> s.cur.durationMs
+                (s.cur.flags and FLAG_LOOP) != 0 && s.cur.durationMs > 0 -> animElapsed % s.cur.durationMs
+                else -> animElapsed
+            }
+
+            if (isModifierType(s.cur.animType)) {
+                val v = modifierValue(s.cur, animElapsed)
+                val op = when (s.cur.animType) {
+                    ANIM_MOD_SATURATION -> MO_SATURATION
+                    ANIM_MOD_HUE_SHIFT -> MO_HUE
+                    else -> MO_BRIGHTNESS
+                }
+                contrib.add(CompositeLayer(s.cur.composeOrder, isModifier = true, op = op, value = v))
+            } else {
+                s.outColor = computeSlotColor(s, animElapsed)
+                contrib.add(CompositeLayer(s.cur.composeOrder, isModifier = false, op = s.cur.composeMode, color = s.outColor))
+            }
         }
 
-        computeFrame(elapsed)
+        if (contrib.isEmpty()) return // idle → leave LED (background / direct SET_COLOR)
+        currentColor = foldLayers(contrib, backgroundColor)
     }
 
-    private fun computeFrame(elapsed: Int) {
-        when (animType) {
-            ANIM_SOLID -> currentColor = resolveColorRef(queue[queueHead].colorTo)
-            ANIM_FADE -> tickLerpOverDuration(elapsed)
-            ANIM_TRANSITION -> tickLerpOverDuration(elapsed)
-            ANIM_BREATHE -> tickBreathe(elapsed)
-            ANIM_PULSE -> tickPulse(elapsed)
-            ANIM_BLINK -> tickBlink(elapsed)
-            ANIM_HUE_CYCLE -> tickHueCycle(elapsed)
-            ANIM_STROBE -> tickStrobe(elapsed)
-            ANIM_REACTIVE -> tickReactive(elapsed)
-        }
+    private fun computeSlotColor(s: Slot, elapsed: Int): ColorRgbModel = when (s.cur.animType) {
+        ANIM_SOLID -> resolveColorRef(s.cur.colorTo)
+        ANIM_FADE, ANIM_TRANSITION -> tickLerpOverDuration(s.cur, elapsed)
+        ANIM_BREATHE -> tickBreathe(s.cur, elapsed)
+        ANIM_PULSE -> tickPulse(s.cur, elapsed)
+        ANIM_BLINK -> tickBlink(s.cur, elapsed)
+        ANIM_HUE_CYCLE -> tickHueCycle(s.cur, elapsed)
+        ANIM_STROBE -> tickStrobe(s.cur, elapsed)
+        ANIM_REACTIVE -> tickReactive(s)
+        else -> s.outColor
     }
 
-    // ── Animation type handlers (faithful integer math) ──────────────────────────
+    private fun modifierValue(a: AnimationState, elapsed: Int): Int {
+        if (a.durationMs == 0) return a.param2
+        val prog = elapsed * 256 / a.durationMs
+        val q8 = if (prog > 255) 255 else prog
+        return lerp8(a.param1, a.param2, q8)
+    }
 
-    // FADE and TRANSITION share identical math in the firmware.
-    private fun tickLerpOverDuration(elapsed: Int) {
-        val progressQ8 = if (durationMs > 0) {
-            val prog = elapsed * 256 / durationMs
+    // ── Animation type handlers (faithful integer math) ──
+
+    private fun tickLerpOverDuration(a: AnimationState, elapsed: Int): ColorRgbModel {
+        val progressQ8 = if (a.durationMs > 0) {
+            val prog = elapsed * 256 / a.durationMs
             if (prog > 255) 255 else prog
         } else 255
-        val (cFrom, cTo) = resolveCurrentColors()
-        currentColor = rgbLerp(cFrom, cTo, progressQ8)
+        val (cFrom, cTo) = resolveColors(a)
+        return rgbLerp(cFrom, cTo, progressQ8)
     }
 
-    private fun tickBreathe(elapsed: Int) {
-        if (durationMs == 0) return
-        val t = elapsed % durationMs
-        val half = durationMs / 2
-        if (half == 0) return
-
-        val phaseQ8 = if (t <= half) (t * 255 / half) else ((durationMs - t) * 255 / half)
+    private fun tickBreathe(a: AnimationState, elapsed: Int): ColorRgbModel {
+        if (a.durationMs == 0) return currentColor
+        val t = elapsed % a.durationMs
+        val half = a.durationMs / 2
+        if (half == 0) return currentColor
+        val phaseQ8 = if (t <= half) (t * 255 / half) else ((a.durationMs - t) * 255 / half)
         val inv = (255 - phaseQ8) and 0xFF
         val invSq = ((inv * inv) ushr 8) and 0xFF
         val ease = (255 - invSq) and 0xFF
-
-        val (cFrom, cTo) = resolveCurrentColors()
-        currentColor = rgbLerp(cFrom, cTo, ease)
+        val (cFrom, cTo) = resolveColors(a)
+        return rgbLerp(cFrom, cTo, ease)
     }
 
-    private fun tickPulse(elapsed: Int) {
-        val anim = queue[queueHead]
-        var risePct = anim.param1
-        var fallPct = anim.param2
+    private fun tickPulse(a: AnimationState, elapsed: Int): ColorRgbModel {
+        var risePct = a.param1
+        var fallPct = a.param2
         val sum = risePct + fallPct
         if (sum > 255) {
             risePct = 255 * risePct / sum
             fallPct = 255 - risePct
         }
         val holdPct = 255 - risePct - fallPct
-
-        val riseMs = durationMs * risePct / 256
-        val holdMs = durationMs * holdPct / 256
-
+        val riseMs = a.durationMs * risePct / 256
+        val holdMs = a.durationMs * holdPct / 256
         val progressQ8 = when {
             elapsed < riseMs -> (elapsed * 256 / (riseMs + 1)) and 0xFF
             elapsed < riseMs + holdMs -> 255
             else -> {
                 val fallElapsed = elapsed - riseMs - holdMs
-                val fallDuration = durationMs - riseMs - holdMs
+                val fallDuration = a.durationMs - riseMs - holdMs
                 (255 - ((fallElapsed * 256 / (fallDuration + 1)) and 0xFF)) and 0xFF
             }
         }
-
-        val (cFrom, cTo) = resolveCurrentColors()
-        currentColor = rgbLerp(cFrom, cTo, progressQ8)
+        val (cFrom, cTo) = resolveColors(a)
+        return rgbLerp(cFrom, cTo, progressQ8)
     }
 
-    private fun tickBlink(elapsed: Int) {
-        var periodMs = queue[queueHead].param1
+    private fun tickBlink(a: AnimationState, elapsed: Int): ColorRgbModel {
+        var periodMs = a.param1
         if (periodMs == 0) periodMs = 1
-        val phase = elapsed % (periodMs * 2)
-        val on = phase < periodMs
-        val (cFrom, cTo) = resolveCurrentColors()
-        currentColor = if (on) cTo else cFrom
+        val on = elapsed % (periodMs * 2) < periodMs
+        val (cFrom, cTo) = resolveColors(a)
+        return if (on) cTo else cFrom
     }
 
-    private fun tickHueCycle(elapsed: Int) {
-        var speed = queue[queueHead].param1
+    private fun tickHueCycle(a: AnimationState, elapsed: Int): ColorRgbModel {
+        var speed = a.param1
         if (speed == 0) speed = 1
-        val hueStep = (elapsed * speed / 10) % 1530  // 1530 = 6 * 255
+        val hueStep = (elapsed * speed / 10) % 1530 // 1530 = 6 * 255
         val segment = hueStep / 255
         val remainder = hueStep % 255
-
-        currentColor = when (segment) {
+        return when (segment) {
             0 -> ColorRgbModel(255, remainder, 0)
             1 -> ColorRgbModel(255 - remainder, 255, 0)
             2 -> ColorRgbModel(0, 255, remainder)
@@ -413,58 +429,25 @@ class PanelAnimationPlayer {
         }
     }
 
-    private fun tickStrobe(elapsed: Int) {
-        var hz = queue[queueHead].param1
+    private fun tickStrobe(a: AnimationState, elapsed: Int): ColorRgbModel {
+        var hz = a.param1
         if (hz == 0) hz = 1
         val periodMs = 1000 / hz
         val on = (elapsed % periodMs) < (periodMs / 2)
-        currentColor = if (on) resolveColorRef(queue[queueHead].colorTo) else ColorRgbModel(0, 0, 0)
+        return if (on) resolveColorRef(a.colorTo) else ColorRgbModel(0, 0, 0)
     }
 
-    private fun tickReactive(elapsed: Int) {
-        if (reactiveLevel > 0) {
-            val sinceTrigger = u16(reactiveNowMs - reactiveTriggerMs)
-            val decayAmount = reactiveDecayRate * sinceTrigger / 1000
-            reactiveLevel = if (decayAmount >= reactiveLevel) 0 else reactiveLevel - decayAmount
+    private fun tickReactive(s: Slot): ColorRgbModel {
+        if (s.reactiveLevel > 0) {
+            val sinceTrigger = u16(reactiveNowMs - s.reactiveTriggerMs)
+            val decayAmount = s.reactiveDecayRate * sinceTrigger / 1000
+            s.reactiveLevel = if (decayAmount >= s.reactiveLevel) 0 else s.reactiveLevel - decayAmount
         }
-        val (cFrom, cTo) = resolveCurrentColors()
-        currentColor = rgbLerp(cFrom, cTo, reactiveLevel)
+        val (cFrom, cTo) = resolveColors(s.cur)
+        return rgbLerp(cFrom, cTo, s.reactiveLevel)
     }
 
-    // tickReactive needs "now" for decay; capture it from the active tick call.
-    private var reactiveNowMs = 0L
-
-    // ── Queue management ──────────────────────────────────────────────────────────
-
-    private fun advanceQueue(nowMs: Long) {
-        if (queueCount > 0) {
-            queueHead = (queueHead + 1) % 4
-            queueCount--
-        }
-        if (queueCount > 0) {
-            val next = queue[queueHead]
-            animType = next.animType
-            groupId = next.groupId
-            flags = next.flags
-            transitionMs = next.transitionMs
-            durationMs = next.durationMs
-            startMs = nowMs
-            startControllerMs = 0L
-            paused = false
-            pausedElapsedMs = 0
-            if (animType == ANIM_REACTIVE) {
-                reactiveDecayRate = next.param1
-                reactiveTriggerMs = startMs
-                reactiveLevel = 0
-            }
-        } else {
-            animType = ANIM_SOLID
-            groupId = 0
-            reactiveLevel = 0
-        }
-    }
-
-    // ── Palette sampling + lerp (firmware Palette.hpp / lerp8) ────────────────────
+    // ── Palette sampling + lerp (firmware Palette.hpp / lerp8) ──
 
     private fun samplePalette(pos: Int): ColorRgbModel {
         val count = paletteCount

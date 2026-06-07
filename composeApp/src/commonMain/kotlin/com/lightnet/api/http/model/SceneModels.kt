@@ -24,12 +24,29 @@ object AnimationType {
     const val HUE_CYCLE = "HUE_CYCLE"
     const val STROBE = "STROBE"
     const val REACTIVE = "REACTIVE"
+
+    // Modifier layers — transform the colour composited below them (scene-authoring §5.1).
+    const val MOD_BRIGHTNESS = "MOD_BRIGHTNESS"
+    const val MOD_SATURATION = "MOD_SATURATION"
+    const val MOD_HUE_SHIFT = "MOD_HUE_SHIFT"
 }
 
 object RunnerType {
     const val WAVE = "WAVE"
     const val RIPPLE = "RIPPLE"
     const val CHASE = "CHASE"
+}
+
+/** Layer blend modes (firmware ComposeMode). Runner layers default to `max`, others to `normal`. */
+object BlendMode {
+    const val NORMAL = "normal"
+    const val ADD = "add"
+    const val MAX = "max"
+    const val MULTIPLY = "multiply"
+    const val SCREEN = "screen"
+    const val REPLACE = "replace"
+
+    val all = listOf(NORMAL, ADD, MAX, MULTIPLY, SCREEN, REPLACE)
 }
 
 /** Runner directionality source tokens (scene-authoring §8). */
@@ -76,6 +93,9 @@ data class SceneStep(
     val loop: Boolean? = null,
     val pingpong: Boolean? = null,
     val params: List<Int>? = null,
+    // Modifier steps (MOD_*): animate a 0–255 scalar from → to.
+    val from: Int? = null,
+    val to: Int? = null,
     // Runner directionality (WAVE/RIPPLE/CHASE) — never combine with `params`.
     val source: String? = null,
     val directionality: String? = null,  // "topology" (default) or "geometric"
@@ -93,6 +113,7 @@ data class SceneLayer(
     val sequence: List<SceneStep>,
     val startAfter: String? = null,
     val async: Boolean? = null,
+    val blend: String? = null,   // BlendMode — how this layer composites over the layers below
     val fallback: PanelTarget? = null,
 )
 
@@ -104,6 +125,7 @@ data class SceneJson(
     val loop: Boolean? = null,
     val speed: Float? = null,
     val colors: SceneColors? = null,
+    val background: String? = null,  // compositor base colour (#RRGGBB), default black
     val palette: String? = null,
     val layers: List<SceneLayer>,
 )
