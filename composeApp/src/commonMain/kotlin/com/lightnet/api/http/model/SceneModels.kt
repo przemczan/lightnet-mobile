@@ -29,12 +29,24 @@ object AnimationType {
     const val MOD_BRIGHTNESS = "MOD_BRIGHTNESS"
     const val MOD_SATURATION = "MOD_SATURATION"
     const val MOD_HUE_SHIFT = "MOD_HUE_SHIFT"
+    const val MOD_INVERT = "MOD_INVERT"
 }
 
 object RunnerType {
     const val WAVE = "WAVE"
     const val RIPPLE = "RIPPLE"
     const val CHASE = "CHASE"
+}
+
+/** What a runner's sweep modulates (scene-authoring §7.3 `animates`). Default is `color`. */
+object RunnerTarget {
+    const val COLOR = "color"
+    const val BRIGHTNESS = "brightness"
+    const val SATURATION = "saturation"
+    const val HUE = "hue"
+    const val INVERT = "invert"
+
+    val all = listOf(COLOR, BRIGHTNESS, SATURATION, HUE, INVERT)
 }
 
 /** Layer blend modes (firmware ComposeMode). Runner layers default to `max`, others to `opaque`. */
@@ -106,6 +118,9 @@ data class SceneStep(
     val reverse: Boolean? = null,
     val waveWidth: Int? = null,
     val rippleWidth: Int? = null,
+    // What the runner's sweep modulates (RunnerTarget) and its peak intensity for non-color targets.
+    val animates: String? = null,
+    val amount: Int? = null,
 )
 
 @Serializable

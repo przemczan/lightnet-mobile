@@ -101,6 +101,7 @@ import com.lightnet.ui.screens.scene.ColorMode
 import com.lightnet.ui.screens.scene.EditableLayer
 import com.lightnet.ui.screens.scene.EditableScene
 import com.lightnet.ui.screens.scene.EditableStep
+import com.lightnet.ui.screens.scene.RunnerAnimates
 import com.lightnet.ui.screens.scene.RunnerSrc
 import com.lightnet.ui.screens.scene.TargetKind
 import com.lightnet.ui.screens.scene.sceneFromJson
@@ -896,8 +897,12 @@ private fun StepEditorScreen(
                 }
             }
 
+            // A runner that animates brightness/saturation/hue/invert ignores `color` —
+            // hide the picker so the editor doesn't show an unused control.
+            val showColor = !step.anim.isRunner || step.animates == RunnerAnimates.Color
+
             when (step.anim.colorMode) {
-                ColorMode.Single -> item {
+                ColorMode.Single -> if (showColor) item {
                     ColorSlotRow("Color", step.colorA, paletteStops, baseColors) { colorSlot = 0 }
                 }
                 ColorMode.FromTo -> item {
@@ -920,9 +925,10 @@ private fun StepEditorScreen(
                 }
             }
 
-            // Runner directionality + width.
+            // Runner directionality + what it animates + width.
             if (step.anim.isRunner) {
                 item { RunnerDirectionEditor(step, panels) }
+                item { RunnerAnimatesEditor(step) }
                 if (step.anim.hasWidth) {
                     item {
                         Column {
@@ -1039,6 +1045,37 @@ private fun RunnerDirectionEditor(step: EditableStep, panels: List<LightnetDevic
             }
 
             ToggleRow("Reverse direction", step.reverse) { step.reverse = it }
+        }
+    }
+}
+
+/**
+ * What the runner's sweep modulates. `Color` (default) sweeps a colour `PULSE`; the others drive
+ * a brightness/saturation/hue/invert modifier sweep instead — `amount` sets its peak intensity,
+ * decaying back to that property's identity over the lit window (scene-authoring §7.3).
+ */
+@Composable
+private fun RunnerAnimatesEditor(step: EditableStep) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Animates", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(step.animates == RunnerAnimates.Color,      { step.animates = RunnerAnimates.Color },      { Text("Color") })
+                FilterChip(step.animates == RunnerAnimates.Brightness, { step.animates = RunnerAnimates.Brightness }, { Text("Brightness") })
+                FilterChip(step.animates == RunnerAnimates.Saturation, { step.animates = RunnerAnimates.Saturation }, { Text("Saturation") })
+                FilterChip(step.animates == RunnerAnimates.Hue,        { step.animates = RunnerAnimates.Hue },        { Text("Hue") })
+                FilterChip(step.animates == RunnerAnimates.Invert,     { step.animates = RunnerAnimates.Invert },     { Text("Invert") })
+            }
+            if (step.animates != RunnerAnimates.Color) {
+                Column {
+                    Text("Peak amount  ${step.amount}", style = MaterialTheme.typography.bodyLarge)
+                    Slider(
+                        value         = step.amount.toFloat(),
+                        onValueChange = { step.amount = it.roundToInt() },
+                        valueRange    = 0f..255f,
+                    )
+                }
+            }
         }
     }
 }

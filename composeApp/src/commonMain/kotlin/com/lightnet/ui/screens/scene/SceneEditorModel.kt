@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import com.lightnet.api.http.model.ColorRef
 import com.lightnet.api.http.model.PanelTarget
+import com.lightnet.api.http.model.RunnerTarget
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.SceneLayer
 import com.lightnet.api.http.model.SceneStep
@@ -24,6 +25,9 @@ data class ParamSpec(val label: String, val min: Int, val max: Int, val default:
 
 /** Where a runner emanates from (independent of directionality mode). */
 enum class RunnerSrc { Root, Leaves, All, Panel }
+
+/** What a runner's sweep modulates (independent of its movement pattern and source). */
+enum class RunnerAnimates { Color, Brightness, Saturation, Hue, Invert }
 
 enum class AnimId(
     val display: String,
@@ -60,6 +64,10 @@ enum class AnimId(
     MOD_HUE_SHIFT(
         "Modifier · Hue shift", false, ColorMode.None,
         listOf(ParamSpec("From", 0, 255, 0), ParamSpec("To", 0, 255, 255)), "MOD_HUE_SHIFT", isModifier = true,
+    ),
+    MOD_INVERT(
+        "Modifier · Invert", false, ColorMode.None,
+        listOf(ParamSpec("From", 0, 255, 0), ParamSpec("To", 0, 255, 255)), "MOD_INVERT", isModifier = true,
     ),
     GAP("Gap (hold)", false, ColorMode.None, emptyList(), null, supportsLoopFlags = false),
     WAVE("Wave", true, ColorMode.Single, emptyList(), "WAVE", supportsLoopFlags = false, widthLabel = "Width (rings)", defaultWidth = 3),
@@ -113,6 +121,8 @@ class EditableStep(
     angle: Int = 0,
     reverse: Boolean = false,
     width: Int = anim.defaultWidth,
+    animates: RunnerAnimates = RunnerAnimates.Color,
+    amount: Int = 128,
 ) {
     val id: Long = nextId()
     var anim by mutableStateOf(anim)
@@ -129,6 +139,8 @@ class EditableStep(
     var angle by mutableStateOf(angle)          // geometric sweep direction, degrees [0,360)
     var reverse by mutableStateOf(reverse)
     var width by mutableStateOf(width)
+    var animates by mutableStateOf(animates)    // what the sweep modulates
+    var amount by mutableStateOf(amount)        // peak intensity for non-Color targets, 0-255
 
     /** Switch animation type, re-seeding params/width to the new type's defaults. */
     fun changeAnim(next: AnimId) {
@@ -204,6 +216,22 @@ private fun EditableStep.runnerSourceToken(): String? = when (source) {
     RunnerSrc.Panel  -> "panel:$sourcePanel"
 }
 
+private fun RunnerAnimates.toToken(): String? = when (this) {
+    RunnerAnimates.Color      -> null   // default — omit
+    RunnerAnimates.Brightness -> RunnerTarget.BRIGHTNESS
+    RunnerAnimates.Saturation -> RunnerTarget.SATURATION
+    RunnerAnimates.Hue        -> RunnerTarget.HUE
+    RunnerAnimates.Invert     -> RunnerTarget.INVERT
+}
+
+private fun parseRunnerAnimates(animates: String?): RunnerAnimates = when (animates) {
+    RunnerTarget.BRIGHTNESS -> RunnerAnimates.Brightness
+    RunnerTarget.SATURATION -> RunnerAnimates.Saturation
+    RunnerTarget.HUE        -> RunnerAnimates.Hue
+    RunnerTarget.INVERT     -> RunnerAnimates.Invert
+    else                    -> RunnerAnimates.Color
+}
+
 private fun EditableStep.toSceneStep(): SceneStep {
     val a = anim
     if (a == AnimId.GAP) return SceneStep(duration = durationMs)
@@ -212,9 +240,10 @@ private fun EditableStep.toSceneStep(): SceneStep {
         // Geometric wave/chase use `angle` (no source); geometric ripple + all topology use
         // `source` (no angle). Only emit the field the firmware actually reads for this combo.
         val usesSource = !geometric || isRipple
+        val animatesColor = animates == RunnerAnimates.Color
         return SceneStep(
             runner         = a.wireName,
-            color          = colorA,
+            color          = if (animatesColor) colorA else null,
             duration       = durationMs,
             source         = if (usesSource) runnerSourceToken() else null,
             directionality = if (geometric) "geometric" else null,
@@ -222,6 +251,8 @@ private fun EditableStep.toSceneStep(): SceneStep {
             reverse        = if (reverse) true else null,
             waveWidth      = if (a == AnimId.WAVE && a.hasWidth) width else null,
             rippleWidth    = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
+            animates       = animates.toToken(),
+            amount         = if (animatesColor) null else amount,
         )
     }
     if (a.isModifier) {
@@ -335,6 +366,8 @@ private fun stepFrom(step: SceneStep): EditableStep {
         angle       = step.angle ?: 0,
         reverse     = step.reverse == true,
         width       = step.waveWidth ?: step.rippleWidth ?: step.params?.getOrNull(0) ?: anim.defaultWidth,
+        animates    = parseRunnerAnimates(step.animates),
+        amount      = step.amount ?: 128,
     )
 }
 
