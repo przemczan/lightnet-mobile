@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -104,6 +105,7 @@ import com.lightnet.ui.screens.scene.EditableStep
 import com.lightnet.ui.screens.scene.RunnerAnimates
 import com.lightnet.ui.screens.scene.RunnerSrc
 import com.lightnet.ui.screens.scene.TargetKind
+import com.lightnet.ui.screens.scene.clone
 import com.lightnet.ui.screens.scene.sceneFromJson
 import com.lightnet.ui.screens.scene.toPreviewSceneJson
 import com.lightnet.ui.screens.scene.toSceneJson
@@ -118,12 +120,16 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.snapshotFlow
 import kotlin.math.roundToInt
 
+/** Where a scene was loaded from — controls which store is primary on Save. */
+enum class SceneOrigin { GLOBAL, DEVICE }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SceneEditorScreen(
     device: LightnetDevice?,
     httpClient: LightnetHttpClient?,
     initial: com.lightnet.api.http.model.SceneJson?,
+    origin: SceneOrigin = SceneOrigin.GLOBAL,
     onBack: () -> Unit,
 ) {
     val scope    = rememberCoroutineScope()
@@ -159,7 +165,7 @@ fun SceneEditorScreen(
 
     var isDirty by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
-    var storeOnDevice by remember { mutableStateOf(false) }
+    var alsoSaveToOther by remember { mutableStateOf(false) }
 
     // Track dirty state once panels are loaded so panel-ID mapping is stable.
     val activeSceneForTracking = scene
@@ -238,17 +244,33 @@ fun SceneEditorScreen(
                         val err = activeScene.validationError()
                         if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@TextButton }
                         val sceneJson = activeScene.toSceneJson(panels)
-                        val localOk = runCatching { com.lightnet.settings.AppPreferences.scenes.save(sceneJson) }.isSuccess
-                        if (!localOk) { scope.launch { snackbar.showSnackbar("Failed to save scene.") }; return@TextButton }
-                        isDirty = false
-                        if (storeOnDevice && httpClient != null) {
-                            scope.launch {
-                                val ok = httpClient.runCatching { saveScene(sceneJson) }.isSuccess
-                                if (!ok) snackbar.showSnackbar("Saved locally but failed to save to device.")
-                                onBack()
+                        when (origin) {
+                            SceneOrigin.GLOBAL -> {
+                                val ok = runCatching { com.lightnet.settings.AppPreferences.scenes.save(sceneJson) }.isSuccess
+                                if (!ok) { scope.launch { snackbar.showSnackbar("Failed to save scene.") }; return@TextButton }
+                                isDirty = false
+                                if (alsoSaveToOther && httpClient != null) {
+                                    scope.launch {
+                                        if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess)
+                                            snackbar.showSnackbar("Saved locally but failed to save to device.")
+                                        onBack()
+                                    }
+                                } else {
+                                    onBack()
+                                }
                             }
-                        } else {
-                            onBack()
+                            SceneOrigin.DEVICE -> {
+                                if (httpClient == null) { scope.launch { snackbar.showSnackbar("Connect a device to save.") }; return@TextButton }
+                                scope.launch {
+                                    if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess) {
+                                        snackbar.showSnackbar("Failed to save scene to device."); return@launch
+                                    }
+                                    isDirty = false
+                                    if (alsoSaveToOther && !runCatching { com.lightnet.settings.AppPreferences.scenes.save(sceneJson) }.isSuccess)
+                                        snackbar.showSnackbar("Saved to device but failed to save locally.")
+                                    onBack()
+                                }
+                            }
                         }
                     }) { Text("Save") }
                 },
@@ -302,21 +324,29 @@ fun SceneEditorScreen(
                     )
                 }
                 item {
+                    val checkboxEnabled = when (origin) {
+                        SceneOrigin.GLOBAL -> httpClient != null
+                        SceneOrigin.DEVICE -> true
+                    }
+                    val checkboxLabel = when (origin) {
+                        SceneOrigin.GLOBAL -> "Also save to device"
+                        SceneOrigin.DEVICE -> "Also save to Global"
+                    }
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = httpClient != null) { storeOnDevice = !storeOnDevice }
+                            .clickable(enabled = checkboxEnabled) { alsoSaveToOther = !alsoSaveToOther }
                             .padding(end = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Checkbox(
-                            checked         = storeOnDevice,
-                            onCheckedChange = { storeOnDevice = it },
-                            enabled         = httpClient != null,
+                            checked         = alsoSaveToOther,
+                            onCheckedChange = { alsoSaveToOther = it },
+                            enabled         = checkboxEnabled,
                         )
                         Column {
-                            Text("Also save to device", style = MaterialTheme.typography.bodyMedium)
-                            if (httpClient == null) {
+                            Text(checkboxLabel, style = MaterialTheme.typography.bodyMedium)
+                            if (origin == SceneOrigin.GLOBAL && httpClient == null) {
                                 Text(
                                     "Connect a device to enable",
                                     style = MaterialTheme.typography.bodySmall,
@@ -371,6 +401,9 @@ fun SceneEditorScreen(
                                     canMoveUp    = i > 0,
                                     canMoveDown  = i < activeScene.layers.lastIndex,
                                     onEdit       = { editingLayer = layer },
+                                    onClone      = {
+                                        activeScene.layers.add(i + 1, layer.clone(activeScene.cloneLayerName(layer.name)))
+                                    },
                                     onDelete     = { activeScene.layers.remove(layer) },
                                     onMoveUp     = { activeScene.layers.move(i, i - 1) },
                                     onMoveDown   = { activeScene.layers.move(i, i + 1) },
@@ -467,6 +500,7 @@ private fun LayerRow(
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onEdit: () -> Unit,
+    onClone: () -> Unit,
     onDelete: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -503,6 +537,7 @@ private fun LayerRow(
                         Icon(Icons.Default.MoreVert, contentDescription = "More")
                     }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(text = { Text("Clone") }, onClick = { showMenu = false; onClone() })
                         DropdownMenuItem(text = { Text("Delete") }, onClick = { showMenu = false; onDelete() })
                     }
                 }
@@ -897,38 +932,40 @@ private fun StepEditorScreen(
                 }
             }
 
-            // A runner that animates brightness/saturation/hue/invert ignores `color` —
-            // hide the picker so the editor doesn't show an unused control.
-            val showColor = !step.anim.isRunner || step.animates == RunnerAnimates.Color
-
-            when (step.anim.colorMode) {
-                ColorMode.Single -> if (showColor) item {
-                    ColorSlotRow("Color", step.colorA, paletteStops, baseColors) { colorSlot = 0 }
-                }
-                ColorMode.FromTo -> item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ColorSlotRow("From", step.colorA, paletteStops, baseColors) { colorSlot = 0 }
-                        ColorSlotRow("To", step.colorB, paletteStops, baseColors) { colorSlot = 1 }
+            // WAVE/RIPPLE/CHASE show their colour picker inside the Animates section instead
+            // (only relevant when the sweep animates Color). WHEEL is always colour-only and has
+            // no Animates section, so — like panel-local steps — it shows the picker here.
+            if (!step.anim.isRunner || step.anim == AnimId.WHEEL) {
+                when (step.anim.colorMode) {
+                    ColorMode.Single -> item {
+                        ColorSlotRow("Color", step.colorA, paletteStops, baseColors) { colorSlot = 0 }
                     }
+                    ColorMode.FromTo -> item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ColorSlotRow("From", step.colorA, paletteStops, baseColors) { colorSlot = 0 }
+                            ColorSlotRow("To", step.colorB, paletteStops, baseColors) { colorSlot = 1 }
+                        }
+                    }
+                    ColorMode.None -> Unit
                 }
-                ColorMode.None -> Unit
             }
 
-            item {
-                Column {
-                    Text("Duration  ${step.durationMs} ms", style = MaterialTheme.typography.bodyLarge)
-                    Slider(
-                        value         = step.durationMs.toFloat(),
-                        onValueChange = { step.durationMs = it.roundToInt() },
-                        valueRange    = 0f..30000f,
+            item { DurationEditor(step) }
+
+            // Runner directionality + what it animates + width — WHEEL gets its own pivot/spin
+            // editor instead (always geometric, always looping, always colour-only).
+            if (step.anim == AnimId.WHEEL) {
+                item { WheelEditor(step, panels) }
+            } else if (step.anim.isRunner) {
+                item { RunnerDirectionEditor(step, panels) }
+                item {
+                    RunnerAnimatesEditor(
+                        step         = step,
+                        paletteStops = paletteStops,
+                        baseColors   = baseColors,
+                        onColorClick = { colorSlot = 0 },
                     )
                 }
-            }
-
-            // Runner directionality + what it animates + width.
-            if (step.anim.isRunner) {
-                item { RunnerDirectionEditor(step, panels) }
-                item { RunnerAnimatesEditor(step) }
                 if (step.anim.hasWidth) {
                     item {
                         Column {
@@ -986,6 +1023,39 @@ private fun StepEditorScreen(
             onPick       = { picked: ColorRef -> if (slot == 0) step.colorA = picked else step.colorB = picked },
             onDismiss    = { colorSlot = null },
         )
+    }
+}
+
+/** Duration control: a slider for quick adjustment plus a numeric field for precise entry, kept in sync. */
+@Composable
+private fun DurationEditor(step: EditableStep) {
+    var text by remember(step.id) { mutableStateOf(step.durationMs.toString()) }
+    LaunchedEffect(step.durationMs) {
+        if (step.durationMs.toString() != text) text = step.durationMs.toString()
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Duration", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Slider(
+                    value         = step.durationMs.toFloat(),
+                    onValueChange = { step.durationMs = it.roundToInt() },
+                    valueRange    = 0f..30000f,
+                    modifier      = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value           = text,
+                    onValueChange   = { v ->
+                        text = v.filter(Char::isDigit).take(5)
+                        text.toIntOrNull()?.let { step.durationMs = it.coerceIn(0, 30000) }
+                    },
+                    singleLine      = true,
+                    suffix          = { Text("ms") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier        = Modifier.width(110.dp),
+                )
+            }
+        }
     }
 }
 
@@ -1050,12 +1120,65 @@ private fun RunnerDirectionEditor(step: EditableStep, panels: List<LightnetDevic
 }
 
 /**
+ * WHEEL pivot + spin controls. Unlike WAVE/RIPPLE/CHASE, a wheel always uses the geometric
+ * (planar) layout and always loops — there's no topology/geometric toggle and no `angle` (it
+ * spins about its `source`, not along an axis). `Leaves`/`All` average to a single centre point.
+ */
+@Composable
+private fun WheelEditor(step: EditableStep, panels: List<LightnetDevicePanel>) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Pivot", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(step.source == RunnerSrc.Root,   { step.source = RunnerSrc.Root },   { Text("Root") })
+                FilterChip(step.source == RunnerSrc.Leaves, { step.source = RunnerSrc.Leaves }, { Text("Leaves") })
+                FilterChip(step.source == RunnerSrc.Panel,  { step.source = RunnerSrc.Panel },  { Text("Panel") })
+                FilterChip(step.source == RunnerSrc.All,    { step.source = RunnerSrc.All },    { Text("All") })
+            }
+            if (step.source == RunnerSrc.Panel) {
+                PanelPickerField(
+                    label           = "Pivot panel",
+                    selectedPanelId = step.sourcePanel,
+                    panels          = panels,
+                    onPick          = { step.sourcePanel = it },
+                )
+            }
+
+            ToggleRow("Spin the other way", step.reverse) { step.reverse = it }
+            HorizontalDivider()
+
+            Column {
+                Text("Blades  ${step.lines}", style = MaterialTheme.typography.bodyLarge)
+                Slider(
+                    value         = step.lines.toFloat(),
+                    onValueChange = { step.lines = it.roundToInt().coerceIn(1, 6) },
+                    valueRange    = 1f..6f,
+                )
+            }
+            Column {
+                Text("Blade thickness  ${step.thickness}°", style = MaterialTheme.typography.bodyLarge)
+                Slider(
+                    value         = step.thickness.toFloat(),
+                    onValueChange = { step.thickness = it.roundToInt().coerceIn(0, 180) },
+                    valueRange    = 0f..180f,
+                )
+            }
+        }
+    }
+}
+
+/**
  * What the runner's sweep modulates. `Color` (default) sweeps a colour `PULSE`; the others drive
  * a brightness/saturation/hue/invert modifier sweep instead — `amount` sets its peak intensity,
  * decaying back to that property's identity over the lit window (scene-authoring §7.3).
  */
 @Composable
-private fun RunnerAnimatesEditor(step: EditableStep) {
+private fun RunnerAnimatesEditor(
+    step: EditableStep,
+    paletteStops: List<PaletteStop>?,
+    baseColors: List<String>,
+    onColorClick: () -> Unit,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Animates", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1066,7 +1189,31 @@ private fun RunnerAnimatesEditor(step: EditableStep) {
                 FilterChip(step.animates == RunnerAnimates.Hue,        { step.animates = RunnerAnimates.Hue },        { Text("Hue") })
                 FilterChip(step.animates == RunnerAnimates.Invert,     { step.animates = RunnerAnimates.Invert },     { Text("Invert") })
             }
-            if (step.animates != RunnerAnimates.Color) {
+            if (step.animates == RunnerAnimates.Color) {
+                ColorSwatchRow(
+                    label          = "Color",
+                    color          = step.colorA,
+                    paletteStops   = paletteStops,
+                    baseColors     = baseColors,
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                    modifier       = Modifier.clickable(onClick = onColorClick),
+                )
+                HorizontalDivider()
+                // Continuous train of evenly-spaced sweeps instead of a single pass — colour-only,
+                // since the modifier ramp (brightness/saturation/hue/invert) can't loop cleanly.
+                ToggleRow("Repeat — continuous train", step.repeat) { step.repeat = it }
+                if (step.repeat) {
+                    HorizontalDivider()
+                    Column {
+                        Text("Waves  ${step.repeatCount}", style = MaterialTheme.typography.bodyLarge)
+                        Slider(
+                            value         = step.repeatCount.toFloat(),
+                            onValueChange = { step.repeatCount = it.roundToInt().coerceAtLeast(1) },
+                            valueRange    = 1f..16f,
+                        )
+                    }
+                }
+            } else {
                 Column {
                     Text("Peak amount  ${step.amount}", style = MaterialTheme.typography.bodyLarge)
                     Slider(
@@ -1123,6 +1270,29 @@ private fun BackgroundColorRow(
     }
 }
 
+/** Label + colour swatch row, shared by the standalone [ColorSlotRow] card and inline uses (e.g. inside the Animates section). */
+@Composable
+private fun ColorSwatchRow(
+    label: String,
+    color: ColorRef,
+    paletteStops: List<PaletteStop>?,
+    baseColors: List<String>,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.fillMaxWidth().padding(contentPadding),
+        Arrangement.SpaceBetween, Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Box(
+            Modifier.size(32.dp).clip(MaterialTheme.shapes.small)
+                .background(colorRefToColor(color, paletteStops, baseColors))
+                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
+        )
+    }
+}
+
 @Composable
 private fun ColorSlotRow(
     label: String,
@@ -1131,18 +1301,8 @@ private fun ColorSlotRow(
     baseColors: List<String>,
     onClick: () -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-            Arrangement.SpaceBetween, Alignment.CenterVertically,
-        ) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-            Box(
-                Modifier.size(32.dp).clip(MaterialTheme.shapes.small)
-                    .background(colorRefToColor(color, paletteStops, baseColors))
-                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
-            )
-        }
+    Card(Modifier.fillMaxWidth()) {
+        ColorSwatchRow(label, color, paletteStops, baseColors, modifier = Modifier.clickable(onClick = onClick))
     }
 }
 

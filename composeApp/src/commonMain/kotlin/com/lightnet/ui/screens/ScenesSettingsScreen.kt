@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,11 +29,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -41,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.device.LightnetDevice
 import com.lightnet.settings.AppPreferences
@@ -59,22 +65,45 @@ fun ScenesSettingsScreen(
     val scope    = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    var scenes       by remember { mutableStateOf(AppPreferences.scenes.getAll()) }
-    var deleteTarget by remember { mutableStateOf<SceneJson?>(null) }
-    var showEditor   by remember { mutableStateOf(false) }
-    var editingScene by remember { mutableStateOf<SceneJson?>(null) }
+    var tab by remember { mutableIntStateOf(0) }
 
-    fun reload() { scenes = AppPreferences.scenes.getAll() }
+    var globalScenes        by remember { mutableStateOf(AppPreferences.scenes.getAll()) }
+    var deviceScenes        by remember { mutableStateOf<List<SceneInfo>>(emptyList()) }
+    var loadingDevice       by remember { mutableStateOf(false) }
+    var deleteGlobalTarget  by remember { mutableStateOf<SceneJson?>(null) }
+    var deleteDeviceTarget  by remember { mutableStateOf<SceneInfo?>(null) }
+    var showEditor          by remember { mutableStateOf(false) }
+    var editingScene        by remember { mutableStateOf<SceneJson?>(null) }
+    var editingOrigin       by remember { mutableStateOf(SceneOrigin.GLOBAL) }
+
+    fun reloadGlobal() { globalScenes = AppPreferences.scenes.getAll() }
+
+    suspend fun reloadDevice() {
+        if (httpClient == null) { deviceScenes = emptyList(); return }
+        loadingDevice = true
+        deviceScenes  = httpClient.runCatching { getScenes() }.getOrNull() ?: emptyList()
+        loadingDevice = false
+    }
+
+    LaunchedEffect(httpClient) { reloadDevice() }
+
+    fun openEditor(scene: SceneJson?, origin: SceneOrigin) {
+        editingScene  = scene
+        editingOrigin = origin
+        showEditor    = true
+    }
 
     if (showEditor) {
         SceneEditorScreen(
             device     = device,
             httpClient = httpClient,
             initial    = editingScene,
+            origin     = editingOrigin,
             onBack     = {
                 showEditor   = false
                 editingScene = null
-                reload()
+                reloadGlobal()
+                scope.launch { reloadDevice() }
             },
         )
         return
@@ -93,74 +122,159 @@ fun ScenesSettingsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { editingScene = null; showEditor = true }) {
+            FloatingActionButton(onClick = {
+                openEditor(null, if (tab == 0) SceneOrigin.GLOBAL else SceneOrigin.DEVICE)
+            }) {
                 Icon(Icons.Default.Add, contentDescription = "New scene")
             }
         },
     ) { padding ->
-        when {
-            scenes.isEmpty() -> Box(
-                Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "No scenes yet. Tap + to create one.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
+            TabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Global") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Device") })
             }
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(
-                    top    = padding.calculateTopPadding() + 8.dp,
-                    bottom = padding.calculateBottomPadding() + 80.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(scenes, key = { it.name ?: "" }) { scene ->
-                    SceneItem(
-                        scene  = scene,
-                        onPlay = {
-                            scope.launch {
-                                if (httpClient == null) {
-                                    snackbar.showSnackbar("Connect a device to play scenes.")
-                                    return@launch
-                                }
-                                val r = runCatching { httpClient.playSceneInline(scene) }
-                                if (r.isFailure) snackbar.showSnackbar("Failed to play \"${scene.name}\".")
-                            }
-                        },
-                        onEdit = {
-                            editingScene = scene
-                            showEditor   = true
-                        },
-                        onDelete = { deleteTarget = scene },
-                    )
+
+            val listModifier = Modifier.fillMaxSize()
+            val listPadding  = PaddingValues(
+                top    = 8.dp,
+                bottom = padding.calculateBottomPadding() + 80.dp,
+                start  = 16.dp,
+                end    = 16.dp,
+            )
+
+            if (tab == 0) {
+                when {
+                    globalScenes.isEmpty() -> Box(
+                        listModifier,
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No scenes yet. Tap + to create one.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    else -> LazyColumn(
+                        modifier            = listModifier,
+                        contentPadding      = listPadding,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(globalScenes, key = { it.name ?: "" }) { scene ->
+                            SceneSettingsItem(
+                                name     = scene.name ?: "Unnamed",
+                                onPlay   = {
+                                    scope.launch {
+                                        if (httpClient == null) {
+                                            snackbar.showSnackbar("Connect a device to play scenes.")
+                                            return@launch
+                                        }
+                                        val r = runCatching { httpClient.playSceneInline(scene) }
+                                        if (r.isFailure) snackbar.showSnackbar("Failed to play \"${scene.name}\".")
+                                    }
+                                },
+                                onEdit   = { openEditor(scene, SceneOrigin.GLOBAL) },
+                                onDelete = { deleteGlobalTarget = scene },
+                            )
+                        }
+                    }
+                }
+            } else {
+                when {
+                    loadingDevice && deviceScenes.isEmpty() -> Box(
+                        listModifier,
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                    httpClient == null -> Box(
+                        listModifier,
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Connect a device to manage its scenes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    deviceScenes.isEmpty() -> Box(
+                        listModifier,
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No scenes on device. Tap + to create one.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    else -> LazyColumn(
+                        modifier            = listModifier,
+                        contentPadding      = listPadding,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(deviceScenes, key = { it.name }) { info ->
+                            SceneSettingsItem(
+                                name     = info.name,
+                                onPlay   = {
+                                    scope.launch {
+                                        val r = runCatching { httpClient.playSceneByName(info.name) }
+                                        if (r.isFailure) snackbar.showSnackbar("Failed to play \"${info.name}\".")
+                                    }
+                                },
+                                onEdit   = {
+                                    scope.launch {
+                                        val full = httpClient.runCatching { getScene(info.name) }.getOrNull()
+                                        if (full != null) openEditor(full, SceneOrigin.DEVICE)
+                                        else snackbar.showSnackbar("Failed to load \"${info.name}\".")
+                                    }
+                                },
+                                onDelete = { deleteDeviceTarget = info },
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 
-    deleteTarget?.let { target ->
+    deleteGlobalTarget?.let { target ->
         AlertDialog(
-            onDismissRequest = { deleteTarget = null },
+            onDismissRequest = { deleteGlobalTarget = null },
             title            = { Text("Delete scene") },
             text             = { Text("Delete \"${target.name}\"? This cannot be undone.") },
             confirmButton    = {
                 TextButton(onClick = {
-                    deleteTarget = null
+                    deleteGlobalTarget = null
                     AppPreferences.scenes.delete(target.name ?: return@TextButton)
-                    reload()
+                    reloadGlobal()
                 }) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleteGlobalTarget = null }) { Text("Cancel") } },
+        )
+    }
+
+    deleteDeviceTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteDeviceTarget = null },
+            title            = { Text("Delete scene") },
+            text             = { Text("Delete \"${target.name}\" from device? This cannot be undone.") },
+            confirmButton    = {
+                TextButton(onClick = {
+                    deleteDeviceTarget = null
+                    scope.launch {
+                        httpClient?.runCatching { deleteScene(target.name) }
+                        reloadDevice()
+                    }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleteDeviceTarget = null }) { Text("Cancel") } },
         )
     }
 }
 
 @Composable
-private fun SceneItem(
-    scene: SceneJson,
+private fun SceneSettingsItem(
+    name: String,
     onPlay: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -171,7 +285,7 @@ private fun SceneItem(
             Modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
             Arrangement.SpaceBetween, Alignment.CenterVertically,
         ) {
-            Text(scene.name ?: "Unnamed", style = MaterialTheme.typography.bodyLarge)
+            Text(name, style = MaterialTheme.typography.bodyLarge)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onPlay) {
                     Icon(Icons.Default.PlayArrow, contentDescription = "Play")

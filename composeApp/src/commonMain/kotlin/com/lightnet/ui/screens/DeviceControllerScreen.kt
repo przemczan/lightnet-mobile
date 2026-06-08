@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MoreVert
@@ -78,6 +79,9 @@ import kotlinx.coroutines.delay
 import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.PaletteJson
+import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Smartphone
+import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.SceneStatus
 import com.lightnet.device.ConnectionState
@@ -211,7 +215,9 @@ fun DeviceControllerScreen(
 
     var showSettings      by remember { mutableStateOf(false) }
     var showDebug         by remember { mutableStateOf(false) }
-    var showSwitcherSheet by remember { mutableStateOf(false) }
+    var showSwitcherSheet   by remember { mutableStateOf(false) }
+    var editingScene        by remember { mutableStateOf<SceneJson?>(null) }
+    var editingSceneOrigin  by remember { mutableStateOf(SceneOrigin.GLOBAL) }
     var showOffMessage    by remember { mutableStateOf(false) }
     LaunchedEffect(showOffMessage) {
         if (showOffMessage) {
@@ -222,6 +228,17 @@ fun DeviceControllerScreen(
 
     if (showDebug) {
         DebugScreen(onBack = { showDebug = false })
+        return
+    }
+
+    editingScene?.let { scene ->
+        SceneEditorScreen(
+            device     = device,
+            httpClient = httpClient,
+            initial    = scene,
+            origin     = editingSceneOrigin,
+            onBack     = { editingScene = null },
+        )
         return
     }
 
@@ -411,25 +428,20 @@ fun DeviceControllerScreen(
                                 checked         = isScenePlaying,
                                 onCheckedChange = {
                                     scope.launch {
-                                        httpClient?.runCatching { playSceneByName(lastPlayedScene) }
+                                        if (isScenePlaying) {
+                                            httpClient?.runCatching { stopScene() }
+                                        } else {
+                                            httpClient?.runCatching { playSceneByName(lastPlayedScene) }
+                                        }
                                         sceneStatusRefresh++
                                     }
                                 },
-                                enabled = isConnected && lastPlayedScene.isNotBlank(),
+                                enabled = isConnected && (isScenePlaying || lastPlayedScene.isNotBlank()),
                             ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = "Play \"$lastPlayedScene\"")
-                            }
-                            FilledIconToggleButton(
-                                checked         = isScenePlaying,
-                                onCheckedChange = {
-                                    scope.launch {
-                                        httpClient?.runCatching { stopScene() }
-                                        sceneStatusRefresh++
-                                    }
-                                },
-                                enabled = isConnected && isScenePlaying,
-                            ) {
-                                Icon(Icons.Default.Stop, contentDescription = "Stop scene")
+                                Icon(
+                                    if (isScenePlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                    contentDescription = if (isScenePlaying) "Stop scene" else "Play \"$lastPlayedScene\"",
+                                )
                             }
                         }
                     }
@@ -469,9 +481,10 @@ fun DeviceControllerScreen(
 
     if (showScenesSheet) {
         ScenesSheet(
-            httpClient   = httpClient,
-            onDismiss    = { showScenesSheet = false },
+            httpClient    = httpClient,
+            onDismiss     = { showScenesSheet = false },
             onScenePlayed = { sceneStatusRefresh++ },
+            onEdit        = { scene, origin -> showScenesSheet = false; editingSceneOrigin = origin; editingScene = scene },
         )
     }
 
@@ -807,17 +820,34 @@ private fun PaletteSheet(
 
 // ── Scenes sheet ──────────────────────────────────────────────────────────────
 
+private sealed class ScenesSheetItem {
+    abstract val name: String
+    data class Global(val scene: SceneJson)  : ScenesSheetItem() { override val name = scene.name ?: "Unnamed" }
+    data class Device(val info: SceneInfo)   : ScenesSheetItem() { override val name = info.name }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ScenesSheet(
     httpClient: LightnetHttpClient?,
     onDismiss: () -> Unit,
     onScenePlayed: () -> Unit,
+    onEdit: (SceneJson, SceneOrigin) -> Unit,
 ) {
-    val scope    = rememberCoroutineScope()
-    val snackbar = remember { SnackbarHostState() }
-    var scenes   by remember { mutableStateOf(AppPreferences.scenes.getAll()) }
-    var playing  by remember { mutableStateOf<String?>(null) }
+    val scope       = rememberCoroutineScope()
+    val snackbar    = remember { SnackbarHostState() }
+    val globalScenes = remember { AppPreferences.scenes.getAll() }
+    var deviceScenes by remember { mutableStateOf<List<SceneInfo>>(emptyList()) }
+    var playing     by remember { mutableStateOf<String?>(null) }
+    var loadingEdit by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(httpClient) {
+        deviceScenes = httpClient?.runCatching { getScenes() }?.getOrNull() ?: emptyList()
+    }
+
+    val items = remember(globalScenes, deviceScenes) {
+        globalScenes.map { ScenesSheetItem.Global(it) } + deviceScenes.map { ScenesSheetItem.Device(it) }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -837,37 +867,75 @@ private fun ScenesSheet(
             )
 
             when {
-                scenes.isEmpty() -> Text(
+                items.isEmpty() -> Text(
                     "No scenes yet. Add scenes in Settings → Scenes.",
                     style    = MaterialTheme.typography.bodySmall,
                     color    = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
-                else -> scenes.forEach { scene ->
-                    val name = scene.name ?: "Unnamed"
+                else -> items.forEach { item ->
+                    val name = item.name
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = playing == null) {
+                            .clickable(enabled = playing == null && loadingEdit == null) {
                                 scope.launch {
-                                    if (httpClient == null) {
-                                        snackbar.showSnackbar("Connect a device to play scenes.")
+                                    if (httpClient == null && item is ScenesSheetItem.Device) {
+                                        snackbar.showSnackbar("Connect a device to play device scenes.")
                                         return@launch
                                     }
                                     playing = name
-                                    runCatching { httpClient.playSceneInline(scene) }
-                                        .onSuccess { onScenePlayed() }
-                                        .onFailure { snackbar.showSnackbar("Failed to play \"$name\".") }
+                                    val ok = when (item) {
+                                        is ScenesSheetItem.Global -> {
+                                            if (httpClient == null) {
+                                                snackbar.showSnackbar("Connect a device to play scenes.")
+                                                playing = null; return@launch
+                                            }
+                                            runCatching { httpClient.playSceneInline(item.scene) }.isSuccess
+                                        }
+                                        is ScenesSheetItem.Device ->
+                                            runCatching { httpClient!!.playSceneByName(item.info.name) }.isSuccess
+                                    }
+                                    if (ok) onScenePlayed() else snackbar.showSnackbar("Failed to play \"$name\".")
                                     playing = null
-                                    onDismiss()
+                                    if (ok) onDismiss()
                                 }
                             }
-                            .padding(vertical = 14.dp),
+                            .padding(vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment     = Alignment.CenterVertically,
                     ) {
-                        Text(name, style = MaterialTheme.typography.bodyMedium)
-                        if (playing == name) CircularProgressIndicator(Modifier.size(20.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(
+                                imageVector        = if (item is ScenesSheetItem.Global) Icons.Default.Smartphone else Icons.Default.Router,
+                                contentDescription = if (item is ScenesSheetItem.Global) "Global scene" else "Device scene",
+                                modifier           = Modifier.size(18.dp),
+                                tint               = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(name, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (playing == name) CircularProgressIndicator(Modifier.size(20.dp))
+                            IconButton(
+                                enabled = loadingEdit == null && playing == null,
+                                onClick = {
+                                    when (item) {
+                                        is ScenesSheetItem.Global -> onEdit(item.scene, SceneOrigin.GLOBAL)
+                                        is ScenesSheetItem.Device -> scope.launch {
+                                            if (httpClient == null) return@launch
+                                            loadingEdit = name
+                                            val full = httpClient.runCatching { getScene(item.info.name) }.getOrNull()
+                                            loadingEdit = null
+                                            if (full != null) onEdit(full, SceneOrigin.DEVICE)
+                                            else snackbar.showSnackbar("Failed to load \"$name\".")
+                                        }
+                                    }
+                                },
+                            ) {
+                                if (loadingEdit == name) CircularProgressIndicator(Modifier.size(20.dp))
+                                else Icon(Icons.Default.Edit, contentDescription = "Edit \"$name\"")
+                            }
+                        }
                     }
                     HorizontalDivider()
                 }

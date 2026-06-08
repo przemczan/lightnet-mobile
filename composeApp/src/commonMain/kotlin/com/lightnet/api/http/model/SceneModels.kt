@@ -36,6 +36,7 @@ object RunnerType {
     const val WAVE = "WAVE"
     const val RIPPLE = "RIPPLE"
     const val CHASE = "CHASE"
+    const val WHEEL = "WHEEL"
 }
 
 /** What a runner's sweep modulates (scene-authoring §7.3 `animates`). Default is `color`. */
@@ -118,6 +119,14 @@ data class SceneStep(
     val reverse: Boolean? = null,
     val waveWidth: Int? = null,
     val rippleWidth: Int? = null,
+    // WAVE/RIPPLE/CHASE: replay as a continuous train of evenly-spaced sweeps (colour-only).
+    val repeat: Boolean? = null,
+    // Number of waves/rings/chases in flight simultaneously (waves per duration). 0 or 1 = one wave.
+    val repeatCount: Int? = null,
+    // WHEEL-only: blade thickness in degrees (shares the wire slot with waveWidth/rippleWidth)
+    // and number of evenly-spaced rotating blades, 1-6.
+    val thickness: Int? = null,
+    val lines: Int? = null,
     // What the runner's sweep modulates (RunnerTarget) and its peak intensity for non-color targets.
     val animates: String? = null,
     val amount: Int? = null,

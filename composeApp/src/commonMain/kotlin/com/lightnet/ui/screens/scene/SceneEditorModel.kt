@@ -73,6 +73,8 @@ enum class AnimId(
     WAVE("Wave", true, ColorMode.Single, emptyList(), "WAVE", supportsLoopFlags = false, widthLabel = "Width (rings)", defaultWidth = 3),
     RIPPLE("Ripple", true, ColorMode.Single, emptyList(), "RIPPLE", supportsLoopFlags = false, widthLabel = "Ring width", defaultWidth = 2),
     CHASE("Chase", true, ColorMode.Single, emptyList(), "CHASE", supportsLoopFlags = false),
+    // Always loops, always colour-only — no `animates`/loop-flags UI; pivots about `source`.
+    WHEEL("Wheel", true, ColorMode.Single, emptyList(), "WHEEL", supportsLoopFlags = false),
     ;
 
     /** Param list seeded to defaults for this animation. */
@@ -123,6 +125,10 @@ class EditableStep(
     width: Int = anim.defaultWidth,
     animates: RunnerAnimates = RunnerAnimates.Color,
     amount: Int = 128,
+    repeat: Boolean = false,
+    repeatCount: Int = 1,
+    lines: Int = 1,
+    thickness: Int = 18,
 ) {
     val id: Long = nextId()
     var anim by mutableStateOf(anim)
@@ -141,6 +147,12 @@ class EditableStep(
     var width by mutableStateOf(width)
     var animates by mutableStateOf(animates)    // what the sweep modulates
     var amount by mutableStateOf(amount)        // peak intensity for non-Color targets, 0-255
+    // WAVE/RIPPLE/CHASE: continuous train of sweeps instead of a single pass (colour-only).
+    var repeat by mutableStateOf(repeat)
+    var repeatCount by mutableStateOf(repeatCount) // waves/rings in flight at once; 1 = single sweep
+    // WHEEL-only: number of rotating blades (1-6) and blade thickness in degrees.
+    var lines by mutableStateOf(lines)
+    var thickness by mutableStateOf(thickness)
 
     /** Switch animation type, re-seeding params/width to the new type's defaults. */
     fun changeAnim(next: AnimId) {
@@ -203,7 +215,55 @@ class EditableScene(
         while ("layer$n" in taken) n++
         return "layer$n"
     }
+
+    /** A unique name for a clone of [name] — "<name> copy", then "<name> copy 2", … */
+    fun cloneLayerName(name: String): String {
+        val base = name.ifBlank { "layer" }
+        val taken = layers.map { it.name }.toSet()
+        if ("$base copy" !in taken) return "$base copy"
+        var n = 2
+        while ("$base copy $n" in taken) n++
+        return "$base copy $n"
+    }
 }
+
+/** Deep copy with fresh ids for the step itself — used when cloning a layer. */
+private fun EditableStep.clone(): EditableStep = EditableStep(
+    anim        = anim,
+    colorA      = colorA,
+    colorB      = colorB,
+    durationMs  = durationMs,
+    loop        = loop,
+    pingpong    = pingpong,
+    params      = params,
+    geometric   = geometric,
+    source      = source,
+    sourcePanel = sourcePanel,
+    angle       = angle,
+    reverse     = reverse,
+    width       = width,
+    animates    = animates,
+    amount      = amount,
+    repeat      = repeat,
+    repeatCount = repeatCount,
+    lines       = lines,
+    thickness   = thickness,
+)
+
+/** Deep copy with a fresh id (and fresh ids for its steps) — backs the layer-row "Clone" action. */
+fun EditableLayer.clone(name: String): EditableLayer = EditableLayer(
+    name          = name,
+    targetKind    = targetKind,
+    selected      = selected,
+    selectorToken = selectorToken,
+    rawTarget     = rawTarget,
+    palette       = palette,
+    async         = async,
+    startAfter    = startAfter,
+    blend         = blend,
+    fallback      = fallback,
+    steps         = steps.map { it.clone() },
+).also { it.includedInPreview = includedInPreview }
 
 // ── Conversion: editor ⇄ SceneJson ──────────────────────────────────────────────
 // The visualizer reports 0-based list positions; the firmware addresses panels from
@@ -235,6 +295,19 @@ private fun parseRunnerAnimates(animates: String?): RunnerAnimates = when (anima
 private fun EditableStep.toSceneStep(): SceneStep {
     val a = anim
     if (a == AnimId.GAP) return SceneStep(duration = durationMs)
+    if (a == AnimId.WHEEL) {
+        // Always geometric, always looping, colour-only — pivots about `source`/`reverse`
+        // like a topology runner, with no `directionality`/`angle`/`animates`/`amount`.
+        return SceneStep(
+            runner    = a.wireName,
+            color     = colorA,
+            duration  = durationMs,
+            source    = runnerSourceToken(),
+            reverse   = if (reverse) true else null,
+            lines     = lines,
+            thickness = thickness,
+        )
+    }
     if (a.isRunner) {
         val isRipple = a == AnimId.RIPPLE
         // Geometric wave/chase use `angle` (no source); geometric ripple + all topology use
@@ -251,6 +324,8 @@ private fun EditableStep.toSceneStep(): SceneStep {
             reverse        = if (reverse) true else null,
             waveWidth      = if (a == AnimId.WAVE && a.hasWidth) width else null,
             rippleWidth    = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
+            repeat         = if (repeat && animatesColor) true else null,
+            repeatCount    = if (repeat && animatesColor && repeatCount > 1) repeatCount else null,
             animates       = animates.toToken(),
             amount         = if (animatesColor) null else amount,
         )
@@ -290,14 +365,16 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
     val usesCompositing = background != null ||
         layers.any { l -> l.blend != null || l.steps.any { it.anim.isModifier } }
     val usesGeometric = layers.any { l -> l.steps.any { it.geometric } }
+    val usesWheelOrRepeat = layers.any { l -> l.steps.any { it.anim == AnimId.WHEEL || (it.anim.isRunner && it.repeat) } }
 
     return SceneJson(
         // Pick the lowest schema that still expresses the features used, so scenes keep loading
-        // on older controllers: v4 = blend/modifier/background, v3 = geometric directionality.
+        // on older controllers: v5 = WHEEL/`repeat`, v4 = blend/modifier/background, v3 = geometric directionality.
         schemaVersion = when {
-            usesCompositing -> 4
-            usesGeometric   -> 3
-            else            -> 2
+            usesWheelOrRepeat -> 5
+            usesCompositing   -> 4
+            usesGeometric     -> 3
+            else              -> 2
         },
         name       = name.trim().ifBlank { null },
         loop       = loop,
@@ -368,6 +445,10 @@ private fun stepFrom(step: SceneStep): EditableStep {
         width       = step.waveWidth ?: step.rippleWidth ?: step.params?.getOrNull(0) ?: anim.defaultWidth,
         animates    = parseRunnerAnimates(step.animates),
         amount      = step.amount ?: 128,
+        repeat      = step.repeat == true,
+        repeatCount = (step.repeatCount ?: 1).coerceAtLeast(1),
+        lines       = step.lines ?: 1,
+        thickness   = step.thickness ?: 18,
     )
 }
 
