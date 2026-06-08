@@ -18,7 +18,7 @@ class ColorComposeTest {
     }
 
     @Test fun blendModes() {
-        assertRgb(composeColor(rgb(10, 20, 30), rgb(200, 100, 50), COMPOSE_NORMAL), 200, 100, 50)
+        assertRgb(composeColor(rgb(10, 20, 30), rgb(200, 100, 50), COMPOSE_OPAQUE), 200, 100, 50)
         assertRgb(composeColor(rgb(200, 100, 0), rgb(100, 100, 5), COMPOSE_ADD), 255, 200, 5)
         assertRgb(composeColor(rgb(200, 10, 50), rgb(100, 100, 50), COMPOSE_MAX), 200, 100, 50)
         assertRgb(composeColor(rgb(255, 128, 0), rgb(128, 255, 255), COMPOSE_MULTIPLY), 128, 128, 0)
@@ -49,7 +49,7 @@ class ColorComposeTest {
 
     @Test fun foldModifierDimsBelowByOrder() {
         val layers = listOf(
-            CompositeLayer(0, false, COMPOSE_NORMAL, color = rgb(200, 100, 50)),
+            CompositeLayer(0, false, COMPOSE_OPAQUE, color = rgb(200, 100, 50)),
             CompositeLayer(1, true, MO_BRIGHTNESS, value = 128),
         )
         assertRgb(foldLayers(layers, rgb(0, 0, 0)), 100, 50, 25)

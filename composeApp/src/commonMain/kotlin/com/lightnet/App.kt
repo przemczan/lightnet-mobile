@@ -136,6 +136,7 @@ fun LightnetApp(
         } else {
             MyDevicesScreen(
                 devices         = devices,
+                devicePool      = devicePool,
                 onOpenDevice    = { d ->
                     activeDevice = d
                     showDevice   = true

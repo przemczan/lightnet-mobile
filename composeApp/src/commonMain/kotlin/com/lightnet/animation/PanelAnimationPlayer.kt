@@ -78,7 +78,7 @@ data class AnimationState(
     val colorTo: ColorRef = ColorRef.rgb(0, 0, 0),
     val param1: Int = 0,
     val param2: Int = 0,
-    val composeMode: Int = COMPOSE_NORMAL,
+    val composeMode: Int = COMPOSE_OPAQUE,
     val composeOrder: Int = 0,
     val startDelayMs: Int = 0,
 )

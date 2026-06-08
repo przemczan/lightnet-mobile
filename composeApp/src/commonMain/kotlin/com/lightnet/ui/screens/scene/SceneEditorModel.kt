@@ -161,7 +161,7 @@ class EditableLayer(
     var palette by mutableStateOf(palette)
     var async by mutableStateOf(async)
     var startAfter by mutableStateOf(startAfter)
-    var blend by mutableStateOf(blend)        // null = default (normal; runners use max)
+    var blend by mutableStateOf(blend)        // null = default (opaque; runners use max)
     var fallback by mutableStateOf(fallback)  // round-trip passthrough (no UI yet)
     val steps = steps.toMutableStateList()
 

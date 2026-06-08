@@ -9,12 +9,15 @@ import com.lightnet.api.websocket.protocol.model.ColorRgbModel
  */
 
 // Blend modes for SOURCE layers (firmware ComposeMode / ComposeOp).
-const val COMPOSE_NORMAL = 0
+const val COMPOSE_OPAQUE = 0
 const val COMPOSE_ADD = 1
 const val COMPOSE_MAX = 2
 const val COMPOSE_MULTIPLY = 3
 const val COMPOSE_SCREEN = 4
-const val COMPOSE_REPLACE = 5
+const val COMPOSE_DARKEN = 6
+const val COMPOSE_OVERLAY = 7
+const val COMPOSE_DIFFERENCE = 8
+const val COMPOSE_SUBTRACT = 9
 
 // Modifier ops (firmware ModOp), distinct from the ANIM_MOD_* animTypes.
 const val MO_BRIGHTNESS = 0
@@ -25,6 +28,10 @@ private fun clampAdd(a: Int, b: Int): Int = (a + b).let { if (it > 255) 255 else
 private fun mul(a: Int, b: Int): Int = (a * b) / 255
 private fun screen(a: Int, b: Int): Int = 255 - mul(255 - a, 255 - b)
 private fun maxc(a: Int, b: Int): Int = if (a > b) a else b
+private fun minc(a: Int, b: Int): Int = if (a < b) a else b
+private fun overlay(a: Int, b: Int): Int = if (a < 128) (2 * a * b) / 255 else 255 - (2 * (255 - a) * (255 - b)) / 255
+private fun diff(a: Int, b: Int): Int = if (a > b) a - b else b - a
+private fun sub(a: Int, b: Int): Int = if (a > b) a - b else 0
 
 /** Fold a source colour onto the accumulator using the given blend op. */
 fun composeColor(acc: ColorRgbModel, src: ColorRgbModel, op: Int): ColorRgbModel = when (op) {
@@ -32,7 +39,11 @@ fun composeColor(acc: ColorRgbModel, src: ColorRgbModel, op: Int): ColorRgbModel
     COMPOSE_MAX -> ColorRgbModel(maxc(acc.r, src.r), maxc(acc.g, src.g), maxc(acc.b, src.b))
     COMPOSE_MULTIPLY -> ColorRgbModel(mul(acc.r, src.r), mul(acc.g, src.g), mul(acc.b, src.b))
     COMPOSE_SCREEN -> ColorRgbModel(screen(acc.r, src.r), screen(acc.g, src.g), screen(acc.b, src.b))
-    else -> src // COMPOSE_NORMAL / COMPOSE_REPLACE
+    COMPOSE_DARKEN -> ColorRgbModel(minc(acc.r, src.r), minc(acc.g, src.g), minc(acc.b, src.b))
+    COMPOSE_OVERLAY -> ColorRgbModel(overlay(acc.r, src.r), overlay(acc.g, src.g), overlay(acc.b, src.b))
+    COMPOSE_DIFFERENCE -> ColorRgbModel(diff(acc.r, src.r), diff(acc.g, src.g), diff(acc.b, src.b))
+    COMPOSE_SUBTRACT -> ColorRgbModel(sub(acc.r, src.r), sub(acc.g, src.g), sub(acc.b, src.b))
+    else -> src // COMPOSE_OPAQUE
 }
 
 // ── Integer HSV (H/S/V 0..255), classic 6-sector — matches ColorCompose.hpp ──

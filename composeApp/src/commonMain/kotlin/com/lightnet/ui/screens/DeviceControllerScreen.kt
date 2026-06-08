@@ -27,13 +27,16 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -76,6 +79,7 @@ import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.SceneJson
+import com.lightnet.api.http.model.SceneStatus
 import com.lightnet.device.ConnectionState
 import com.lightnet.settings.AppPreferences
 import com.lightnet.device.LightnetDevice
@@ -172,6 +176,20 @@ fun DeviceControllerScreen(
     var rawRotationAngle  by remember(device) { mutableFloatStateOf(devicePrefs.visualizerRotation.value) }
     val rotationAngle     = (rawRotationAngle / 5f).roundToInt() * 5f
 
+    var sceneStatus          by remember(device) { mutableStateOf<SceneStatus?>(null) }
+    var lastPlayedScene      by remember(device) { mutableStateOf("") }
+    var sceneStatusRefresh   by remember(device) { mutableStateOf(0) }
+    val isScenePlaying       = sceneStatus?.playing == true
+    val playToolbarSceneName = (if (isScenePlaying) sceneStatus?.scene else null)?.takeIf { it.isNotBlank() } ?: lastPlayedScene
+
+    // Refresh scene playback status + last-played-scene name on screen open and after a play/stop action.
+    LaunchedEffect(device, connectionState, httpClient, sceneStatusRefresh) {
+        if (connectionState == ConnectionState.CONNECTED) {
+            httpClient?.runCatching { getSceneStatus() }?.getOrNull()?.let { sceneStatus = it }
+            httpClient?.runCatching { getAppState() }?.getOrNull()?.let { lastPlayedScene = it.lastPlayedScene }
+        }
+    }
+
     LaunchedEffect(device, connectionState, httpClient) {
         if (connectionState == ConnectionState.CONNECTED && device != null) {
             // Fetch power state first so the visualizer unblocks with the correct on/off state.
@@ -218,6 +236,9 @@ fun DeviceControllerScreen(
         return
     }
 
+    val isConnected = connectionState == ConnectionState.CONNECTED
+    var showOverflowMenu by remember(device) { mutableStateOf(false) }
+
     Scaffold(
         modifier = modifier,
         topBar   = {
@@ -244,6 +265,64 @@ fun DeviceControllerScreen(
                     }
                 },
             )
+        },
+        bottomBar = {
+            BottomAppBar {
+                IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
+                    Icon(Icons.Default.Brush, contentDescription = "Pick color")
+                }
+                IconButton(onClick = { showPaletteSheet = true }, enabled = isConnected) {
+                    Icon(Icons.Default.Gradient, contentDescription = "Choose palette")
+                }
+                IconButton(onClick = { showBrightnessSheet = true }, enabled = isConnected) {
+                    Icon(Icons.Default.WbSunny, contentDescription = "Brightness")
+                }
+                IconButton(onClick = { showSpeedSheet = true }, enabled = isConnected) {
+                    Icon(Icons.Default.Speed, contentDescription = "Speed")
+                }
+                IconButton(onClick = { showScenesSheet = true }) {
+                    Icon(Icons.Default.Movie, contentDescription = "Scenes")
+                }
+                FilledIconToggleButton(
+                    checked         = livePreview,
+                    onCheckedChange = { device.setLivePreview(it) },
+                    enabled         = isConnected,
+                ) {
+                    Icon(
+                        Icons.Default.Visibility,
+                        contentDescription = if (livePreview) "Stop live preview" else "Live preview",
+                    )
+                }
+                FilledIconToggleButton(
+                    checked         = allPanelsOn,
+                    onCheckedChange = { on ->
+                        allPanelsOn = on
+                        scope.launch { device.setPowerState(on) }
+                    },
+                    enabled         = isConnected,
+                ) {
+                    Icon(
+                        Icons.Default.PowerSettingsNew,
+                        contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
+                    )
+                }
+                Box {
+                    IconButton(onClick = { showOverflowMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More")
+                    }
+                    DropdownMenu(
+                        expanded         = showOverflowMenu,
+                        onDismissRequest = { showOverflowMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text         = { Text("Rotate view") },
+                            leadingIcon  = { Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = null) },
+                            onClick      = { showOverflowMenu = false; showRotateSheet = true },
+                            enabled      = isConnected,
+                        )
+                    }
+                }
+            }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -305,9 +384,7 @@ fun DeviceControllerScreen(
                     }
                 }
 
-                // Bottom centered toolbar — always visible; buttons disabled when disconnected
-                val isConnected = connectionState == ConnectionState.CONNECTED
-                var showOverflowMenu by remember { mutableStateOf(false) }
+                // Floating scene-playback toolbar — sits just above the docked toolbar.
                 Row(
                     Modifier
                         .align(Alignment.BottomCenter)
@@ -321,63 +398,38 @@ fun DeviceControllerScreen(
                         tonalElevation = 6.dp,
                     ) {
                         Row(
-                            Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment     = Alignment.CenterVertically,
                         ) {
-                            IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
-                                Icon(Icons.Default.Brush, contentDescription = "Pick color")
-                            }
-                            IconButton(onClick = { showPaletteSheet = true }, enabled = isConnected) {
-                                Icon(Icons.Default.Gradient, contentDescription = "Choose palette")
-                            }
-                            IconButton(onClick = { showBrightnessSheet = true }, enabled = isConnected) {
-                                Icon(Icons.Default.WbSunny, contentDescription = "Brightness")
-                            }
-                            IconButton(onClick = { showSpeedSheet = true }, enabled = isConnected) {
-                                Icon(Icons.Default.Speed, contentDescription = "Speed")
-                            }
-                            IconButton(onClick = { showScenesSheet = true }) {
-                                Icon(Icons.Default.Movie, contentDescription = "Scenes")
-                            }
+                            Text(
+                                text     = playToolbarSceneName.ifBlank { "No scene" },
+                                style    = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(end = 4.dp),
+                            )
                             FilledIconToggleButton(
-                                checked         = livePreview,
-                                onCheckedChange = { device.setLivePreview(it) },
-                                enabled         = isConnected,
-                            ) {
-                                Icon(
-                                    Icons.Default.Visibility,
-                                    contentDescription = if (livePreview) "Stop live preview" else "Live preview",
-                                )
-                            }
-                            FilledIconToggleButton(
-                                checked         = allPanelsOn,
-                                onCheckedChange = { on ->
-                                    allPanelsOn = on
-                                    scope.launch { device.setPowerState(on) }
+                                checked         = isScenePlaying,
+                                onCheckedChange = {
+                                    scope.launch {
+                                        httpClient?.runCatching { playSceneByName(lastPlayedScene) }
+                                        sceneStatusRefresh++
+                                    }
                                 },
-                                enabled         = isConnected,
+                                enabled = isConnected && lastPlayedScene.isNotBlank(),
                             ) {
-                                Icon(
-                                    Icons.Default.PowerSettingsNew,
-                                    contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
-                                )
+                                Icon(Icons.Default.PlayArrow, contentDescription = "Play \"$lastPlayedScene\"")
                             }
-                            Box {
-                                IconButton(onClick = { showOverflowMenu = true }) {
-                                    Icon(Icons.Default.MoreVert, contentDescription = "More")
-                                }
-                                DropdownMenu(
-                                    expanded         = showOverflowMenu,
-                                    onDismissRequest = { showOverflowMenu = false },
-                                ) {
-                                    DropdownMenuItem(
-                                        text         = { Text("Rotate view") },
-                                        leadingIcon  = { Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = null) },
-                                        onClick      = { showOverflowMenu = false; showRotateSheet = true },
-                                        enabled      = isConnected,
-                                    )
-                                }
+                            FilledIconToggleButton(
+                                checked         = isScenePlaying,
+                                onCheckedChange = {
+                                    scope.launch {
+                                        httpClient?.runCatching { stopScene() }
+                                        sceneStatusRefresh++
+                                    }
+                                },
+                                enabled = isConnected && isScenePlaying,
+                            ) {
+                                Icon(Icons.Default.Stop, contentDescription = "Stop scene")
                             }
                         }
                     }
@@ -417,8 +469,9 @@ fun DeviceControllerScreen(
 
     if (showScenesSheet) {
         ScenesSheet(
-            httpClient = httpClient,
-            onDismiss  = { showScenesSheet = false },
+            httpClient   = httpClient,
+            onDismiss    = { showScenesSheet = false },
+            onScenePlayed = { sceneStatusRefresh++ },
         )
     }
 
@@ -759,6 +812,7 @@ private fun PaletteSheet(
 private fun ScenesSheet(
     httpClient: LightnetHttpClient?,
     onDismiss: () -> Unit,
+    onScenePlayed: () -> Unit,
 ) {
     val scope    = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -802,6 +856,7 @@ private fun ScenesSheet(
                                     }
                                     playing = name
                                     runCatching { httpClient.playSceneInline(scene) }
+                                        .onSuccess { onScenePlayed() }
                                         .onFailure { snackbar.showSnackbar("Failed to play \"$name\".") }
                                     playing = null
                                     onDismiss()

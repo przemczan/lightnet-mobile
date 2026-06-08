@@ -239,7 +239,7 @@ class PanelAnimationPlayerTest {
         val player = PanelAnimationPlayer()
         player.prepare(
             AnimationState(animType = ANIM_SOLID, groupId = 1, durationMs = 0,
-                colorTo = ColorRef.rgb(0, 0, 200), composeMode = COMPOSE_NORMAL, composeOrder = 0)
+                colorTo = ColorRef.rgb(0, 0, 200), composeMode = COMPOSE_OPAQUE, composeOrder = 0)
         )
         player.start(seqId = 1, groupId = 1, nowMs = 0)
         player.prepare(

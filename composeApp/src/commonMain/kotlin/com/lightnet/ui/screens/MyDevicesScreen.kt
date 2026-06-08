@@ -26,11 +26,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lightnet.device.ConnectionState
+import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
+import com.lightnet.ui.components.DeviceStatus
 import com.lightnet.ui.components.EmptyState
+import com.lightnet.ui.components.StatusDot
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import lightnet.composeapp.generated.resources.Res
 import lightnet.composeapp.generated.resources.logo_dark
 import lightnet.composeapp.generated.resources.logo_light
@@ -40,6 +48,7 @@ import org.jetbrains.compose.resources.painterResource
 @Composable
 fun MyDevicesScreen(
     devices: List<SavedDevice>,
+    devicePool: Map<String, LightnetDevice>,
     onOpenDevice: (SavedDevice) -> Unit,
     onAddDevice: () -> Unit,
     onEditDevice: (SavedDevice) -> Unit,
@@ -91,9 +100,11 @@ fun MyDevicesScreen(
                     ) {
                         items(devices, key = { it.id }) { device ->
                             HomeDeviceCard(
-                                device      = device,
-                                onClick     = { onOpenDevice(device) },
-                                onEditClick = { onEditDevice(device) },
+                                device          = device,
+                                connectionState = devicePool[device.id]?.connectionState,
+                                isOnline        = devicePool[device.id]?.isOnline,
+                                onClick         = { onOpenDevice(device) },
+                                onEditClick     = { onEditDevice(device) },
                             )
                         }
                     }
@@ -111,12 +122,37 @@ fun MyDevicesScreen(
     }
 }
 
+private val idleConnectionState = MutableStateFlow(ConnectionState.IDLE)
+private val unknownIsOnline = MutableStateFlow<Boolean?>(null)
+
+/**
+ * Combines the raw WebSocket [ConnectionState] with the periodic PING/PONG liveness check —
+ * a connection can stay CONNECTED even after the controller has gone silent, so "online"
+ * requires both an open connection and a recently confirmed PONG.
+ */
+private fun deviceStatus(connectionState: ConnectionState, isOnline: Boolean?): DeviceStatus = when (connectionState) {
+    ConnectionState.IDLE         -> DeviceStatus.Unknown
+    ConnectionState.CONNECTING   -> DeviceStatus.Connecting
+    ConnectionState.DISCONNECTED -> DeviceStatus.Disconnected
+    ConnectionState.CONNECTED    -> when (isOnline) {
+        true  -> DeviceStatus.Connected
+        false -> DeviceStatus.Disconnected
+        null  -> DeviceStatus.Connecting   // connected, awaiting the first PONG
+    }
+}
+
 @Composable
 private fun HomeDeviceCard(
     device: SavedDevice,
+    connectionState: StateFlow<ConnectionState>?,
+    isOnline: StateFlow<Boolean?>?,
     onClick: () -> Unit,
     onEditClick: () -> Unit,
 ) {
+    val connection by (connectionState ?: idleConnectionState).collectAsState()
+    val online by (isOnline ?: unknownIsOnline).collectAsState()
+    val status = deviceStatus(connection, online)
+
     Card(
         onClick  = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -134,6 +170,7 @@ private fun HomeDeviceCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            StatusDot(status, modifier = Modifier.padding(end = 12.dp))
             IconButton(onClick = onEditClick) {
                 Icon(Icons.Default.MoreVert, contentDescription = "Edit device")
             }

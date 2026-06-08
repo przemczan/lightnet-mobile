@@ -5,6 +5,7 @@ import com.lightnet.api.websocket.protocol.MessageParser
 import com.lightnet.api.websocket.protocol.MessageType
 import com.lightnet.api.websocket.protocol.message.EdgesListResponse
 import com.lightnet.api.websocket.protocol.message.PanelsStatesResponse
+import com.lightnet.api.websocket.protocol.message.PongResponse
 import com.lightnet.api.websocket.protocol.model.ColorRgbModel
 import com.lightnet.api.websocket.protocol.model.PanelEdgeInfoModel
 import com.lightnet.api.websocket.protocol.model.PanelStateModel
@@ -55,6 +56,7 @@ class MockConnector(
                 MessageType.GET_PANELS_STATES -> respondWithPanelsStates()
                 MessageType.TOGGLE            -> handleToggle(result.message.payload)
                 MessageType.SET_COLOR         -> handleSetColor(result.message.payload)
+                MessageType.PING              -> _incoming.emit(PongResponse().encode())
                 else                          -> Unit
             }
         }

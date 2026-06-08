@@ -2,6 +2,7 @@ package com.lightnet.api.http
 
 import com.lightnet.api.http.model.AnimationPlayRequest
 import com.lightnet.api.http.model.AnimationTriggerRequest
+import com.lightnet.api.http.model.AppStateBody
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
 import com.lightnet.api.http.model.ConfigurationRequest
@@ -160,10 +161,12 @@ class LightnetHttpClient(private val baseUrl: String) {
 
     // endregion
 
-    // region Power state
+    // region App state
 
-    suspend fun getPowerState(): Boolean =
-        client.get("$baseUrl/api/state/power").bodyOrThrow<PowerStateBody>().isOn
+    suspend fun getAppState(): AppStateBody =
+        client.get("$baseUrl/api/state").bodyOrThrow()
+
+    suspend fun getPowerState(): Boolean = getAppState().isOn
 
     suspend fun setPowerState(on: Boolean) =
         client.post("$baseUrl/api/state/power") { jsonBody(PowerStateBody(on)) }.voidOrThrow()

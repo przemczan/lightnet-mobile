@@ -49,6 +49,10 @@ class LightnetDevice(
     private val _connectionState = MutableStateFlow(ConnectionState.IDLE)
     val connectionState: StateFlow<ConnectionState> = _connectionState
 
+    private val livenessService = DeviceLivenessService(messageApiService, connectionState, scope)
+    /** null = not yet checked, true = device answered the last PING, false = it didn't (or isn't connected). */
+    val isOnline: StateFlow<Boolean?> = livenessService.isOnline
+
     // Source of panel render state: mirrored packets while live preview is on, else polled.
     // Empty mirror emissions are ignored downstream, so panels keep their last frame.
     private val renderStates: Flow<List<PanelState>> =

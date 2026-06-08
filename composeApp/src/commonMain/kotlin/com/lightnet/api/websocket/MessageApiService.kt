@@ -36,6 +36,10 @@ class MessageApiService(
         .filter { it.type == MessageType.MIRROR_BATCH }
         .map { decodeMirrorBatch(it.payload) }
 
+    val pong: Flow<Unit> = _messages
+        .filter { it.type == MessageType.PONG }
+        .map { }
+
     init {
         scope.launch {
             connector.incoming.collect { bytes ->

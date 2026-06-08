@@ -37,16 +37,19 @@ object RunnerType {
     const val CHASE = "CHASE"
 }
 
-/** Layer blend modes (firmware ComposeMode). Runner layers default to `max`, others to `normal`. */
+/** Layer blend modes (firmware ComposeMode). Runner layers default to `max`, others to `opaque`. */
 object BlendMode {
-    const val NORMAL = "normal"
+    const val OPAQUE = "opaque"
     const val ADD = "add"
     const val MAX = "max"
     const val MULTIPLY = "multiply"
     const val SCREEN = "screen"
-    const val REPLACE = "replace"
+    const val DARKEN = "darken"
+    const val OVERLAY = "overlay"
+    const val DIFFERENCE = "difference"
+    const val SUBTRACT = "subtract"
 
-    val all = listOf(NORMAL, ADD, MAX, MULTIPLY, SCREEN, REPLACE)
+    val all = listOf(OPAQUE, ADD, MAX, MULTIPLY, SCREEN, DARKEN, OVERLAY, DIFFERENCE, SUBTRACT)
 }
 
 /** Runner directionality source tokens (scene-authoring §8). */
