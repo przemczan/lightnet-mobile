@@ -9,8 +9,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.lightnet.device.ConnectionState
 
 enum class DeviceStatus { Connected, Connecting, Disconnected, Unknown }
+
+fun deviceStatus(connectionState: ConnectionState, isOnline: Boolean?): DeviceStatus = when (connectionState) {
+    ConnectionState.IDLE         -> DeviceStatus.Unknown
+    ConnectionState.CONNECTING   -> DeviceStatus.Connecting
+    ConnectionState.DISCONNECTED -> DeviceStatus.Disconnected
+    ConnectionState.CONNECTED    -> when (isOnline) {
+        true  -> DeviceStatus.Connected
+        false -> DeviceStatus.Disconnected
+        null  -> DeviceStatus.Connecting
+    }
+}
 
 @Composable
 fun DeviceStatus.color(): Color = when (this) {

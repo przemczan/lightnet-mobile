@@ -12,17 +12,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lightnet.device.ConnectionState
+import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.displayAddress
 import com.lightnet.ui.components.DeviceListItem
-import com.lightnet.ui.components.DeviceStatus
+import com.lightnet.ui.components.deviceStatus
+import kotlinx.coroutines.flow.MutableStateFlow
+
+private val idleConnectionState = MutableStateFlow(ConnectionState.IDLE)
+private val unknownIsOnline     = MutableStateFlow<Boolean?>(null)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceSwitcherSheet(
     devices: List<SavedDevice>,
+    devicePool: Map<String, LightnetDevice>,
     activeKey: String?,
     onSelect: (SavedDevice) -> Unit,
     onManageDevices: () -> Unit,
@@ -43,12 +52,11 @@ fun DeviceSwitcherSheet(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
             )
             devices.forEach { device ->
-                DeviceListItem(
-                    name     = device.name,
-                    subtitle = device.displayAddress(),
-                    status   = DeviceStatus.Unknown,
-                    selected = activeKey == device.name,
-                    onClick  = { onSelect(device); onDismiss() },
+                SwitcherDeviceItem(
+                    device     = device,
+                    liveDevice = devicePool[device.id],
+                    selected   = activeKey == device.name,
+                    onClick    = { onSelect(device); onDismiss() },
                 )
             }
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
@@ -57,4 +65,22 @@ fun DeviceSwitcherSheet(
             }
         }
     }
+}
+
+@Composable
+private fun SwitcherDeviceItem(
+    device: SavedDevice,
+    liveDevice: LightnetDevice?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val connection by (liveDevice?.connectionState ?: idleConnectionState).collectAsState()
+    val online     by (liveDevice?.isOnline        ?: unknownIsOnline).collectAsState()
+    DeviceListItem(
+        name     = device.name,
+        subtitle = device.displayAddress(),
+        status   = deviceStatus(connection, online),
+        selected = selected,
+        onClick  = onClick,
+    )
 }

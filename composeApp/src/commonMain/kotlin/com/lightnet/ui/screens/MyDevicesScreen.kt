@@ -36,6 +36,7 @@ import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.ui.components.DeviceStatus
 import com.lightnet.ui.components.EmptyState
+import com.lightnet.ui.components.deviceStatus
 import com.lightnet.ui.components.StatusDot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -124,22 +125,6 @@ fun MyDevicesScreen(
 
 private val idleConnectionState = MutableStateFlow(ConnectionState.IDLE)
 private val unknownIsOnline = MutableStateFlow<Boolean?>(null)
-
-/**
- * Combines the raw WebSocket [ConnectionState] with the periodic PING/PONG liveness check —
- * a connection can stay CONNECTED even after the controller has gone silent, so "online"
- * requires both an open connection and a recently confirmed PONG.
- */
-private fun deviceStatus(connectionState: ConnectionState, isOnline: Boolean?): DeviceStatus = when (connectionState) {
-    ConnectionState.IDLE         -> DeviceStatus.Unknown
-    ConnectionState.CONNECTING   -> DeviceStatus.Connecting
-    ConnectionState.DISCONNECTED -> DeviceStatus.Disconnected
-    ConnectionState.CONNECTED    -> when (isOnline) {
-        true  -> DeviceStatus.Connected
-        false -> DeviceStatus.Disconnected
-        null  -> DeviceStatus.Connecting   // connected, awaiting the first PONG
-    }
-}
 
 @Composable
 private fun HomeDeviceCard(
