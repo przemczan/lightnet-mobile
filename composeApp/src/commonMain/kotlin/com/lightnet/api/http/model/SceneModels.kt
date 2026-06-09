@@ -130,6 +130,8 @@ data class SceneStep(
     // What the runner's sweep modulates (RunnerTarget) and its peak intensity for non-color targets.
     val animates: String? = null,
     val amount: Int? = null,
+    // Modifier envelope shape ("fall" default, "rise", "bell") — only meaningful for non-color animates.
+    val shape: String? = null,
 )
 
 @Serializable

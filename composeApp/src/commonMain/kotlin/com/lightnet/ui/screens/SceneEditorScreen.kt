@@ -103,6 +103,7 @@ import com.lightnet.ui.screens.scene.EditableLayer
 import com.lightnet.ui.screens.scene.EditableScene
 import com.lightnet.ui.screens.scene.EditableStep
 import com.lightnet.ui.screens.scene.RunnerAnimates
+import com.lightnet.ui.screens.scene.RunnerModShape
 import com.lightnet.ui.screens.scene.RunnerSrc
 import com.lightnet.ui.screens.scene.TargetKind
 import com.lightnet.ui.screens.scene.clone
@@ -932,10 +933,9 @@ private fun StepEditorScreen(
                 }
             }
 
-            // WAVE/RIPPLE/CHASE show their colour picker inside the Animates section instead
-            // (only relevant when the sweep animates Color). WHEEL is always colour-only and has
-            // no Animates section, so — like panel-local steps — it shows the picker here.
-            if (!step.anim.isRunner || step.anim == AnimId.WHEEL) {
+            // WAVE/RIPPLE/CHASE show their colour picker inside the Animates section (colour-only path).
+            // WHEEL shows it here when animates == Color; when animating a modifier it has no colour.
+            if (!step.anim.isRunner || (step.anim == AnimId.WHEEL && step.animates == RunnerAnimates.Color)) {
                 when (step.anim.colorMode) {
                     ColorMode.Single -> item {
                         ColorSlotRow("Color", step.colorA, paletteStops, baseColors) { colorSlot = 0 }
@@ -1102,7 +1102,9 @@ private fun RunnerDirectionEditor(step: EditableStep, panels: List<LightnetDevic
                     FilterChip(step.source == RunnerSrc.Root,   { step.source = RunnerSrc.Root },   { Text("Root") })
                     FilterChip(step.source == RunnerSrc.Leaves, { step.source = RunnerSrc.Leaves }, { Text("Leaves") })
                     FilterChip(step.source == RunnerSrc.Panel,  { step.source = RunnerSrc.Panel },  { Text("Panel") })
-                    if (step.source == RunnerSrc.All) FilterChip(true, {}, { Text("All") })
+                    // "All" is meaningful for RIPPLE (concentric uniform pulse) — analogous to Wheel's Pivot→All.
+                    if (isRipple || step.source == RunnerSrc.All)
+                        FilterChip(step.source == RunnerSrc.All, { step.source = RunnerSrc.All }, { Text("All") })
                 }
                 if (step.source == RunnerSrc.Panel) {
                     PanelPickerField(
@@ -1163,6 +1165,25 @@ private fun WheelEditor(step: EditableStep, panels: List<LightnetDevicePanel>) {
                     valueRange    = 0f..180f,
                 )
             }
+            HorizontalDivider()
+            Text("Animates", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(step.animates == RunnerAnimates.Color,      { step.animates = RunnerAnimates.Color },      { Text("Color") })
+                FilterChip(step.animates == RunnerAnimates.Brightness, { step.animates = RunnerAnimates.Brightness }, { Text("Brightness") })
+                FilterChip(step.animates == RunnerAnimates.Saturation, { step.animates = RunnerAnimates.Saturation }, { Text("Saturation") })
+                FilterChip(step.animates == RunnerAnimates.Hue,        { step.animates = RunnerAnimates.Hue },        { Text("Hue") })
+                FilterChip(step.animates == RunnerAnimates.Invert,     { step.animates = RunnerAnimates.Invert },     { Text("Invert") })
+            }
+            if (step.animates != RunnerAnimates.Color) {
+                Column {
+                    Text("Peak amount  ${step.amount}", style = MaterialTheme.typography.bodyLarge)
+                    Slider(
+                        value         = step.amount.toFloat(),
+                        onValueChange = { step.amount = it.roundToInt() },
+                        valueRange    = 0f..255f,
+                    )
+                }
+            }
         }
     }
 }
@@ -1221,6 +1242,13 @@ private fun RunnerAnimatesEditor(
                         onValueChange = { step.amount = it.roundToInt() },
                         valueRange    = 0f..255f,
                     )
+                }
+                HorizontalDivider()
+                Text("Shape", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(step.modShape == RunnerModShape.Fall, { step.modShape = RunnerModShape.Fall }, { Text("Fall") })
+                    FilterChip(step.modShape == RunnerModShape.Rise, { step.modShape = RunnerModShape.Rise }, { Text("Rise") })
+                    FilterChip(step.modShape == RunnerModShape.Bell, { step.modShape = RunnerModShape.Bell }, { Text("Bell") })
                 }
             }
         }

@@ -17,8 +17,9 @@ const val ANIM_REACTIVE = 8
 const val ANIM_MOD_BRIGHTNESS = 10
 const val ANIM_MOD_SATURATION = 11
 const val ANIM_MOD_HUE_SHIFT = 12
+const val ANIM_MOD_INVERT = 13
 
-fun isModifierType(t: Int) = t in ANIM_MOD_BRIGHTNESS..ANIM_MOD_HUE_SHIFT
+fun isModifierType(t: Int) = t == ANIM_MOD_BRIGHTNESS || t == ANIM_MOD_SATURATION || t == ANIM_MOD_HUE_SHIFT || t == ANIM_MOD_INVERT
 
 // Max concurrent composited layers per panel (firmware MAX_ANIM_SLOTS).
 const val MAX_ANIM_SLOTS = 4
@@ -29,6 +30,9 @@ const val FLAG_PINGPONG = 0x02
 const val FLAG_EASING = 0x04
 const val FLAG_CURRENT_COLOR_FROM = 0x08
 const val FLAG_CURRENT_COLOR_TO = 0x10
+// ANIM_MOD_* envelope shape flags (see AnimationTypes.hpp FLAG_MOD_*).
+const val FLAG_MOD_RISE = 0x20  // identity → peak
+const val FLAG_MOD_BELL = 0x40  // identity → peak → identity (symmetric triangle)
 
 // Control commands.
 const val ANIM_CTRL_STOP = 1
@@ -325,6 +329,7 @@ class PanelAnimationPlayer {
                 val op = when (s.cur.animType) {
                     ANIM_MOD_SATURATION -> MO_SATURATION
                     ANIM_MOD_HUE_SHIFT -> MO_HUE
+                    ANIM_MOD_INVERT -> MO_INVERT
                     else -> MO_BRIGHTNESS
                 }
                 contrib.add(CompositeLayer(s.cur.composeOrder, isModifier = true, op = op, value = v))
@@ -354,7 +359,15 @@ class PanelAnimationPlayer {
         if (a.durationMs == 0) return a.param2
         val prog = elapsed * 256 / a.durationMs
         val q8 = if (prog > 255) 255 else prog
-        return lerp8(a.param1, a.param2, q8)
+        if ((a.flags and FLAG_MOD_BELL) != 0) {
+            val bprog = if (q8 < 128) q8 * 2 else (255 - q8) * 2
+            val q8b = if (bprog > 255) 255 else bprog
+            return lerp8(a.param2, a.param1, q8b)
+        }
+        if ((a.flags and FLAG_MOD_RISE) != 0) {
+            return lerp8(a.param2, a.param1, q8)
+        }
+        return lerp8(a.param1, a.param2, q8)  // fall (default)
     }
 
     // ── Animation type handlers (faithful integer math) ──

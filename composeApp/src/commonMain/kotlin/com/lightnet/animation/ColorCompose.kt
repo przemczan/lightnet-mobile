@@ -23,6 +23,7 @@ const val COMPOSE_SUBTRACT = 9
 const val MO_BRIGHTNESS = 0
 const val MO_SATURATION = 1
 const val MO_HUE = 2
+const val MO_INVERT = 3
 
 private fun clampAdd(a: Int, b: Int): Int = (a + b).let { if (it > 255) 255 else it }
 private fun mul(a: Int, b: Int): Int = (a * b) / 255
@@ -98,6 +99,17 @@ fun modHueShift(acc: ColorRgbModel, value: Int): ColorRgbModel {
     return hsv2rgb(h.copy(h = (h.h + value) and 0xFF))
 }
 
+fun modInvert(acc: ColorRgbModel, value: Int): ColorRgbModel {
+    if (value == 0) return acc
+    val inv = ColorRgbModel(255 - acc.r, 255 - acc.g, 255 - acc.b)
+    if (value == 255) return inv
+    return ColorRgbModel(
+        acc.r + ((inv.r - acc.r) * value) / 255,
+        acc.g + ((inv.g - acc.g) * value) / 255,
+        acc.b + ((inv.b - acc.b) * value) / 255,
+    )
+}
+
 // ── Layer fold (the compositor's per-tick contract) ──
 
 /** One active layer contribution for [foldLayers]. */
@@ -122,6 +134,7 @@ fun foldLayers(layers: List<CompositeLayer>, base: ColorRgbModel): ColorRgbModel
                 MO_BRIGHTNESS -> modBrightness(acc, l.value)
                 MO_SATURATION -> modSaturation(acc, l.value)
                 MO_HUE -> modHueShift(acc, l.value)
+                MO_INVERT -> modInvert(acc, l.value)
                 else -> acc
             }
         } else {

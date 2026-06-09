@@ -29,6 +29,9 @@ enum class RunnerSrc { Root, Leaves, All, Panel }
 /** What a runner's sweep modulates (independent of its movement pattern and source). */
 enum class RunnerAnimates { Color, Brightness, Saturation, Hue, Invert }
 
+/** Envelope shape of a non-color modifier runner sweep. */
+enum class RunnerModShape { Fall, Rise, Bell }
+
 enum class AnimId(
     val display: String,
     val isRunner: Boolean,
@@ -73,7 +76,7 @@ enum class AnimId(
     WAVE("Wave", true, ColorMode.Single, emptyList(), "WAVE", supportsLoopFlags = false, widthLabel = "Width (rings)", defaultWidth = 3),
     RIPPLE("Ripple", true, ColorMode.Single, emptyList(), "RIPPLE", supportsLoopFlags = false, widthLabel = "Ring width", defaultWidth = 2),
     CHASE("Chase", true, ColorMode.Single, emptyList(), "CHASE", supportsLoopFlags = false),
-    // Always loops, always colour-only — no `animates`/loop-flags UI; pivots about `source`.
+    // Always loops, always geometric — pivots about `source`; supports non-color `animates` (blade modifier).
     WHEEL("Wheel", true, ColorMode.Single, emptyList(), "WHEEL", supportsLoopFlags = false),
     ;
 
@@ -125,6 +128,7 @@ class EditableStep(
     width: Int = anim.defaultWidth,
     animates: RunnerAnimates = RunnerAnimates.Color,
     amount: Int = 128,
+    modShape: RunnerModShape = RunnerModShape.Fall,
     repeat: Boolean = false,
     repeatCount: Int = 1,
     lines: Int = 1,
@@ -147,6 +151,7 @@ class EditableStep(
     var width by mutableStateOf(width)
     var animates by mutableStateOf(animates)    // what the sweep modulates
     var amount by mutableStateOf(amount)        // peak intensity for non-Color targets, 0-255
+    var modShape by mutableStateOf(modShape)    // modifier envelope shape (non-Color only; WHEEL forces bell)
     // WAVE/RIPPLE/CHASE: continuous train of sweeps instead of a single pass (colour-only).
     var repeat by mutableStateOf(repeat)
     var repeatCount by mutableStateOf(repeatCount) // waves/rings in flight at once; 1 = single sweep
@@ -244,6 +249,7 @@ private fun EditableStep.clone(): EditableStep = EditableStep(
     width       = width,
     animates    = animates,
     amount      = amount,
+    modShape    = modShape,
     repeat      = repeat,
     repeatCount = repeatCount,
     lines       = lines,
@@ -292,20 +298,35 @@ private fun parseRunnerAnimates(animates: String?): RunnerAnimates = when (anima
     else                    -> RunnerAnimates.Color
 }
 
+private fun RunnerModShape.toToken(): String? = when (this) {
+    RunnerModShape.Fall -> null    // default — omit
+    RunnerModShape.Rise -> "rise"
+    RunnerModShape.Bell -> "bell"
+}
+
+private fun parseModShape(shape: String?): RunnerModShape = when (shape) {
+    "rise" -> RunnerModShape.Rise
+    "bell" -> RunnerModShape.Bell
+    else   -> RunnerModShape.Fall
+}
+
 private fun EditableStep.toSceneStep(): SceneStep {
     val a = anim
     if (a == AnimId.GAP) return SceneStep(duration = durationMs)
     if (a == AnimId.WHEEL) {
-        // Always geometric, always looping, colour-only — pivots about `source`/`reverse`
-        // like a topology runner, with no `directionality`/`angle`/`animates`/`amount`.
+        // Always geometric, always looping — pivots about `source`/`reverse`.
+        // Supports non-color animates (controller forces bell shape on the modifier blade).
+        val animatesColor = animates == RunnerAnimates.Color
         return SceneStep(
             runner    = a.wireName,
-            color     = colorA,
+            color     = if (animatesColor) colorA else null,
             duration  = durationMs,
             source    = runnerSourceToken(),
             reverse   = if (reverse) true else null,
             lines     = lines,
             thickness = thickness,
+            animates  = animates.toToken(),
+            amount    = if (animatesColor) null else amount,
         )
     }
     if (a.isRunner) {
@@ -328,6 +349,7 @@ private fun EditableStep.toSceneStep(): SceneStep {
             repeatCount    = if (repeat && animatesColor && repeatCount > 1) repeatCount else null,
             animates       = animates.toToken(),
             amount         = if (animatesColor) null else amount,
+            shape          = if (animatesColor) null else modShape.toToken(),
         )
     }
     if (a.isModifier) {
@@ -445,6 +467,7 @@ private fun stepFrom(step: SceneStep): EditableStep {
         width       = step.waveWidth ?: step.rippleWidth ?: step.params?.getOrNull(0) ?: anim.defaultWidth,
         animates    = parseRunnerAnimates(step.animates),
         amount      = step.amount ?: 128,
+        modShape    = parseModShape(step.shape),
         repeat      = step.repeat == true,
         repeatCount = (step.repeatCount ?: 1).coerceAtLeast(1),
         lines       = step.lines ?: 1,
