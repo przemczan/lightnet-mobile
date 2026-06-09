@@ -98,6 +98,7 @@ import com.lightnet.ui.components.colorRefToColor
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
 import com.lightnet.ui.screens.scene.AnimId
+import com.lightnet.ui.screens.scene.AsyncMode
 import com.lightnet.ui.screens.scene.ColorMode
 import com.lightnet.ui.screens.scene.EditableLayer
 import com.lightnet.ui.screens.scene.EditableScene
@@ -548,7 +549,7 @@ private fun LayerRow(
             buildString {
                 append(targetSummary(layer, panelCount))
                 append(" · blend: ${layer.blend ?: "default"}")
-                if (layer.async) append(" · async")
+                if (layer.asyncMode != AsyncMode.Off) append(" · async:${layer.asyncMode.name.lowercase()}")
                 layer.startAfter?.takeIf { it.isNotBlank() }?.let { append(" · after $it") }
             },
             style = MaterialTheme.typography.labelMedium,
@@ -639,11 +640,13 @@ private fun LayerEditorScreen(
             item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 12.dp)) {
-                        ToggleRow(
-                            "Async (loop independently)",
-                            layer.async,
-                            enabled = layer.startAfter.isNullOrBlank(),
-                        ) { layer.async = it }
+                        val asyncEnabled = layer.startAfter.isNullOrBlank()
+                        Text("Async", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(layer.asyncMode == AsyncMode.Off,  { if (asyncEnabled) layer.asyncMode = AsyncMode.Off },  { Text("Off") },  enabled = asyncEnabled || layer.asyncMode == AsyncMode.Off)
+                            FilterChip(layer.asyncMode == AsyncMode.Loop, { if (asyncEnabled) layer.asyncMode = AsyncMode.Loop }, { Text("Loop") }, enabled = asyncEnabled || layer.asyncMode == AsyncMode.Loop)
+                            FilterChip(layer.asyncMode == AsyncMode.Free, { if (asyncEnabled) layer.asyncMode = AsyncMode.Free }, { Text("Free") }, enabled = asyncEnabled || layer.asyncMode == AsyncMode.Free)
+                        }
                         HorizontalDivider()
                         LabeledDropdown(
                             label    = "Start after",
@@ -933,9 +936,8 @@ private fun StepEditorScreen(
                 }
             }
 
-            // WAVE/RIPPLE/CHASE show their colour picker inside the Animates section (colour-only path).
-            // WHEEL shows it here when animates == Color; when animating a modifier it has no colour.
-            if (!step.anim.isRunner || (step.anim == AnimId.WHEEL && step.animates == RunnerAnimates.Color)) {
+            // All runners show their colour picker inside their respective Animates section.
+            if (!step.anim.isRunner) {
                 when (step.anim.colorMode) {
                     ColorMode.Single -> item {
                         ColorSlotRow("Color", step.colorA, paletteStops, baseColors) { colorSlot = 0 }
@@ -953,9 +955,9 @@ private fun StepEditorScreen(
             item { DurationEditor(step) }
 
             // Runner directionality + what it animates + width — WHEEL gets its own pivot/spin
-            // editor instead (always geometric, always looping, always colour-only).
+            // editor instead (always geometric, always looping).
             if (step.anim == AnimId.WHEEL) {
-                item { WheelEditor(step, panels) }
+                item { WheelEditor(step, panels, paletteStops, baseColors) { colorSlot = 0 } }
             } else if (step.anim.isRunner) {
                 item { RunnerDirectionEditor(step, panels) }
                 item {
@@ -1127,7 +1129,13 @@ private fun RunnerDirectionEditor(step: EditableStep, panels: List<LightnetDevic
  * spins about its `source`, not along an axis). `Leaves`/`All` average to a single centre point.
  */
 @Composable
-private fun WheelEditor(step: EditableStep, panels: List<LightnetDevicePanel>) {
+private fun WheelEditor(
+    step: EditableStep,
+    panels: List<LightnetDevicePanel>,
+    paletteStops: List<PaletteStop>?,
+    baseColors: List<String>,
+    onColorClick: () -> Unit,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Pivot", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1174,7 +1182,16 @@ private fun WheelEditor(step: EditableStep, panels: List<LightnetDevicePanel>) {
                 FilterChip(step.animates == RunnerAnimates.Hue,        { step.animates = RunnerAnimates.Hue },        { Text("Hue") })
                 FilterChip(step.animates == RunnerAnimates.Invert,     { step.animates = RunnerAnimates.Invert },     { Text("Invert") })
             }
-            if (step.animates != RunnerAnimates.Color) {
+            if (step.animates == RunnerAnimates.Color) {
+                ColorSwatchRow(
+                    label          = "Color",
+                    color          = step.colorA,
+                    paletteStops   = paletteStops,
+                    baseColors     = baseColors,
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                    modifier       = Modifier.clickable(onClick = onColorClick),
+                )
+            } else {
                 Column {
                     Text("Peak amount  ${step.amount}", style = MaterialTheme.typography.bodyLarge)
                     Slider(

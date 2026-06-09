@@ -32,6 +32,9 @@ enum class RunnerAnimates { Color, Brightness, Saturation, Hue, Invert }
 /** Envelope shape of a non-color modifier runner sweep. */
 enum class RunnerModShape { Fall, Rise, Bell }
 
+/** Layer async mode: Off = sync, Loop = loops independently (holds scene), Free = loops independently (scene ignores it). */
+enum class AsyncMode { Off, Loop, Free }
+
 enum class AnimId(
     val display: String,
     val isRunner: Boolean,
@@ -175,7 +178,7 @@ class EditableLayer(
     selectorToken: String = "leaves",
     rawTarget: PanelTarget? = null,
     palette: String? = null,
-    async: Boolean = false,
+    asyncMode: AsyncMode = AsyncMode.Off,
     startAfter: String? = null,
     blend: String? = null,
     fallback: PanelTarget? = null,
@@ -188,7 +191,7 @@ class EditableLayer(
     var selectorToken by mutableStateOf(selectorToken)
     var rawTarget by mutableStateOf(rawTarget)
     var palette by mutableStateOf(palette)
-    var async by mutableStateOf(async)
+    var asyncMode by mutableStateOf(asyncMode)
     var startAfter by mutableStateOf(startAfter)
     var blend by mutableStateOf(blend)        // null = default (opaque; runners use max)
     var fallback by mutableStateOf(fallback)  // round-trip passthrough (no UI yet)
@@ -264,7 +267,7 @@ fun EditableLayer.clone(name: String): EditableLayer = EditableLayer(
     selectorToken = selectorToken,
     rawTarget     = rawTarget,
     palette       = palette,
-    async         = async,
+    asyncMode     = asyncMode,
     startAfter    = startAfter,
     blend         = blend,
     fallback      = fallback,
@@ -410,7 +413,7 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
                 palette    = l.palette,
                 sequence   = l.steps.map { it.toSceneStep() },
                 startAfter = l.startAfter?.trim()?.ifBlank { null },
-                async      = if (l.async) true else null,
+                async      = when (l.asyncMode) { AsyncMode.Loop -> "loop"; AsyncMode.Free -> "free"; else -> null },
                 blend      = l.blend,
                 fallback   = l.fallback,
             )
@@ -503,7 +506,7 @@ fun sceneFromJson(json: SceneJson, panels: List<LightnetDevicePanel>): EditableS
         EditableLayer(
             name       = layer.group.ifBlank { "layer${idx + 1}" },
             palette    = layer.palette,
-            async      = layer.async == true,
+            asyncMode  = when (layer.async) { "free" -> AsyncMode.Free; null -> AsyncMode.Off; else -> AsyncMode.Loop },
             startAfter = layer.startAfter,
             blend      = layer.blend,
             fallback   = layer.fallback,

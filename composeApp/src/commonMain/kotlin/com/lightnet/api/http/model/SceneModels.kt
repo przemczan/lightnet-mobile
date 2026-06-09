@@ -10,6 +10,7 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
@@ -91,6 +92,26 @@ internal object GroupIdSerializer : KSerializer<String> {
         (decoder as JsonDecoder).decodeJsonElement().jsonPrimitive.content
 }
 
+/**
+ * A layer's `async` field. The firmware accepts `true`/`false` (legacy) as well as the
+ * string tokens `"loop"` (async, blocks scene) and `"free"` (async, non-blocking).
+ * Reads all three forms; writes `true` for "loop" (wire-compat with older firmware)
+ * and the string `"free"` for free-running.
+ */
+internal object AsyncValueSerializer : KSerializer<String> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("AsyncValue", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: String) {
+        val el: JsonElement = if (value == "free") JsonPrimitive("free") else JsonPrimitive(true)
+        (encoder as JsonEncoder).encodeJsonElement(el)
+    }
+
+    override fun deserialize(decoder: Decoder): String {
+        val el = (decoder as JsonDecoder).decodeJsonElement()
+        return if (el is JsonPrimitive && el.isString) el.content else "loop"
+    }
+}
+
 @Serializable
 data class SceneColors(
     val primary: String? = null,
@@ -141,7 +162,7 @@ data class SceneLayer(
     val palette: String? = null,
     val sequence: List<SceneStep>,
     val startAfter: String? = null,
-    val async: Boolean? = null,
+    @Serializable(with = AsyncValueSerializer::class) val async: String? = null,
     val blend: String? = null,   // BlendMode — how this layer composites over the layers below
     val fallback: PanelTarget? = null,
 )
