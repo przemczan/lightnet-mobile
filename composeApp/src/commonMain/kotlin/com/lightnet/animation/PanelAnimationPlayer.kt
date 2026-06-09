@@ -1,6 +1,7 @@
 package com.lightnet.animation
 
 import com.lightnet.api.websocket.protocol.model.ColorRgbModel
+import kotlin.math.absoluteValue
 
 // Animation types — mirror of Lightnet::AnimationType (firmware AnimationTypes.hpp).
 const val ANIM_SOLID = 0
@@ -22,7 +23,7 @@ const val ANIM_MOD_INVERT = 13
 fun isModifierType(t: Int) = t == ANIM_MOD_BRIGHTNESS || t == ANIM_MOD_SATURATION || t == ANIM_MOD_HUE_SHIFT || t == ANIM_MOD_INVERT
 
 // Max concurrent composited layers per panel (firmware MAX_ANIM_SLOTS).
-const val MAX_ANIM_SLOTS = 4
+const val MAX_ANIM_SLOTS = 8
 
 // Animation flags (bitfield).
 const val FLAG_LOOP = 0x01
@@ -291,7 +292,17 @@ class PanelAnimationPlayer {
     /** Aligns each started slot's phase to the controller clock, correcting accumulated drift. */
     fun resync(controllerNow: Long, mobileNow: Long) {
         for (s in slots) {
-            if (s.started && s.controllerStartMs > 0L) s.startMs = mobileNow - (controllerNow - s.controllerStartMs)
+            if (!s.started || s.controllerStartMs <= 0L) continue
+
+            val controllerElapsedMs = controllerNow - s.controllerStartMs
+            val correctedStartMs = mobileNow - controllerElapsedMs
+            val drift = correctedStartMs - s.startMs
+
+            // Avoid large jumps when a mirror batch is delayed or the controller timestamp
+            // is stale relative to the mobile receipt. Only apply small corrections.
+            if (drift.absoluteValue <= RESYNC_THRESHOLD_MS) {
+                s.startMs = correctedStartMs
+            }
         }
     }
 
@@ -306,22 +317,28 @@ class PanelAnimationPlayer {
 
             val elapsed = if (s.paused) s.pausedElapsedMs else u16(nowMs - s.startMs)
 
-            // Transparent before onset.
-            if (!s.holding && elapsed < s.cur.startDelayMs) continue
+            var animElapsed: Int
 
-            var animElapsed = if (elapsed >= s.cur.startDelayMs) elapsed - s.cur.startDelayMs else 0
+            if ((s.cur.flags and FLAG_LOOP) != 0 && s.cur.durationMs > 0) {
+                // When looping, startDelayMs acts as a phase offset rather than a one-shot delay.
+                // This ensures re-firing/syncing is seamless and eliminates the initial gap.
+                val offset = s.cur.durationMs - (s.cur.startDelayMs % s.cur.durationMs)
+                animElapsed = (elapsed + offset) % s.cur.durationMs
+            } else {
+                // Before its onset, a non-looping slot is transparent (layers below show through).
+                if (!s.holding && elapsed < s.cur.startDelayMs) continue
 
-            if (!s.paused && !s.holding && s.cur.durationMs > 0 &&
-                animElapsed >= s.cur.durationMs &&
-                (s.cur.flags and FLAG_LOOP) == 0 && s.cur.animType != ANIM_REACTIVE
-            ) {
-                s.holding = true
-            }
+                animElapsed = elapsed - s.cur.startDelayMs
 
-            animElapsed = when {
-                s.holding && s.cur.durationMs > 0 -> s.cur.durationMs
-                (s.cur.flags and FLAG_LOOP) != 0 && s.cur.durationMs > 0 -> animElapsed % s.cur.durationMs
-                else -> animElapsed
+                if (!s.paused && !s.holding && s.cur.durationMs > 0 &&
+                    animElapsed >= s.cur.durationMs && s.cur.animType != ANIM_REACTIVE
+                ) {
+                    s.holding = true
+                }
+
+                if (s.holding && s.cur.durationMs > 0) {
+                    animElapsed = s.cur.durationMs // snap to the natural end state
+                }
             }
 
             if (isModifierType(s.cur.animType)) {
@@ -492,6 +509,7 @@ class PanelAnimationPlayer {
     )
 
     companion object {
+        private const val RESYNC_THRESHOLD_MS = 100L
         /** 16-bit modular elapsed, matching the panel's uint16 millis() arithmetic. */
         private fun u16(delta: Long): Int = (delta.toInt() and 0xFFFF)
 
