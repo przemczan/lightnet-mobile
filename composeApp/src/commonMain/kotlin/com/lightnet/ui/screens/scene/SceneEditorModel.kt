@@ -27,7 +27,7 @@ data class ParamSpec(val label: String, val min: Int, val max: Int, val default:
 enum class RunnerSrc { Root, Leaves, All, Panel }
 
 /** What a runner's sweep modulates (independent of its movement pattern and source). */
-enum class RunnerAnimates { Color, Brightness, Saturation, Hue, Invert }
+enum class RunnerAnimates { Color, Dim, Brighten, Desaturate, Saturate, Hue, Invert }
 
 /** Envelope shape of a non-color modifier runner sweep. */
 enum class RunnerModShape { Fall, Rise, Bell }
@@ -287,15 +287,19 @@ private fun EditableStep.runnerSourceToken(): String? = when (source) {
 
 private fun RunnerAnimates.toToken(): String? = when (this) {
     RunnerAnimates.Color      -> null   // default — omit
-    RunnerAnimates.Brightness -> RunnerTarget.BRIGHTNESS
-    RunnerAnimates.Saturation -> RunnerTarget.SATURATION
+    RunnerAnimates.Dim        -> RunnerTarget.DIM
+    RunnerAnimates.Brighten   -> RunnerTarget.BRIGHTEN
+    RunnerAnimates.Desaturate -> RunnerTarget.DESATURATE
+    RunnerAnimates.Saturate   -> RunnerTarget.SATURATE
     RunnerAnimates.Hue        -> RunnerTarget.HUE
     RunnerAnimates.Invert     -> RunnerTarget.INVERT
 }
 
 private fun parseRunnerAnimates(animates: String?): RunnerAnimates = when (animates) {
-    RunnerTarget.BRIGHTNESS -> RunnerAnimates.Brightness
-    RunnerTarget.SATURATION -> RunnerAnimates.Saturation
+    RunnerTarget.DIM        -> RunnerAnimates.Dim
+    RunnerTarget.BRIGHTEN   -> RunnerAnimates.Brighten
+    RunnerTarget.DESATURATE -> RunnerAnimates.Desaturate
+    RunnerTarget.SATURATE   -> RunnerAnimates.Saturate
     RunnerTarget.HUE        -> RunnerAnimates.Hue
     RunnerTarget.INVERT     -> RunnerAnimates.Invert
     else                    -> RunnerAnimates.Color
@@ -348,8 +352,8 @@ private fun EditableStep.toSceneStep(): SceneStep {
             reverse        = if (reverse) true else null,
             waveWidth      = if (a == AnimId.WAVE && a.hasWidth) width else null,
             rippleWidth    = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
-            repeat         = if (repeat && animatesColor) true else null,
-            repeatCount    = if (repeat && animatesColor && repeatCount > 1) repeatCount else null,
+            repeat         = if (repeat) true else null,
+            repeatCount    = if (repeat && repeatCount > 1) repeatCount else null,
             animates       = animates.toToken(),
             amount         = if (animatesColor) null else amount,
             shape          = if (animatesColor) null else modShape.toToken(),

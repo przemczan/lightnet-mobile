@@ -385,8 +385,10 @@ private fun WheelAnimatesCard(
             Text("Animates", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(step.animates == RunnerAnimates.Color,      { step.animates = RunnerAnimates.Color },      { Text("Color") })
-                FilterChip(step.animates == RunnerAnimates.Brightness, { step.animates = RunnerAnimates.Brightness }, { Text("Brightness") })
-                FilterChip(step.animates == RunnerAnimates.Saturation, { step.animates = RunnerAnimates.Saturation }, { Text("Saturation") })
+                FilterChip(step.animates == RunnerAnimates.Dim,        { step.animates = RunnerAnimates.Dim },        { Text("Dim") })
+                FilterChip(step.animates == RunnerAnimates.Brighten,   { step.animates = RunnerAnimates.Brighten },   { Text("Brighten") })
+                FilterChip(step.animates == RunnerAnimates.Desaturate, { step.animates = RunnerAnimates.Desaturate }, { Text("Desaturate") })
+                FilterChip(step.animates == RunnerAnimates.Saturate,   { step.animates = RunnerAnimates.Saturate },   { Text("Saturate") })
                 FilterChip(step.animates == RunnerAnimates.Hue,        { step.animates = RunnerAnimates.Hue },        { Text("Hue") })
                 FilterChip(step.animates == RunnerAnimates.Invert,     { step.animates = RunnerAnimates.Invert },     { Text("Invert") })
             }
@@ -428,8 +430,10 @@ private fun RunnerAnimatesEditor(
             Text("Animates", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(step.animates == RunnerAnimates.Color,      { step.animates = RunnerAnimates.Color },      { Text("Color") })
-                FilterChip(step.animates == RunnerAnimates.Brightness, { step.animates = RunnerAnimates.Brightness }, { Text("Brightness") })
-                FilterChip(step.animates == RunnerAnimates.Saturation, { step.animates = RunnerAnimates.Saturation }, { Text("Saturation") })
+                FilterChip(step.animates == RunnerAnimates.Dim,        { step.animates = RunnerAnimates.Dim },        { Text("Dim") })
+                FilterChip(step.animates == RunnerAnimates.Brighten,   { step.animates = RunnerAnimates.Brighten },   { Text("Brighten") })
+                FilterChip(step.animates == RunnerAnimates.Desaturate, { step.animates = RunnerAnimates.Desaturate }, { Text("Desaturate") })
+                FilterChip(step.animates == RunnerAnimates.Saturate,   { step.animates = RunnerAnimates.Saturate },   { Text("Saturate") })
                 FilterChip(step.animates == RunnerAnimates.Hue,        { step.animates = RunnerAnimates.Hue },        { Text("Hue") })
                 FilterChip(step.animates == RunnerAnimates.Invert,     { step.animates = RunnerAnimates.Invert },     { Text("Invert") })
             }
@@ -443,18 +447,6 @@ private fun RunnerAnimatesEditor(
                     modifier       = Modifier.clickable(onClick = onColorClick),
                 )
                 HorizontalDivider()
-                ToggleRow("Repeat — continuous train", step.repeat) { step.repeat = it }
-                if (step.repeat) {
-                    HorizontalDivider()
-                    Column {
-                        Text("Waves  ${step.repeatCount}", style = MaterialTheme.typography.bodyLarge)
-                        Slider(
-                            value         = step.repeatCount.toFloat(),
-                            onValueChange = { step.repeatCount = it.roundToInt().coerceAtLeast(1) },
-                            valueRange    = 1f..16f,
-                        )
-                    }
-                }
             } else {
                 Column {
                     Text("Peak amount  ${step.amount}", style = MaterialTheme.typography.bodyLarge)
@@ -470,6 +462,19 @@ private fun RunnerAnimatesEditor(
                     FilterChip(step.modShape == RunnerModShape.Fall, { step.modShape = RunnerModShape.Fall }, { Text("Fall") })
                     FilterChip(step.modShape == RunnerModShape.Rise, { step.modShape = RunnerModShape.Rise }, { Text("Rise") })
                     FilterChip(step.modShape == RunnerModShape.Bell, { step.modShape = RunnerModShape.Bell }, { Text("Bell") })
+                }
+                HorizontalDivider()
+            }
+            ToggleRow("Repeat — continuous train", step.repeat) { step.repeat = it }
+            if (step.repeat) {
+                HorizontalDivider()
+                Column {
+                    Text("Waves  ${step.repeatCount}", style = MaterialTheme.typography.bodyLarge)
+                    Slider(
+                        value         = step.repeatCount.toFloat(),
+                        onValueChange = { step.repeatCount = it.roundToInt().coerceAtLeast(1) },
+                        valueRange    = 1f..16f,
+                    )
                 }
             }
         }
