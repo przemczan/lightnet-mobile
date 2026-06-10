@@ -112,8 +112,8 @@ The controller streams every outbound I²C packet as `MIRROR_BATCH` WebSocket fr
 | File | Role |
 |---|---|
 | `device/PanelMirrorService.kt` | Decodes `MIRROR_BATCH` frames; routes each record to the right per-panel `PanelAnimationPlayer`; driver loop ticks all players at ~30 fps and emits `_states` |
-| `animation/PanelAnimationPlayer.kt` | Faithful Kotlin port of the firmware `AnimationPlayer` (ATmega panel). Drives panel-local animations (FADE/BREATHE/PULSE/…) locally via integer math identical to the firmware |
-| `animation/PanelAnimationPlayer.kt` — `decodeAnimationPrepare()` | Deserialises the 16-byte `PacketAnimationPrepare` body into `AnimationState` |
+| `animation/PanelAnimationPlayer.kt` | Thin wrapper over [`NativeAnimCore`](#shared-animation-core-native) — owns only mobile-specific clock-domain translation (controller millis ↔ mobile monotonic clock via a single `clockOffsetMs`) and exposes `currentColor` |
+| `animation/NativeAnimCore.kt` (+ `.android.kt` / `.ios.kt`) | `expect`/`actual` binding to the shared C++ animation core (see below) |
 | `api/websocket/protocol/message/MirrorBatchMessage.kt` | `decodeMirrorBatch()` — parses the raw MIRROR_BATCH payload into a `MirrorBatch` |
 | `api/websocket/protocol/IicPacketType.kt` | I²C packet type constants; `IIC_META_SIZE = 5` (size of `Protocol::PacketMeta`) |
 
@@ -121,12 +121,36 @@ The controller streams every outbound I²C packet as `MIRROR_BATCH` WebSocket fr
 
 `MessageApiService` emits `mirrorBatches` from decoded `MIRROR_BATCH` frames. `PanelMirrorService.applyRecord()` dispatches each record by type:
 - `SET_COLOR` → `player.setColorDirect()` (runner animations — unicast per panel)
-- `ANIMATION_PREPARE` → `player.prepare()` (queues animation on target panel)
+- `ANIMATION_PREPARE` → `player.prepare()` (queues animation on target panel) — raw packet bytes passed straight through
 - `ANIMATION_START` → `player.start()` (starts queued animation; usually general call addr=0)
 - `ANIMATION_CONTROL` → `player.control()` (STOP/PAUSE/RESUME/CLEAR_QUEUE)
-- `TURN_ON_OFF`, `SET_PALETTE`, `SET_BASE_COLORS` — applied to matching panels
+- `TURN_ON_OFF`, `SET_PALETTE`, `SET_BASE_COLORS` — applied to matching panels (`SET_PALETTE`/`SET_BASE_COLORS` also pass raw bytes through)
 
 All player/state mutation is confined to a single-threaded dispatcher (`work`).
+
+### Shared animation core (native)
+
+Panel-local animation math (FADE/BREATHE/PULSE/…, layer compositing) is **not** re-implemented in
+Kotlin. The mobile app links the **same portable C++ core** the firmware panels run
+(`lib/Lightnet/Core/Anim` in `lightnet-firmware`), via a small C ABI
+(`lib/Lightnet/Core/CApi/anim_core_c.h`):
+
+- **Android**: built via NDK `externalNativeBuild` (`composeApp/src/androidMain/cpp/`), JNI glue in
+  `jni_anim.cpp` → `NativeAnimBridge` → `actual class NativeAnimCore` (`NativeAnimCore.android.kt`).
+- **iOS**: Kotlin/Native cinterop (`src/nativeInterop/cinterop/animcore.def`) binds
+  `anim_core_c.h` directly; `actual class NativeAnimCore` is `NativeAnimCore.ios.kt`. Build steps
+  (Mac-only, must finish linking `libanim_core.a`): `composeApp/src/iosMain/README.md`.
+- **Firmware checkout location**: resolved by `composeApp/build.gradle.kts` (`lightnetFirmwareDir`):
+  `-PlightnetFirmwareDir` (local.properties) → `third_party/lightnet-firmware` (submodule, not yet
+  added) → `../lightnet-firmware` (sibling checkout — current setup).
+
+`expect class NativeAnimCore` (`commonMain`) is the shared surface: `prepare`/`setPalette`/
+`setBaseColors` take raw wire bytes (`PacketMeta` header included — same layout as `IicPacketType`
+records); `start`/`control`/`updateParams`/`tick` take scalar fields + a `uint16` `now`;
+`currentColor`/`takeDirty`/`isAnimating` read output. Packet decoding, palette sampling, layer
+compositing, and easing math all live in the C++ core — Kotlin never re-implements them. Any
+firmware animation-math change is picked up automatically once the linked core is rebuilt; no
+parallel Kotlin port to keep in sync.
 
 ### Address routing — critical gotcha
 

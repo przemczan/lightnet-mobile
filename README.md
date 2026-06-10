@@ -109,11 +109,6 @@ lightnet-mobile/
 
 ---
 
-## Demo mode
-
-No hardware required. On the **Add Device** screen tap **Demo Device** at the bottom of the list. This uses a `MockConnector` that auto-generates a random panel topology and responds to every toggle and colour command in real time.
-
----
 
 ## iOS
 

@@ -21,7 +21,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class ConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 
@@ -88,7 +90,17 @@ class LightnetDevice(
                     panelsListService.load()
                     // Mirroring is per-connection and defaults off on the controller, so a
                     // reconnect while preview is on must re-enable it (and re-trigger the snapshot).
-                    if (_livePreview.value) messageApiService.send(SetMirrorMessage(true))
+                    // A controller restart resets its animation/seq state, so drop our stale
+                    // per-panel players first — otherwise dedup guards in the native core can
+                    // permanently swallow the replayed snapshot.
+                    if (_livePreview.value) {
+                        // Wait for the panel list to (re)load before re-enabling mirroring: general-call
+                        // snapshot records (SET_PALETTE/SET_BASE_COLORS/START) need panelIds populated,
+                        // otherwise they're dropped and animations run with no palette → black output.
+                        withTimeoutOrNull(5_000) { panelsListService.panels.first { it != null } }
+                        panelMirrorService.reset()
+                        messageApiService.send(SetMirrorMessage(true))
+                    }
                 }
                 if (cs == ConnectorState.DISCONNECTED || cs == ConnectorState.FAILED) _snapshot.value = null
             }

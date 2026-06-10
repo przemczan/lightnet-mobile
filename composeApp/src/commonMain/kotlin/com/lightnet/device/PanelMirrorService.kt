@@ -1,8 +1,6 @@
 package com.lightnet.device
 
-import com.lightnet.animation.GradientStop
 import com.lightnet.animation.PanelAnimationPlayer
-import com.lightnet.animation.decodeAnimationPrepare
 import com.lightnet.api.websocket.MessageApiService
 import com.lightnet.api.websocket.model.PanelState
 import com.lightnet.api.websocket.protocol.IicPacketType
@@ -42,6 +40,8 @@ class PanelMirrorService(
 
     private val panels = LinkedHashMap<Int, Panel>()
     private var panelIds: List<Int> = emptyList()
+
+    private val scope = scope
 
     // Single-thread confinement for all player/state mutation.
     private val work = Dispatchers.Default.limitedParallelism(1)
@@ -92,12 +92,36 @@ class PanelMirrorService(
         }
     }
 
+    /**
+     * Drops all per-panel animation players and their native cores.
+     *
+     * The native [PanelAnimationPlayer] retains dedup/slot state (`lastStartSeqId`,
+     * `lastParamsSeqId`, occupied slots) for the life of the instance. A controller restart resets
+     * its own `nextSeqId`/group state to its initial values, so a stale mobile-side player can
+     * permanently dedupe-away the replayed PREPARE/START — the panel then never animates again
+     * (only unicast SET_COLOR / wheel still works). Call this whenever the controller is about to
+     * (re)send its mirror snapshot, so playback starts from fresh native state.
+     */
+    fun reset() {
+        scope.launch(work) {
+            for (panel in panels.values) panel.player.release()
+            panels.clear()
+        }
+    }
+
     private fun getOrCreate(id: Int): Panel =
         panels.getOrPut(id) { Panel(PanelAnimationPlayer(), on = false) }
 
-    /** Address 0 = General Call (all panels); otherwise a single panel index. */
+    /**
+     * Address 0 = General Call (all panels); otherwise a single panel index.
+     *
+     * On reconnect, `panelsListService.load()` clears [panelIds] while the controller may already
+     * be replaying its mirror snapshot (PREPARE arrives unicast and creates panels; general-call
+     * START would otherwise resolve to an empty target list and be silently dropped). Fall back to
+     * the panels already known to this service so general-call records still apply.
+     */
     private fun targets(address: Int): List<Int> =
-        if (address == GENERAL_CALL) panelIds else listOf(address)
+        if (address == GENERAL_CALL) panelIds.ifEmpty { panels.keys.toList() } else listOf(address)
 
     private fun applyRecord(record: MirrorRecord, now: Long, controllerMs: Long) {
         val p = record.payload
@@ -114,8 +138,7 @@ class PanelMirrorService(
             }
             IicPacketType.ANIMATION_PREPARE.value -> {
                 if (p.size < IIC_META_SIZE + 20) return
-                val state = decodeAnimationPrepare(p, IIC_META_SIZE)
-                forEachTarget(record.address) { it.player.prepare(state) }
+                forEachTarget(record.address) { it.player.prepare(p) }
             }
             IicPacketType.ANIMATION_START.value -> {
                 if (p.size < IIC_META_SIZE + 2) return
@@ -139,22 +162,11 @@ class PanelMirrorService(
             }
             IicPacketType.SET_PALETTE.value -> {
                 if (p.size < IIC_META_SIZE + 1) return
-                val count = u8(p, IIC_META_SIZE)
-                val stops = ArrayList<GradientStop>(count)
-                for (i in 0 until count) {
-                    val off = IIC_META_SIZE + 1 + i * 4
-                    if (off + 4 > p.size) break
-                    stops.add(GradientStop(u8(p, off), u8(p, off + 1), u8(p, off + 2), u8(p, off + 3)))
-                }
-                forEachTarget(record.address) { it.player.setPalette(stops) }
+                forEachTarget(record.address) { it.player.setPalette(p) }
             }
             IicPacketType.SET_BASE_COLORS.value -> {
                 if (p.size < IIC_META_SIZE + 9) return
-                val colors = (0 until 3).map { i ->
-                    val off = IIC_META_SIZE + i * 3
-                    ColorRgbModel(u8(p, off), u8(p, off + 1), u8(p, off + 2))
-                }
-                forEachTarget(record.address) { it.player.setBaseColors(colors) }
+                forEachTarget(record.address) { it.player.setBaseColors(p) }
             }
             IicPacketType.SET_BACKGROUND.value -> {
                 if (p.size < IIC_META_SIZE + 3) return
@@ -173,6 +185,5 @@ class PanelMirrorService(
         private const val GENERAL_CALL = 0
         private const val FRAME_MS = 33L  // ~30fps
         private fun u8(b: ByteArray, i: Int) = b[i].toInt() and 0xFF
-        private fun u16(b: ByteArray, i: Int) = u8(b, i) or (u8(b, i + 1) shl 8)
     }
 }
