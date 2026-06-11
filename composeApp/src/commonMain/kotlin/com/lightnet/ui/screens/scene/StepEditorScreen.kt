@@ -93,7 +93,10 @@ internal fun StepEditorScreen(
                 item { WheelBladesCard(step) }
                 item { WheelAnimatesCard(step, paletteStops, baseColors) { colorSlot = 0 } }
             } else if (step.anim.isRunner) {
-                item { RunnerDirectionEditor(step, panels) }
+                // SPARKLE has no directionality (no source/reverse/geometric/angle).
+                if (step.anim != AnimId.SPARKLE) {
+                    item { RunnerDirectionEditor(step, panels) }
+                }
                 item {
                     RunnerAnimatesEditor(
                         step         = step,
@@ -104,6 +107,11 @@ internal fun StepEditorScreen(
                 }
                 if (step.anim.hasWidth) {
                     item {
+                        val range = when (step.anim) {
+                            AnimId.SPARKLE        -> 0f..255f
+                            AnimId.RAIN, AnimId.MATRIX -> 0f..16f
+                            else           -> 1f..16f
+                        }
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(step.anim.widthLabel ?: "Width", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -111,13 +119,18 @@ internal fun StepEditorScreen(
                                     Text("${step.width}", style = MaterialTheme.typography.bodyLarge)
                                     Slider(
                                         value         = step.width.toFloat(),
-                                        onValueChange = { step.width = it.roundToInt().coerceAtLeast(1) },
-                                        valueRange    = 1f..16f,
+                                        onValueChange = { step.width = it.roundToInt().coerceIn(range.start.roundToInt(), range.endInclusive.roundToInt()) },
+                                        valueRange    = range,
                                     )
                                 }
                             }
                         }
                     }
+                }
+                // RAIN/MATRIX drops fall over `speed` (constant), independent of the play window.
+                // SPARKLE has no fall — its flashes don't move — so it shows no speed control.
+                if (step.anim == AnimId.RAIN || step.anim == AnimId.MATRIX) {
+                    item { SpeedEditor(step) }
                 }
             }
 
@@ -222,9 +235,11 @@ private fun DurationEditor(step: EditableStep) {
     LaunchedEffect(step.durationMs) {
         if (step.durationMs.toString() != text) text = step.durationMs.toString()
     }
+    // RAIN/SPARKLE are particle spawners: `duration` is the play window (the rate is `waves`/`speed`).
+    val isSpawner = step.anim == AnimId.RAIN || step.anim == AnimId.SPARKLE || step.anim == AnimId.MATRIX
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Duration", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (isSpawner) "Window (play time)" else "Duration", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Slider(
                     value         = step.durationMs.toFloat(),
@@ -237,6 +252,39 @@ private fun DurationEditor(step: EditableStep) {
                     onValueChange   = { v ->
                         text = v.filter(Char::isDigit).take(5)
                         text.toIntOrNull()?.let { step.durationMs = it.coerceIn(0, 30000) }
+                    },
+                    singleLine      = true,
+                    suffix          = { Text("ms") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier        = Modifier.width(110.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedEditor(step: EditableStep) {
+    val label = "Drop fall time"
+    var text by remember(step.id) { mutableStateOf(step.speedMs.toString()) }
+    LaunchedEffect(step.speedMs) {
+        if (step.speedMs.toString() != text) text = step.speedMs.toString()
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Slider(
+                    value         = step.speedMs.toFloat(),
+                    onValueChange = { step.speedMs = it.roundToInt().coerceIn(50, 5000) },
+                    valueRange    = 50f..5000f,
+                    modifier      = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value           = text,
+                    onValueChange   = { v ->
+                        text = v.filter(Char::isDigit).take(5)
+                        text.toIntOrNull()?.let { step.speedMs = it.coerceIn(50, 5000) }
                     },
                     singleLine      = true,
                     suffix          = { Text("ms") },
@@ -446,7 +494,7 @@ private fun RunnerAnimatesEditor(
                     contentPadding = PaddingValues(vertical = 4.dp),
                     modifier       = Modifier.clickable(onClick = onColorClick),
                 )
-                HorizontalDivider()
+                if (step.anim != AnimId.BOUNCE) HorizontalDivider()
             } else {
                 Column {
                     Text("Peak amount  ${step.amount}", style = MaterialTheme.typography.bodyLarge)
@@ -463,18 +511,35 @@ private fun RunnerAnimatesEditor(
                     FilterChip(step.modShape == RunnerModShape.Rise, { step.modShape = RunnerModShape.Rise }, { Text("Rise") })
                     FilterChip(step.modShape == RunnerModShape.Bell, { step.modShape = RunnerModShape.Bell }, { Text("Bell") })
                 }
-                HorizontalDivider()
+                if (step.anim != AnimId.BOUNCE) HorizontalDivider()
             }
-            ToggleRow("Repeat — continuous train", step.repeat) { step.repeat = it }
-            if (step.repeat) {
-                HorizontalDivider()
-                Column {
-                    Text("Waves  ${step.repeatCount}", style = MaterialTheme.typography.bodyLarge)
-                    Slider(
-                        value         = step.repeatCount.toFloat(),
-                        onValueChange = { step.repeatCount = it.roundToInt().coerceAtLeast(1) },
-                        valueRange    = 1f..16f,
-                    )
+            when (step.anim) {
+                // BOUNCE is always a single band — `repeat`/`repeatCount` are ignored.
+                AnimId.BOUNCE -> Unit
+                // RAIN/SPARKLE/MATRIX are spawners — `waves` is the spawn RATE in drops/sec.
+                AnimId.RAIN, AnimId.SPARKLE, AnimId.MATRIX -> {
+                    Column {
+                        Text("Drops / sec  ${step.repeatCount}", style = MaterialTheme.typography.bodyLarge)
+                        Slider(
+                            value         = step.repeatCount.toFloat(),
+                            onValueChange = { step.repeatCount = it.roundToInt().coerceAtLeast(1) },
+                            valueRange    = 1f..16f,
+                        )
+                    }
+                }
+                else -> {
+                    ToggleRow("Repeat — continuous train", step.repeat) { step.repeat = it }
+                    if (step.repeat) {
+                        HorizontalDivider()
+                        Column {
+                            Text("Waves  ${step.repeatCount}", style = MaterialTheme.typography.bodyLarge)
+                            Slider(
+                                value         = step.repeatCount.toFloat(),
+                                onValueChange = { step.repeatCount = it.roundToInt().coerceAtLeast(1) },
+                                valueRange    = 1f..16f,
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -81,6 +81,16 @@ enum class AnimId(
     CHASE("Chase", true, ColorMode.Single, emptyList(), "CHASE", supportsLoopFlags = false),
     // Always loops, always geometric — pivots about `source`; supports non-color `animates` (blade modifier).
     WHEEL("Wheel", true, ColorMode.Single, emptyList(), "WHEEL", supportsLoopFlags = false),
+    // Single band, bounces back and forth forever; `repeat`/`repeatCount` ignored.
+    BOUNCE("Bounce", true, ColorMode.Single, emptyList(), "BOUNCE", supportsLoopFlags = false, widthLabel = "Width (rings)", defaultWidth = 3),
+    // Comet train of drops; always loops. `repeatCount` (wire: `waves`) = drops in flight.
+    // Default a few rings of tail so a fresh drop reads as a comet, not a tailless blip.
+    RAIN("Rain", true, ColorMode.Single, emptyList(), "RAIN", supportsLoopFlags = false, widthLabel = "Tail length (rings)", defaultWidth = 3),
+    // Per-panel random flicker; no directionality. `repeatCount` (wire: `waves`) = flicker density.
+    // Default a clearly-visible fade (~0.31 of the period) so "instant-on, fade-out" shows by default.
+    SPARKLE("Sparkle", true, ColorMode.Single, emptyList(), "SPARKLE", supportsLoopFlags = false, widthLabel = "Fade-out duration", defaultWidth = 80),
+    // Like RAIN but straight, constant-speed columns (digital-rain). Geometric-only.
+    MATRIX("Matrix", true, ColorMode.Single, emptyList(), "MATRIX", supportsLoopFlags = false, widthLabel = "Tail length (rings)", defaultWidth = 3),
     ;
 
     /** Param list seeded to defaults for this animation. */
@@ -136,6 +146,7 @@ class EditableStep(
     repeatCount: Int = 1,
     lines: Int = 1,
     thickness: Int = 18,
+    speedMs: Int = 0,
 ) {
     val id: Long = nextId()
     var anim by mutableStateOf(anim)
@@ -161,6 +172,9 @@ class EditableStep(
     // WHEEL-only: number of rotating blades (1-6) and blade thickness in degrees.
     var lines by mutableStateOf(lines)
     var thickness by mutableStateOf(thickness)
+    // RAIN/SPARKLE-only: drop-fall / flash period in ms. >0 decouples rate from `durationMs`
+    // (which then means the play window). 0 = legacy (rate derived from duration).
+    var speedMs by mutableStateOf(speedMs)
 
     /** Switch animation type, re-seeding params/width to the new type's defaults. */
     fun changeAnim(next: AnimId) {
@@ -168,6 +182,15 @@ class EditableStep(
         params = next.defaultParams()
         width = next.defaultWidth
         if (!next.supportsLoopFlags) { loop = false; pingpong = false }
+        // RAIN/MATRIX are particle spawners: `duration` is the play window and `speed` is the
+        // (constant) drop fall-time. Seed a sensible fall-time the first time one is picked. SPARKLE
+        // has no fall (its flashes don't move) — it uses `width` for the fade, so it needs no speed.
+        if ((next == AnimId.RAIN || next == AnimId.MATRIX) && speedMs <= 0) speedMs = 800
+        // For all spawners `waves` is a spawn RATE (drops/sec); 1 looks broken, seed a livelier default.
+        if ((next == AnimId.RAIN || next == AnimId.SPARKLE || next == AnimId.MATRIX) && repeatCount < 2) repeatCount = 4
+        // MATRIX's signature is geometric straight lines, so default to geometric when first picked
+        // (the user can still toggle to topology — that mode gives a constant-speed tree path).
+        if (next == AnimId.MATRIX) geometric = true
     }
 }
 
@@ -257,6 +280,7 @@ private fun EditableStep.clone(): EditableStep = EditableStep(
     repeatCount = repeatCount,
     lines       = lines,
     thickness   = thickness,
+    speedMs     = speedMs,
 )
 
 /** Deep copy with a fresh id (and fresh ids for its steps) — backs the layer-row "Clone" action. */
@@ -338,22 +362,30 @@ private fun EditableStep.toSceneStep(): SceneStep {
     }
     if (a.isRunner) {
         val isRipple = a == AnimId.RIPPLE
-        // Geometric wave/chase use `angle` (no source); geometric ripple + all topology use
-        // `source` (no angle). Only emit the field the firmware actually reads for this combo.
-        val usesSource = !geometric || isRipple
+        val isSparkle = a == AnimId.SPARKLE
+        val isMatrix = a == AnimId.MATRIX
+        val isRainOrSparkle = a == AnimId.RAIN || isSparkle
+        val isSpawner = isRainOrSparkle || isMatrix
+        // RAIN and MATRIX are directional like the other runners: geometric uses `angle` (no
+        // source), topology uses `source` (no angle). MATRIX supports both (geometric = straight
+        // constant-speed lines, topology = constant-speed tree path). SPARKLE has no directionality.
+        val usesSource = !isSparkle && (!geometric || isRipple)
         val animatesColor = animates == RunnerAnimates.Color
         return SceneStep(
             runner         = a.wireName,
             color          = if (animatesColor) colorA else null,
             duration       = durationMs,
             source         = if (usesSource) runnerSourceToken() else null,
-            directionality = if (geometric) "geometric" else null,
-            angle          = if (geometric && !isRipple) angle else null,
-            reverse        = if (reverse) true else null,
+            directionality = if (geometric && !isSparkle) "geometric" else null,
+            angle          = if (geometric && !isRipple && !isSparkle) angle else null,
+            reverse        = if (reverse && !isSparkle) true else null,
             waveWidth      = if (a == AnimId.WAVE && a.hasWidth) width else null,
             rippleWidth    = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
-            repeat         = if (repeat) true else null,
-            repeatCount    = if (repeat && repeatCount > 1) repeatCount else null,
+            width          = if ((a == AnimId.BOUNCE || isSpawner) && a.hasWidth) width else null,
+            repeat         = if (!isSpawner && a != AnimId.BOUNCE && repeat) true else null,
+            repeatCount    = if (!isSpawner && repeat && repeatCount > 1) repeatCount else null,
+            waves          = if (isSpawner && repeatCount > 1) repeatCount else null,
+            speed          = if ((a == AnimId.RAIN || isMatrix) && speedMs > 0) speedMs else null, // SPARKLE has no fall-time
             animates       = animates.toToken(),
             amount         = if (animatesColor) null else amount,
             shape          = if (animatesColor) null else modShape.toToken(),
@@ -395,11 +427,14 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
         layers.any { l -> l.blend != null || l.steps.any { it.anim.isModifier } }
     val usesGeometric = layers.any { l -> l.steps.any { it.geometric } }
     val usesWheelOrRepeat = layers.any { l -> l.steps.any { it.anim == AnimId.WHEEL || (it.anim.isRunner && it.repeat) } }
+    val usesV7 = layers.any { l -> l.steps.any { it.anim == AnimId.BOUNCE || it.anim == AnimId.RAIN || it.anim == AnimId.SPARKLE || it.anim == AnimId.MATRIX } }
 
     return SceneJson(
         // Pick the lowest schema that still expresses the features used, so scenes keep loading
-        // on older controllers: v5 = WHEEL/`repeat`, v4 = blend/modifier/background, v3 = geometric directionality.
+        // on older controllers: v7 = BOUNCE/RAIN/SPARKLE/MATRIX, v5 = WHEEL/`repeat`, v4 = blend/modifier/background,
+        // v3 = geometric directionality.
         schemaVersion = when {
+            usesV7            -> 7
             usesWheelOrRepeat -> 5
             usesCompositing   -> 4
             usesGeometric     -> 3
@@ -471,14 +506,15 @@ private fun stepFrom(step: SceneStep): EditableStep {
         sourcePanel = srcPanel,
         angle       = step.angle ?: 0,
         reverse     = step.reverse == true,
-        width       = step.waveWidth ?: step.rippleWidth ?: step.params?.getOrNull(0) ?: anim.defaultWidth,
+        width       = step.waveWidth ?: step.rippleWidth ?: step.width ?: step.params?.getOrNull(0) ?: anim.defaultWidth,
         animates    = parseRunnerAnimates(step.animates),
         amount      = step.amount ?: 128,
         modShape    = parseModShape(step.shape),
         repeat      = step.repeat == true,
-        repeatCount = (step.repeatCount ?: 1).coerceAtLeast(1),
+        repeatCount = (step.repeatCount ?: step.waves ?: 1).coerceAtLeast(1),
         lines       = step.lines ?: 1,
         thickness   = step.thickness ?: 18,
+        speedMs     = step.speed ?: 0,
     )
 }
 

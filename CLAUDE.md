@@ -47,7 +47,8 @@ All application code lives in `composeApp/src/`. The project uses a single Gradl
 | `network/` | `DnsResolver` — resolves mDNS hostnames to IPs |
 | `settings/` | `AppPreferences`, `DevicePreferences` — multiplatform-settings backed prefs |
 | `debug/` | `DebugLog` — in-app log buffer + debug mode flag |
-| `ui/screens/` | `MyDevicesScreen`, `DeviceControllerScreen`, `DeviceSettingsScreen`, `GlobalSettingsScreen`, `LibraryScreen`, `PaletteEditorScreen`, `DebugScreen`; bottom sheets: `AddDeviceSheet`, `EditDeviceSheet`, `ColorPickerSheet`, `DeviceSwitcherSheet` |
+| `ui/screens/` | `MyDevicesScreen`, `DeviceControllerScreen`, `DeviceSettingsScreen`, `GlobalSettingsScreen`, `ScenesSettingsScreen`, `PaletteEditorScreen`, `DebugScreen`; bottom sheets: `AddDeviceSheet`, `EditDeviceSheet`, `ColorPickerSheet`, `DeviceSwitcherSheet` |
+| `ui/screens/scene/` | Scene editor: `SceneEditorScreen`, `LayerEditorScreen`, `StepEditorScreen` |
 | `ui/components/` | `LightnetDeviceVisualizer` + visualizer helpers (`VisualizerConfig`, `VisualizerAnimations`, `VisualizerGeometry`, `VisualizerShadows`); shared widgets: `StatusDot`, `DeviceListItem`, `HueRingColorPicker`, `ReconnectingBanner`, etc. |
 
 ### Binary protocol

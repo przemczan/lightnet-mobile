@@ -38,6 +38,10 @@ object RunnerType {
     const val RIPPLE = "RIPPLE"
     const val CHASE = "CHASE"
     const val WHEEL = "WHEEL"
+    const val BOUNCE = "BOUNCE"
+    const val RAIN = "RAIN"
+    const val SPARKLE = "SPARKLE"
+    const val MATRIX = "MATRIX"
 }
 
 /** What a runner's sweep modulates (scene-authoring §7.3 `animates`). Default is `color`. */
@@ -142,10 +146,17 @@ data class SceneStep(
     val reverse: Boolean? = null,
     val waveWidth: Int? = null,
     val rippleWidth: Int? = null,
+    // BOUNCE/RAIN/SPARKLE: generic band/tail/fade width (waveWidth/rippleWidth's equivalent).
+    val width: Int? = null,
     // WAVE/RIPPLE/CHASE: replay as a continuous train of evenly-spaced sweeps (colour-only).
     val repeat: Boolean? = null,
     // Number of waves/rings/chases in flight simultaneously (waves per duration). 0 or 1 = one wave.
     val repeatCount: Int? = null,
+    // RAIN/SPARKLE: alias for repeatCount (number of drops / flicker density).
+    val waves: Int? = null,
+    // RAIN/SPARKLE: drop-fall / flash period in ms (constant). When set, `duration` is the play
+    // window instead of the rate. 0/absent = rate derived from `duration` (legacy).
+    val speed: Int? = null,
     // WHEEL-only: blade thickness in degrees (shares the wire slot with waveWidth/rippleWidth)
     // and number of evenly-spaced rotating blades, 1-6.
     val thickness: Int? = null,

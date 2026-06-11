@@ -17,8 +17,14 @@ All application code lives in `composeApp/src/commonMain/`. The project follows 
 | `device/` | Device domain layer: `LightnetDevice`, `LightnetDevicePanel`, panel services |
 | `geometry/` | `GeometryUtils.isInsidePolygon()` — ray-casting hit test used by the visualiser |
 | `discovery/` | `ServiceDiscovery` interface, `SavedDevice`, `DeviceRepository` |
-| `ui/screens/` | Compose screens: `MyDevicesScreen`, `DeviceDiscoveryScreen`, `DeviceControllerScreen` |
+| `animation/` | `NativeAnimCore`, `PanelAnimationPlayer` — client-side preview of panel animations |
+| `network/` | `DnsResolver` — resolves mDNS hostnames to IPs |
+| `settings/` | `AppPreferences`, `DevicePreferences`, `SceneRepository` — multiplatform-settings backed prefs |
+| `debug/` | `DebugLog` — in-app log buffer + debug mode flag |
+| `ui/screens/` | Compose screens: `MyDevicesScreen`, `DeviceControllerScreen`, `DeviceSettingsScreen`, `GlobalSettingsScreen`, `DebugScreen`, `PaletteEditorScreen`, `ScenesSettingsScreen`; bottom sheets: `AddDeviceSheet`, `EditDeviceSheet`, `ColorPickerSheet`, `DeviceSwitcherSheet` |
+| `ui/screens/scene/` | Scene editor: `SceneEditorScreen`, `LayerEditorScreen`, `StepEditorScreen` |
 | `ui/components/` | `LightnetDeviceVisualizer` — Compose Canvas renderer + gesture handling |
+| `ui/theme/` | App theming (colours, typography) |
 
 ## Device Domain Layer
 
@@ -58,17 +64,9 @@ fun close()
 
 ## Navigation
 
-Simple state-based back-stack in `App.kt` (`mutableStateListOf<AppScreen>`). No navigation library. `AppScreen` is a sealed class with three variants:
+State-based in `App.kt` — no navigation library, no sealed screen class. Three boolean/nullable vars drive routing: `showGlobalSettings`, `showDevice`, `activeDevice`. The default view is `MyDevicesScreen`; opening a device sets `activeDevice` and `showDevice = true`.
 
-```kotlin
-sealed class AppScreen {
-    object MyDevices : AppScreen()
-    object DeviceDiscovery : AppScreen()
-    data class DeviceController(val host: String, val port: Int) : AppScreen()
-}
-```
-
-Device list state is lifted to `LightnetApp` and refreshed after every add/delete.
+Device add/edit is handled by `AddDeviceSheet` / `EditDeviceSheet` bottom sheets overlaid on whichever screen is active.
 
 ## Visualiser
 
