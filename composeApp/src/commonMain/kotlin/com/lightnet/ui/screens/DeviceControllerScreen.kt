@@ -8,12 +8,13 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,25 +26,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.BottomAppBarDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilledIconToggleButton
@@ -174,14 +171,12 @@ fun DeviceControllerScreen(
     var baseColors          by remember(device) { mutableStateOf(device.cachedAppearance?.baseColors ?: emptyList()) }
     var paintColor          by remember { mutableStateOf<Color?>(null) }
     var showColorSheet      by remember { mutableStateOf(false) }
-    var showPaletteSheet    by remember { mutableStateOf(false) }
-    var showBrightnessSheet by remember { mutableStateOf(false) }
+    var showAdjustSheet     by remember { mutableStateOf(false) }
     var showScenesSheet     by remember { mutableStateOf(false) }
-    var showSpeedSheet      by remember { mutableStateOf(false) }
     var allPanelsOn         by remember(device) { mutableStateOf(device.cachedPowerState ?: false) }
-    var showRotateSheet   by remember(device) { mutableStateOf(false) }
-    var rawRotationAngle  by remember(device) { mutableFloatStateOf(devicePrefs.visualizerRotation.value) }
-    val rotationAngle     = (rawRotationAngle / 5f).roundToInt() * 5f
+    // Rotation is a persisted per-device view preference, edited in Appearance settings.
+    val savedRotation       by devicePrefs.visualizerRotation.collectAsState()
+    val rotationAngle       = (savedRotation / 5f).roundToInt() * 5f
 
     var sceneStatus          by remember(device) { mutableStateOf<SceneStatus?>(null) }
     var lastPlayedScene      by remember(device) { mutableStateOf("") }
@@ -257,7 +252,6 @@ fun DeviceControllerScreen(
     }
 
     val isConnected = connectionState == ConnectionState.CONNECTED
-    var showOverflowMenu by remember(device) { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier,
@@ -287,62 +281,51 @@ fun DeviceControllerScreen(
             )
         },
         bottomBar = {
-            BottomAppBar {
-                IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
-                    Icon(Icons.Default.Brush, contentDescription = "Pick color")
-                }
-                IconButton(onClick = { showPaletteSheet = true }, enabled = isConnected) {
-                    Icon(Icons.Default.Gradient, contentDescription = "Choose palette")
-                }
-                IconButton(onClick = { showBrightnessSheet = true }, enabled = isConnected) {
-                    Icon(Icons.Default.WbSunny, contentDescription = "Brightness")
-                }
-                IconButton(onClick = { showSpeedSheet = true }, enabled = isConnected) {
-                    Icon(Icons.Default.Speed, contentDescription = "Speed")
-                }
-                IconButton(onClick = { showScenesSheet = true }) {
-                    Icon(Icons.Default.Movie, contentDescription = "Scenes")
-                }
-                FilledIconToggleButton(
-                    checked         = livePreview,
-                    onCheckedChange = { device.setLivePreview(it) },
-                    enabled         = isConnected,
-                ) {
-                    Icon(
-                        Icons.Default.Visibility,
-                        contentDescription = if (livePreview) "Stop live preview" else "Live preview",
-                    )
-                }
-                FilledIconToggleButton(
-                    checked         = allPanelsOn,
-                    onCheckedChange = { on ->
-                        allPanelsOn = on
-                        scope.launch { device.setPowerState(on) }
-                    },
-                    enabled         = isConnected,
-                ) {
-                    Icon(
-                        Icons.Default.PowerSettingsNew,
-                        contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
-                    )
-                }
-                Box {
-                    IconButton(onClick = { showOverflowMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More")
+            BottomAppBar(
+                actions = {
+                    IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
+                        Icon(Icons.Default.Brush, contentDescription = "Pick color")
                     }
-                    DropdownMenu(
-                        expanded         = showOverflowMenu,
-                        onDismissRequest = { showOverflowMenu = false },
+                    IconButton(onClick = { showAdjustSheet = true }, enabled = isConnected) {
+                        Icon(Icons.Default.Tune, contentDescription = "Adjust brightness, palette and speed")
+                    }
+                    IconButton(onClick = { showScenesSheet = true }, enabled = isConnected) {
+                        Icon(Icons.Default.Movie, contentDescription = "Scenes")
+                    }
+                    FilledIconToggleButton(
+                        checked         = livePreview,
+                        onCheckedChange = { device.setLivePreview(it) },
+                        enabled         = isConnected,
                     ) {
-                        DropdownMenuItem(
-                            text         = { Text("Rotate view") },
-                            leadingIcon  = { Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = null) },
-                            onClick      = { showOverflowMenu = false; showRotateSheet = true },
-                            enabled      = isConnected,
+                        Icon(
+                            Icons.Default.Visibility,
+                            contentDescription = if (livePreview) "Stop live preview" else "Live preview",
                         )
                     }
-                }
-            }
+                },
+                floatingActionButton = {
+                    // Power is the primary control — a color-coded FAB makes the on/off
+                    // state glanceable and gives it the largest touch target.
+                    FloatingActionButton(
+                        onClick = {
+                            if (!isConnected) return@FloatingActionButton
+                            val on = !allPanelsOn
+                            allPanelsOn = on
+                            scope.launch { device.setPowerState(on) }
+                        },
+                        containerColor = when {
+                            !isConnected -> MaterialTheme.colorScheme.surfaceVariant
+                            allPanelsOn  -> MaterialTheme.colorScheme.primaryContainer
+                            else         -> BottomAppBarDefaults.bottomAppBarFabColor
+                        },
+                    ) {
+                        Icon(
+                            Icons.Default.PowerSettingsNew,
+                            contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
+                        )
+                    }
+                },
+            )
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -469,16 +452,20 @@ fun DeviceControllerScreen(
         )
     }
 
-    if (showPaletteSheet) {
-        PaletteSheet(
-            palettes       = palettes,
-            isLoading      = palettesLoading,
-            currentPalette = palette,
-            onSelect       = { name ->
+    if (showAdjustSheet) {
+        AdjustSheet(
+            initialBrightness  = brightness,
+            onBrightnessChange = { brightness = it },
+            onBrightnessApply  = { device.setAppearance(AppearanceRequest(brightness = it.toInt())) },
+            palettes           = palettes,
+            palettesLoading    = palettesLoading,
+            currentPalette     = palette,
+            onSelectPalette    = { name ->
                 palette = name
                 device.setAppearance(AppearanceRequest(palette = name))
             },
-            onDismiss      = { showPaletteSheet = false },
+            httpClient         = httpClient,
+            onDismiss          = { showAdjustSheet = false },
         )
     }
 
@@ -488,38 +475,6 @@ fun DeviceControllerScreen(
             onDismiss     = { showScenesSheet = false },
             onScenePlayed = { sceneStatusRefresh++ },
             onEdit        = { scene, origin -> showScenesSheet = false; editingSceneOrigin = origin; editingScene = scene },
-        )
-    }
-
-    if (showBrightnessSheet) {
-        BrightnessSheet(
-            initialBrightness   = brightness,
-            onBrightnessChange  = { brightness = it },
-            onApply             = { device.setAppearance(AppearanceRequest(brightness = it.toInt())) },
-            onDismiss           = { showBrightnessSheet = false },
-        )
-    }
-
-    if (showSpeedSheet) {
-        SpeedSheet(
-            httpClient = httpClient,
-            onDismiss  = { showSpeedSheet = false },
-        )
-    }
-
-    if (showRotateSheet) {
-        RotateSheet(
-            initial       = rawRotationAngle,
-            onAngleChange = { rawRotationAngle = it },
-            onConfirm     = {
-                devicePrefs.setVisualizerRotation(rotationAngle)
-                showRotateSheet = false
-            },
-            onDismiss     = {
-                // Revert the live preview to the last saved angle.
-                rawRotationAngle = devicePrefs.visualizerRotation.value
-                showRotateSheet = false
-            },
         )
     }
 
@@ -535,150 +490,35 @@ fun DeviceControllerScreen(
     }
 }
 
-// ── Rotate sheet ──────────────────────────────────────────────────────────────
+// ── Adjust sheet (brightness · palette · speed) ────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RotateSheet(
-    initial: Float,
-    onAngleChange: (Float) -> Unit,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var angle by remember { mutableFloatStateOf(initial) }
-    val snapped = (angle / 5f).roundToInt() * 5f
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = rememberModalBottomSheetState(),
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp)
-                .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text("Rotate view", style = MaterialTheme.typography.titleMedium)
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment     = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = null)
-                Slider(
-                    value         = angle,
-                    onValueChange = { angle = it; onAngleChange(it) },
-                    valueRange    = 0f..360f,
-                    modifier      = Modifier.weight(1f),
-                )
-                Text(
-                    "${snapped.roundToInt()}°",
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.width(44.dp),
-                )
-            }
-
-            Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            ) {
-                OutlinedButton(onClick = onDismiss) { Text("Cancel") }
-                Button(onClick = onConfirm) { Text("OK") }
-            }
-        }
-    }
-}
-
-// ── Brightness sheet ──────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun BrightnessSheet(
+private fun AdjustSheet(
     initialBrightness: Float,
     onBrightnessChange: (Float) -> Unit,
-    onApply: suspend (Float) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var brightness by remember { mutableFloatStateOf(initialBrightness) }
-    // Conflated channel: holds at most one pending value. Consumer calls API immediately,
-    // then waits 250 ms before picking up the next — throttles to at most 1 call per 250 ms.
-    val pending = remember { Channel<Float>(Channel.CONFLATED) }
-    LaunchedEffect(Unit) {
-        for (value in pending) {
-            onApply(value)
-            delay(250)
-        }
-    }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = rememberModalBottomSheetState(),
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp)
-                .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text("Brightness", style = MaterialTheme.typography.titleMedium)
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment     = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Default.WbSunny, contentDescription = null)
-                Slider(
-                    value         = brightness / 255f,
-                    valueRange    = 1f / 255f..1f,
-                    onValueChange = {
-                        brightness = it * 255f
-                        onBrightnessChange(brightness)
-                        pending.trySend(brightness)
-                    },
-                    modifier      = Modifier.weight(1f),
-                )
-                Text(
-                    "${(brightness / 255f * 100).roundToInt()}%",
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.width(36.dp),
-                )
-            }
-
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Button(onClick = onDismiss) { Text("OK") }
-            }
-        }
-    }
-}
-
-// ── Speed sheet ───────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SpeedSheet(
+    onBrightnessApply: suspend (Float) -> Unit,
+    palettes: List<PaletteJson>,
+    palettesLoading: Boolean,
+    currentPalette: String?,
+    onSelectPalette: suspend (String) -> Unit,
     httpClient: LightnetHttpClient?,
     onDismiss: () -> Unit,
 ) {
-    var speed by remember { mutableFloatStateOf(1f) }
-    val pending = remember { Channel<Float>(Channel.CONFLATED) }
+    val scope = rememberCoroutineScope()
+
+    var brightness     by remember { mutableFloatStateOf(initialBrightness) }
+    var speed          by remember { mutableFloatStateOf(1f) }
+    var applyingPalette by remember { mutableStateOf<String?>(null) }
+
+    // Conflated channels throttle each control to at most one API call per 250 ms.
+    val brightnessPending = remember { Channel<Float>(Channel.CONFLATED) }
     LaunchedEffect(Unit) {
-        for (value in pending) {
-            httpClient?.runCatching { setSceneSpeed(value) }
-            delay(250)
-        }
+        for (value in brightnessPending) { onBrightnessApply(value); delay(250) }
+    }
+    val speedPending = remember { Channel<Float>(Channel.CONFLATED) }
+    LaunchedEffect(Unit) {
+        for (value in speedPending) { httpClient?.runCatching { setSceneSpeed(value) }; delay(250) }
     }
 
     ModalBottomSheet(
@@ -690,130 +530,114 @@ private fun SpeedSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp)
-                .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Text("Speed", style = MaterialTheme.typography.titleMedium)
+            // Brightness
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Brightness", style = MaterialTheme.typography.titleSmall)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.WbSunny, contentDescription = null)
+                    Slider(
+                        value         = brightness / 255f,
+                        valueRange    = 1f / 255f..1f,
+                        onValueChange = {
+                            brightness = it * 255f
+                            onBrightnessChange(brightness)
+                            brightnessPending.trySend(brightness)
+                        },
+                        modifier      = Modifier.weight(1f),
+                    )
+                    Text(
+                        "${(brightness / 255f * 100).roundToInt()}%",
+                        style    = MaterialTheme.typography.bodySmall,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(36.dp),
+                    )
+                }
+            }
 
-            SpeedSlider(
-                speed         = speed,
-                onSpeedChange = {
-                    speed = it
-                    pending.trySend(it)
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // Speed
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Speed", style = MaterialTheme.typography.titleSmall)
+                SpeedSlider(
+                    speed         = speed,
+                    onSpeedChange = { speed = it; speedPending.trySend(it) },
+                    modifier      = Modifier.fillMaxWidth(),
+                )
+            }
+
+            // Palette
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Palette", style = MaterialTheme.typography.titleSmall)
+                when {
+                    palettesLoading -> Box(
+                        Modifier.fillMaxWidth().height(80.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                    palettes.isEmpty() -> Text(
+                        "No palettes available on this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> palettes.forEach { pal ->
+                        val gradientStops = remember(pal.stops) {
+                            pal.stops.sortedBy { it.position }.map { stop ->
+                                (stop.position / 255f) to (parseHexColor(stop.color) ?: Color.White)
+                            }.toTypedArray()
+                        }
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = applyingPalette == null) {
+                                    scope.launch {
+                                        applyingPalette = pal.name
+                                        onSelectPalette(pal.name)
+                                        applyingPalette = null
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            if (gradientStops.isNotEmpty()) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(16.dp)
+                                        .clip(MaterialTheme.shapes.extraSmall)
+                                        .background(Brush.horizontalGradient(colorStops = gradientStops))
+                                )
+                            }
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment     = Alignment.CenterVertically,
+                            ) {
+                                Text(pal.name, style = MaterialTheme.typography.bodyMedium)
+                                when {
+                                    applyingPalette == pal.name -> CircularProgressIndicator(Modifier.size(20.dp))
+                                    pal.name == currentPalette  -> Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            }
 
             Row(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Button(onClick = onDismiss) { Text("OK") }
-            }
-        }
-    }
-}
-
-// ── Palette sheet ─────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PaletteSheet(
-    palettes: List<PaletteJson>,
-    isLoading: Boolean,
-    currentPalette: String?,
-    onSelect: suspend (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    var applyingPalette by remember { mutableStateOf<String?>(null) }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = rememberModalBottomSheetState(),
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp)
-                .navigationBarsPadding(),
-        ) {
-            Text(
-                "Palette",
-                style    = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-
-            when {
-                isLoading -> Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(80.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-                palettes.isEmpty() -> Text(
-                    "No palettes available on this device.",
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-                else -> palettes.forEach { pal ->
-                    val gradientStops = remember(pal.stops) {
-                        pal.stops.sortedBy { it.position }.map { stop ->
-                            (stop.position / 255f) to (parseHexColor(stop.color) ?: Color.White)
-                        }.toTypedArray()
-                    }
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = applyingPalette == null) {
-                                scope.launch {
-                                    applyingPalette = pal.name
-                                    onSelect(pal.name)
-                                    applyingPalette = null
-                                }
-                            }
-                            .padding(vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        if (gradientStops.isNotEmpty()) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(16.dp)
-                                    .clip(MaterialTheme.shapes.extraSmall)
-                                    .background(Brush.horizontalGradient(colorStops = gradientStops))
-                            )
-                        }
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment     = Alignment.CenterVertically,
-                        ) {
-                            Text(pal.name, style = MaterialTheme.typography.bodyMedium)
-                            when {
-                                applyingPalette == pal.name -> CircularProgressIndicator(Modifier.size(20.dp))
-                                pal.name == currentPalette  -> Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-                }
-            }
-
-            Spacer(Modifier.height(4.dp))
-
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
                 horizontalArrangement = Arrangement.Center,
             ) {
                 Button(onClick = onDismiss) { Text("OK") }

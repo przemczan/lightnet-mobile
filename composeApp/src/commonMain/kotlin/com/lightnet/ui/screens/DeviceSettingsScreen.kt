@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -25,9 +27,11 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -42,16 +46,21 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,10 +81,12 @@ import com.lightnet.discovery.effectiveHost
 import com.lightnet.settings.AppPreferences
 import com.lightnet.settings.DevicePreferences
 import com.lightnet.ui.BackHandlerCompat
+import com.lightnet.ui.components.LightnetDeviceVisualizer
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,6 +117,7 @@ fun DeviceSettingsScreen(
     if (showAppearance) {
         AppearanceSettingsScreen(
             devicePrefs = devicePrefs,
+            device      = device,
             onBack      = { showAppearance = false },
         )
         return
@@ -403,14 +415,20 @@ private fun DeviceInfoScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppearanceSettingsScreen(devicePrefs: DevicePreferences, onBack: () -> Unit) {
+private fun AppearanceSettingsScreen(
+    devicePrefs: DevicePreferences,
+    device: LightnetDevice?,
+    onBack: () -> Unit,
+) {
     BackHandlerCompat(onBack = onBack)
 
     val bgEnabled  by devicePrefs.visualizerBgColorEnabled.collectAsState()
     val bgColorHex by devicePrefs.visualizerBgColor.collectAsState()
     val bgColor    = bgColorHex?.let { parseHexColor(it) } ?: Color.Black
+    val rotation   by devicePrefs.visualizerRotation.collectAsState()
 
     var showColorPicker by remember { mutableStateOf(false) }
+    var showRotateSheet by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -464,6 +482,18 @@ private fun AppearanceSettingsScreen(devicePrefs: DevicePreferences, onBack: () 
                                 modifier = Modifier.clickable { showColorPicker = true },
                             )
                         }
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        ListItem(
+                            headlineContent = { Text("Rotation") },
+                            trailingContent = {
+                                Text(
+                                    "${((rotation / 5f).roundToInt() * 5)}°",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            modifier = Modifier.clickable { showRotateSheet = true },
+                        )
                     }
                 }
             }
@@ -477,6 +507,90 @@ private fun AppearanceSettingsScreen(devicePrefs: DevicePreferences, onBack: () 
             onPick         = { color -> devicePrefs.setVisualizerBgColor(colorToHex(color)) },
             onDismiss      = { showColorPicker = false },
         )
+    }
+
+    if (showRotateSheet) {
+        RotateSheet(
+            initial   = rotation,
+            device    = device,
+            onConfirm = { angle ->
+                devicePrefs.setVisualizerRotation(angle)
+                showRotateSheet = false
+            },
+            onDismiss = { showRotateSheet = false },
+        )
+    }
+}
+
+// ── Rotate view sheet ─────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RotateSheet(
+    initial: Float,
+    device: LightnetDevice?,
+    onConfirm: (Float) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var angle by remember { mutableFloatStateOf(initial) }
+    val snapped = (angle / 5f).roundToInt() * 5f
+
+    val snapshot by (device?.snapshot ?: MutableStateFlow(null)).collectAsState()
+    val panels = snapshot?.panels.orEmpty()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState       = rememberModalBottomSheetState(),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Rotate view", style = MaterialTheme.typography.titleMedium)
+
+            if (panels.isNotEmpty()) {
+                LightnetDeviceVisualizer(
+                    panels          = panels,
+                    interactive     = false,
+                    rotationDegrees = snapped,
+                    modifier        = Modifier
+                        .fillMaxWidth()
+                        .height(220.dp),
+                )
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Rotate90DegreesCcw, contentDescription = null)
+                Slider(
+                    value         = angle,
+                    onValueChange = { angle = it },
+                    valueRange    = 0f..360f,
+                    modifier      = Modifier.weight(1f),
+                )
+                Text(
+                    "${snapped.roundToInt()}°",
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(44.dp),
+                )
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            ) {
+                OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+                Button(onClick = { onConfirm(snapped) }) { Text("OK") }
+            }
+        }
     }
 }
 

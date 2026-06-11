@@ -45,14 +45,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
 import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
+import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.settings.AppPreferences
 import com.lightnet.ui.screens.scene.SceneEditorScreen
 import com.lightnet.ui.screens.scene.SceneOrigin
 import com.lightnet.ui.BackHandlerCompat
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,6 +69,13 @@ fun ScenesSettingsScreen(
 
     val scope    = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+
+    // Device-scene management needs a live connection. httpClient stays non-null after a
+    // prior connection, so gate the Device tab on the actual connection state instead.
+    val connectionState by remember(device) {
+        device?.connectionState ?: MutableStateFlow(ConnectionState.DISCONNECTED)
+    }.collectAsState()
+    val deviceConnected = connectionState == ConnectionState.CONNECTED && httpClient != null
 
     var tab by remember { mutableIntStateOf(0) }
 
@@ -87,7 +97,7 @@ fun ScenesSettingsScreen(
         loadingDevice = false
     }
 
-    LaunchedEffect(httpClient) { reloadDevice() }
+    LaunchedEffect(httpClient, deviceConnected) { if (deviceConnected) reloadDevice() }
 
     fun openEditor(scene: SceneJson?, origin: SceneOrigin) {
         editingScene  = scene
@@ -124,10 +134,13 @@ fun ScenesSettingsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                openEditor(null, if (tab == 0) SceneOrigin.GLOBAL else SceneOrigin.DEVICE)
-            }) {
-                Icon(Icons.Default.Add, contentDescription = "New scene")
+            // Device scenes can only be created while connected; the Global tab always allows it.
+            if (tab == 0 || deviceConnected) {
+                FloatingActionButton(onClick = {
+                    openEditor(null, if (tab == 0) SceneOrigin.GLOBAL else SceneOrigin.DEVICE)
+                }) {
+                    Icon(Icons.Default.Add, contentDescription = "New scene")
+                }
             }
         },
     ) { padding ->
@@ -183,13 +196,7 @@ fun ScenesSettingsScreen(
                 }
             } else {
                 when {
-                    loadingDevice && deviceScenes.isEmpty() -> Box(
-                        listModifier,
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                    httpClient == null -> Box(
+                    !deviceConnected -> Box(
                         listModifier,
                         contentAlignment = Alignment.Center,
                     ) {
@@ -198,6 +205,12 @@ fun ScenesSettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    loadingDevice && deviceScenes.isEmpty() -> Box(
+                        listModifier,
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
                     }
                     deviceScenes.isEmpty() -> Box(
                         listModifier,
