@@ -235,7 +235,7 @@ fun DeviceControllerScreen(
             httpClient = httpClient,
             initial    = scene,
             origin     = editingSceneOrigin,
-            onBack     = { editingScene = null },
+            onBack     = { editingScene = null; sceneStatusRefresh++ },
         )
         return
     }

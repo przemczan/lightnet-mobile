@@ -220,8 +220,8 @@ class EditableLayer(
     var fallback by mutableStateOf(fallback)  // round-trip passthrough (no UI yet)
     val steps = steps.toMutableStateList()
 
-    // Editor-only: hides this layer from the live preview without affecting the saved scene.
-    var includedInPreview by mutableStateOf(true)
+    // Persisted: false = layer is disabled (skipped during playback) and hidden from the live preview.
+    var enabled by mutableStateOf(true)
 }
 
 class EditableScene(
@@ -247,14 +247,17 @@ class EditableScene(
         return "layer$n"
     }
 
-    /** A unique name for a clone of [name] — "<name> copy", then "<name> copy 2", … */
+    /** A unique name for a clone of [name] — "<name>_copy", then "<name>_copy2", … */
     fun cloneLayerName(name: String): String {
-        val base = name.ifBlank { "layer" }
+        val base = name.trim().ifBlank { "layer" }
         val taken = layers.map { it.name }.toSet()
-        if ("$base copy" !in taken) return "$base copy"
-        var n = 2
-        while ("$base copy $n" in taken) n++
-        return "$base copy $n"
+        var n = 1
+        while (true) {
+            val suffix = if (n == 1) "_copy" else "_copy$n"
+            val candidate = base.take((GROUP_NAME_MAX_LEN - suffix.length).coerceAtLeast(1)) + suffix
+            if (candidate !in taken) return candidate
+            n++
+        }
     }
 }
 
@@ -296,7 +299,7 @@ fun EditableLayer.clone(name: String): EditableLayer = EditableLayer(
     blend         = blend,
     fallback      = fallback,
     steps         = steps.map { it.clone() },
-).also { it.includedInPreview = includedInPreview }
+).also { it.enabled = enabled }
 
 // ── Conversion: editor ⇄ SceneJson ──────────────────────────────────────────────
 // The visualizer reports 0-based list positions; the firmware addresses panels from
@@ -455,20 +458,21 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
                 async      = when (l.asyncMode) { AsyncMode.Loop -> "loop"; AsyncMode.Free -> "free"; else -> null },
                 blend      = l.blend,
                 fallback   = l.fallback,
+                disabled   = !l.enabled,
             )
         },
     )
 }
 
 /**
- * Same as [toSceneJson] but drops layers the user has hidden from the live preview
- * (via [EditableLayer.includedInPreview]). Saving always persists every layer —
- * this view only affects what gets sent to the device for previewing.
+ * Same as [toSceneJson] but drops disabled layers (via [EditableLayer.enabled]) from the
+ * live preview. The controller also skips disabled layers during playback, but filtering
+ * them here avoids sending them at all for the preview.
  */
 fun EditableScene.toPreviewSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
     val full = toSceneJson(panels)
-    if (layers.all { it.includedInPreview }) return full
-    val keep = layers.indices.filter { layers[it].includedInPreview }.toSet()
+    if (layers.all { it.enabled }) return full
+    val keep = layers.indices.filter { layers[it].enabled }.toSet()
     return full.copy(layers = full.layers.filterIndexed { i, _ -> i in keep })
 }
 
@@ -551,14 +555,21 @@ fun sceneFromJson(json: SceneJson, panels: List<LightnetDevicePanel>): EditableS
             blend      = layer.blend,
             fallback   = layer.fallback,
             steps      = layer.sequence.map { stepFrom(it) }.ifEmpty { listOf(EditableStep()) },
-        ).apply(layerFromTarget(layer.panels, panels))
+        ).apply(layerFromTarget(layer.panels, panels)).also { it.enabled = !layer.disabled }
     }.ifEmpty { listOf(EditableLayer(name = "layer1")) },
 )
 
 // ── Validation ──────────────────────────────────────────────────────────────────
 
+const val GROUP_NAME_MAX_LEN = 15
+
 private val sceneNameRegex = Regex("^[A-Za-z0-9_-]{1,18}$")
-private val groupNameRegex = Regex("^[A-Za-z0-9_-]{1,15}$")
+private val groupNameRegex = Regex("^[A-Za-z0-9_-]{1,$GROUP_NAME_MAX_LEN}$")
+private val groupNameCharRegex = Regex("[A-Za-z0-9_-]")
+
+/** Strips characters not allowed in a layer name and enforces the max length — for use in input fields. */
+fun sanitizeLayerName(input: String): String =
+    input.filter { groupNameCharRegex.matches(it.toString()) }.take(GROUP_NAME_MAX_LEN)
 
 /** Returns the first validation error message, or null when the scene is valid to save/preview. */
 fun EditableScene.validationError(): String? {

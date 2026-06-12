@@ -92,7 +92,7 @@ internal fun LayerEditorScreen(
             item {
                 TextField(
                     value         = layer.name,
-                    onValueChange = { layer.name = it },
+                    onValueChange = { layer.name = sanitizeLayerName(it) },
                     label         = { Text("LAYER NAME") },
                     singleLine    = true,
                     modifier      = Modifier.fillMaxWidth(),

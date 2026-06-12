@@ -55,11 +55,19 @@ class LightnetDevice(
     /** null = not yet checked, true = device answered the last PING, false = it didn't (or isn't connected). */
     val isOnline: StateFlow<Boolean?> = livenessService.isOnline
 
+    // Frozen on the last mirror frame when live preview is turned off; cleared when it's turned
+    // back on. Avoids both the stale-polled-state flicker and a "fast forward" jump from re-polling.
+    private val _frozenStates = MutableStateFlow<List<PanelState>?>(null)
+
     // Source of panel render state: mirrored packets while live preview is on, else polled.
     // Empty mirror emissions are ignored downstream, so panels keep their last frame.
     private val renderStates: Flow<List<PanelState>> =
-        combine(_livePreview, panelsStatesService.states, panelMirrorService.states) { live, polled, mirror ->
-            if (live) mirror else polled
+        combine(_livePreview, panelsStatesService.states, panelMirrorService.states, _frozenStates) { live, polled, mirror, frozen ->
+            when {
+                frozen != null -> frozen
+                live -> mirror
+                else -> polled
+            }
         }
 
     private val _snapshot = MutableStateFlow<DeviceSnapshot?>(null)
@@ -127,15 +135,27 @@ class LightnetDevice(
         if (connectionState.value == ConnectionState.CONNECTED) panelsStatesService.refresh()
     }
 
-    /** Toggles live animation preview. Re-polls real state when turning off so the view re-syncs. */
+    /** Toggles live animation preview. Freezes the last animated frame when turning off. */
     fun setLivePreview(on: Boolean) {
+        if (on == _livePreview.value) return
+        if (on) {
+            // A stale player can retain animation/seq state from a previous preview session,
+            // which would blend leftover frames with the controller's fresh snapshot replay.
+            panelMirrorService.reset()
+            // Drop the freeze from the previous "off" so the live mirror feed shows through.
+            _frozenStates.value = null
+        } else {
+            // Freeze on the last rendered mirror frame and leave it there — the controller keeps
+            // animating, so polling for a fresh state would jump forward by however long the
+            // poll round-trip took ("fast forward"). The freeze holds until preview is re-enabled.
+            _frozenStates.value = panelMirrorService.states.value.ifEmpty { null }
+        }
         _livePreview.value = on
         // Opt in/out of the controller's MIRROR_BATCH stream. Enabling also makes the controller
         // replay a snapshot of the current animation state, so the preview is correct at once.
         if (connectionState.value == ConnectionState.CONNECTED) {
             messageApiService.send(SetMirrorMessage(on))
         }
-        if (!on) refreshPanelStates()
     }
 
     fun close() {

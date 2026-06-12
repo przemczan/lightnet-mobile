@@ -70,6 +70,7 @@ class PanelMirrorService(
         }
         scope.launch(work) {
             messageApiService.mirrorBatches.collect { batch ->
+                if (!livePreview.value) return@collect
                 val now = nowMs()
                 for (record in batch.records) applyRecord(record, now, batch.controllerMillis)
                 for (panel in panels.values) panel.player.resync(batch.controllerMillis, now)

@@ -178,6 +178,7 @@ data class SceneLayer(
     @Serializable(with = AsyncValueSerializer::class) val async: String? = null,
     val blend: String? = null,   // BlendMode — how this layer composites over the layers below
     val fallback: PanelTarget? = null,
+    val disabled: Boolean = false, // true = layer is skipped entirely during playback
 )
 
 @OptIn(ExperimentalSerializationApi::class)

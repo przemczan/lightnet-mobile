@@ -369,7 +369,7 @@ fun SceneEditorScreen(
                                     onDelete     = { activeScene.layers.remove(layer) },
                                     onMoveUp     = { activeScene.layers.move(i, i - 1) },
                                     onMoveDown   = { activeScene.layers.move(i, i + 1) },
-                                    onTogglePreview = { layer.includedInPreview = !layer.includedInPreview },
+                                    onToggleEnabled = { layer.enabled = !layer.enabled },
                                 )
                             }
                             HorizontalDivider(Modifier.padding(horizontal = 12.dp))
@@ -459,7 +459,7 @@ private fun LayerRow(
     onDelete: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    onTogglePreview: () -> Unit,
+    onToggleEnabled: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     Column(
@@ -467,15 +467,15 @@ private fun LayerRow(
             .fillMaxWidth()
             .clickable(onClick = onEdit)
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .alpha(if (layer.includedInPreview) 1f else 0.5f),
+            .alpha(if (layer.enabled) 1f else 0.5f),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                IconButton(onClick = onTogglePreview) {
+                IconButton(onClick = onToggleEnabled) {
                     Icon(
-                        if (layer.includedInPreview) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = if (layer.includedInPreview) "Hide from preview" else "Show in preview",
+                        if (layer.enabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = if (layer.enabled) "Disable layer" else "Enable layer",
                     )
                 }
                 Text(layer.name.ifBlank { "Layer" }, style = MaterialTheme.typography.titleSmall)
