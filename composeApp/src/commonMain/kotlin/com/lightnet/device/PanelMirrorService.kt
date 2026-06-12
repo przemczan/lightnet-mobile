@@ -72,8 +72,12 @@ class PanelMirrorService(
             messageApiService.mirrorBatches.collect { batch ->
                 if (!livePreview.value) return@collect
                 val now = nowMs()
-                for (record in batch.records) applyRecord(record, now, batch.controllerMillis)
-                for (panel in panels.values) panel.player.resync(batch.controllerMillis, now)
+                for (record in batch.records) {
+                    applyRecord(record, now, batch.controllerMillis)
+                }
+                for (panel in panels.values) {
+                    panel.player.resync(batch.controllerMillis, now)
+                }
             }
         }
         // Driver loop: advance every player and publish the frame. Idle while live preview is

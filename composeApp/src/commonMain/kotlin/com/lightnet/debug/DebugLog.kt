@@ -72,6 +72,7 @@ object DebugLog {
     fun logWsSent(type: MessageType, bytes: Int, payload: ByteArray? = null) {
         if (!debugMode.value) return
         if (type in requestToResponse) inFlight[type] = source.markNow()
+        platformLog("WS_SENT", "type=$type bytes=$bytes")
         append(DebugLogEntry.WsSent(nextId++, now(), type, bytes, payload))
     }
 
@@ -79,16 +80,19 @@ object DebugLog {
         if (!debugMode.value) return
         val durationMs = responseToRequest[type]
             ?.let { inFlight.remove(it)?.elapsedNow()?.inWholeMilliseconds }
+        platformLog("WS_RECV", "type=$type bytes=$bytes durationMs=$durationMs")
         append(DebugLogEntry.WsReceived(nextId++, now(), type, bytes, durationMs, payload))
     }
 
     fun logHttp(host: String, method: String, path: String, statusCode: Int, durationMs: Long, body: String? = null) {
         if (!debugMode.value) return
+        platformLog("HTTP", "$method $host$path -> $statusCode (${durationMs}ms)")
         append(DebugLogEntry.Http(nextId++, now(), host, method, path, statusCode, durationMs, body))
     }
 
     fun logWsConnect(host: String, port: Int, status: ConnectStatus, detail: String? = null) {
         if (!debugMode.value) return
+        platformLog("WS_CONNECT", "$host:$port $status${detail?.let { " ($it)" } ?: ""}")
         append(DebugLogEntry.WsConnect(nextId++, now(), host, port, status, detail))
     }
 

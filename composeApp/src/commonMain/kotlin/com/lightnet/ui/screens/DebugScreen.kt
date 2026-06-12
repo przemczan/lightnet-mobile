@@ -385,11 +385,7 @@ private fun ByteArray.toHexDump(): String {
         val end   = minOf(i + 16, size)
         val chunk = slice(i until end)
         val hex   = chunk.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
-        val ascii = chunk.map { b ->
-            val c = (b.toInt() and 0xFF).toChar()
-            if (c.code in 32..126) c else '.'
-        }.joinToString("")
-        sb.append("%04X:  %-47s  |%-16s|\n".format(i, hex, ascii))
+        sb.append("%04X:  %-47s\n".format(i, hex))
     }
     return sb.toString().trimEnd()
 }
