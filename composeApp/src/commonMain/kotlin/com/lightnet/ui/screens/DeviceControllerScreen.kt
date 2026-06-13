@@ -411,12 +411,30 @@ fun DeviceControllerScreen(
                             )
                             FilledIconToggleButton(
                                 checked         = isScenePlaying,
-                                onCheckedChange = {
+                                onCheckedChange = { wantPlaying ->
                                     scope.launch {
-                                        if (isScenePlaying) {
-                                            httpClient?.runCatching { stopScene() }
-                                        } else {
+                                        val result = if (wantPlaying) {
                                             httpClient?.runCatching { playLastScene() }
+                                        } else {
+                                            httpClient?.runCatching { stopScene() }
+                                        }
+                                        if (result?.isSuccess == true) {
+                                            // Optimistic update for instant feedback. The action is queued
+                                            // on the controller's main loop — for "play" it may take a
+                                            // while to land in /api/state because loadAndPlay() pushes
+                                            // palette + animation data to every panel over I2C before
+                                            // setting playing=true. Poll until the controller confirms the
+                                            // new state, ignoring stale responses so the icon doesn't flicker
+                                            // back before settling.
+                                            appState = appState?.copy(playing = wantPlaying)
+                                            for (attempt in 1..15) {
+                                                delay(300)
+                                                val fetched = httpClient?.runCatching { getAppState() }?.getOrNull()
+                                                if (fetched?.playing == wantPlaying) {
+                                                    appState = fetched
+                                                    break
+                                                }
+                                            }
                                         }
                                         sceneStatusRefresh++
                                     }
