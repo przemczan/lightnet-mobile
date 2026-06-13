@@ -147,6 +147,7 @@ class EditableStep(
     lines: Int = 1,
     thickness: Int = 18,
     speedMs: Int = 0,
+    stepId: String? = null,
 ) {
     val id: Long = nextId()
     var anim by mutableStateOf(anim)
@@ -175,6 +176,9 @@ class EditableStep(
     // RAIN/SPARKLE-only: drop-fall / flash period in ms. >0 decouples rate from `durationMs`
     // (which then means the play window). 0 = legacy (rate derived from duration).
     var speedMs by mutableStateOf(speedMs)
+    // Optional label, unique within the layer's sequence. Lets other layers target this step
+    // via `startAfter: "group:stepId"` (schemaVersion 8+).
+    var stepId by mutableStateOf(stepId)
 
     /** Switch animation type, re-seeding params/width to the new type's defaults. */
     fun changeAnim(next: AnimId) {
@@ -284,6 +288,7 @@ private fun EditableStep.clone(): EditableStep = EditableStep(
     lines       = lines,
     thickness   = thickness,
     speedMs     = speedMs,
+    stepId      = stepId,
 )
 
 /** Deep copy with a fresh id (and fresh ids for its steps) — backs the layer-row "Clone" action. */
@@ -344,7 +349,10 @@ private fun parseModShape(shape: String?): RunnerModShape = when (shape) {
     else   -> RunnerModShape.Fall
 }
 
-private fun EditableStep.toSceneStep(): SceneStep {
+private fun EditableStep.toSceneStep(): SceneStep =
+    toSceneStepBody().copy(id = stepId?.trim()?.ifBlank { null })
+
+private fun EditableStep.toSceneStepBody(): SceneStep {
     val a = anim
     if (a == AnimId.GAP) return SceneStep(duration = durationMs)
     if (a == AnimId.WHEEL) {
@@ -431,12 +439,16 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
     val usesGeometric = layers.any { l -> l.steps.any { it.geometric } }
     val usesWheelOrRepeat = layers.any { l -> l.steps.any { it.anim == AnimId.WHEEL || (it.anim.isRunner && it.repeat) } }
     val usesV7 = layers.any { l -> l.steps.any { it.anim == AnimId.BOUNCE || it.anim == AnimId.RAIN || it.anim == AnimId.SPARKLE || it.anim == AnimId.MATRIX } }
+    val usesV8 = layers.any { l ->
+        l.steps.any { !it.stepId.isNullOrBlank() } || l.startAfter?.contains(":") == true
+    }
 
     return SceneJson(
         // Pick the lowest schema that still expresses the features used, so scenes keep loading
-        // on older controllers: v7 = BOUNCE/RAIN/SPARKLE/MATRIX, v5 = WHEEL/`repeat`, v4 = blend/modifier/background,
-        // v3 = geometric directionality.
+        // on older controllers: v8 = step `id` / `startAfter: "group:stepId"`, v7 = BOUNCE/RAIN/SPARKLE/MATRIX,
+        // v5 = WHEEL/`repeat`, v4 = blend/modifier/background, v3 = geometric directionality.
         schemaVersion = when {
+            usesV8            -> 8
             usesV7            -> 7
             usesWheelOrRepeat -> 5
             usesCompositing   -> 4
@@ -519,6 +531,7 @@ private fun stepFrom(step: SceneStep): EditableStep {
         lines       = step.lines ?: 1,
         thickness   = step.thickness ?: 18,
         speedMs     = step.speed ?: 0,
+        stepId      = step.id,
     )
 }
 
@@ -566,6 +579,7 @@ const val GROUP_NAME_MAX_LEN = 15
 private val sceneNameRegex = Regex("^[A-Za-z0-9_-]{1,18}$")
 private val groupNameRegex = Regex("^[A-Za-z0-9_-]{1,$GROUP_NAME_MAX_LEN}$")
 private val groupNameCharRegex = Regex("[A-Za-z0-9_-]")
+private val stepIdRegex = Regex("^[A-Za-z0-9_-]+$")
 
 /** Strips characters not allowed in a layer name and enforces the max length — for use in input fields. */
 fun sanitizeLayerName(input: String): String =
@@ -582,14 +596,51 @@ fun EditableScene.validationError(): String? {
         if (!groupNameRegex.matches(l.name.trim())) return "$label: name must be 1–15 chars (letters, digits, - or _)."
         if (l.steps.isEmpty()) return "$label needs at least one step."
         if (l.targetKind == TargetKind.Specific && l.selected.isEmpty()) return "$label has no panels selected."
+        val stepIds = l.steps.mapNotNull { it.stepId?.trim()?.takeIf(String::isNotBlank) }
+        if (stepIds.toSet().size != stepIds.size) return "$label: step ids must be unique."
         l.startAfter?.trim()?.takeIf { it.isNotBlank() }?.let { dep ->
-            if (dep == l.name.trim()) return "$label cannot start after itself."
-            if (dep !in names) return "$label: \"$dep\" is not a layer name."
+            val (depGroup, depStep) = dep.split(":", limit = 2).let { it[0] to it.getOrNull(1) }
+            if (depGroup == l.name.trim()) return "$label cannot start after itself."
+            val target = layers.firstOrNull { it.name.trim() == depGroup }
+                ?: return "$label: \"$depGroup\" is not a layer name."
+            if (depStep != null && depStep !in target.steps.mapNotNull { it.stepId?.trim()?.takeIf(String::isNotBlank) }) {
+                return "$label: \"$depStep\" is not a step id in \"$depGroup\"."
+            }
         }
         l.steps.forEachIndexed { si, s ->
             val isLast = si == l.steps.lastIndex
             if (s.durationMs <= 0 && !isLast) return "$label step ${si + 1}: duration must be > 0."
+            val sid = s.stepId?.trim()
+            if (!sid.isNullOrBlank() && !stepIdRegex.matches(sid)) return "$label step ${si + 1}: id must be letters, digits, - or _."
         }
     }
     return null
+}
+
+// ── Step ids ─────────────────────────────────────────────────────────────────────
+
+/** First unused "stepN" (N = 1..255) within [layer]'s sequence — for auto-assigning a `startAfter` target. */
+internal fun nextStepId(layer: EditableLayer): String {
+    val used = layer.steps.mapNotNull { it.stepId?.trim()?.takeIf(String::isNotBlank) }.toSet()
+    for (n in 1..255) {
+        val candidate = "step$n"
+        if (candidate !in used) return candidate
+    }
+    return "step255"
+}
+
+/** Clears `stepId` on any step that's no longer the target of another layer's `startAfter`. */
+fun EditableScene.clearUnusedStepIds() {
+    val referenced: Set<Pair<String, String>> = layers.mapNotNull { l ->
+        val sa = l.startAfter?.trim()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        val (depGroup, depStep) = sa.split(":", limit = 2).let { it[0] to it.getOrNull(1) }
+        if (depStep == null) null else depGroup to depStep
+    }.toSet()
+    layers.forEach { l ->
+        val name = l.name.trim()
+        l.steps.forEach { s ->
+            val sid = s.stepId?.trim()
+            if (!sid.isNullOrBlank() && (name to sid) !in referenced) s.stepId = null
+        }
+    }
 }

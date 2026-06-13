@@ -53,11 +53,12 @@ internal fun StepEditorScreen(
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
     onBack: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     BackHandlerCompat(onBack = onBack)
     var colorSlot by remember { mutableStateOf<Int?>(null) }
 
-    Scaffold(topBar = { EditorTopBar("Step", onBack) }) { padding ->
+    Scaffold(topBar = { EditorTopBar("Step", onBack, onDelete, "This step will be removed.") }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
@@ -67,6 +68,17 @@ internal fun StepEditorScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item { AnimTypeDropdown(step) }
+
+            item {
+                OutlinedTextField(
+                    value         = step.stepId ?: "",
+                    onValueChange = { step.stepId = it.filter { c -> c.isLetterOrDigit() || c == '_' || c == '-' }.ifBlank { null } },
+                    label         = { Text("Step ID (optional)") },
+                    supportingText = { Text("Lets other layers start after this step via \"layer:id\"") },
+                    singleLine    = true,
+                    modifier      = Modifier.fillMaxWidth(),
+                )
+            }
 
             if (!step.anim.isRunner) {
                 when (step.anim.colorMode) {

@@ -1,10 +1,5 @@
 package com.lightnet.ui.screens.scene
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -179,7 +173,7 @@ fun SceneEditorScreen(
             paletteStops  = stopsFor(layer),
             baseColors    = baseColors,
             tags          = tags,
-            otherNames    = activeScene.layers.filter { it !== layer }.map { it.name },
+            otherLayers   = activeScene.layers.filter { it !== layer },
             onBack        = { editingLayer = null },
         )
         return
@@ -205,6 +199,7 @@ fun SceneEditorScreen(
                     TextButton(onClick = {
                         val err = activeScene.validationError()
                         if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@TextButton }
+                        activeScene.clearUnusedStepIds()
                         val sceneJson = activeScene.toSceneJson(panels)
                         when (origin) {
                             SceneOrigin.GLOBAL -> {
@@ -399,46 +394,6 @@ fun SceneEditorScreen(
     }
 }
 
-@Composable
-private fun VisualizerPreviewCard(
-    panels: List<LightnetDevicePanel>,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-) {
-    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Column {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onToggle)
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                Arrangement.SpaceBetween, Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Preview",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Icon(
-                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse preview" else "Expand preview",
-                )
-            }
-            AnimatedVisibility(
-                visible = expanded,
-                enter   = expandVertically() + fadeIn(),
-                exit    = shrinkVertically() + fadeOut(),
-            ) {
-                LightnetDeviceVisualizer(
-                    panels      = panels,
-                    modifier    = Modifier.fillMaxWidth().height(220.dp),
-                    interactive = false,
-                )
-            }
-        }
-    }
-}
-
 private fun targetSummary(layer: EditableLayer, panelCount: Int): String = when (layer.targetKind) {
     TargetKind.All      -> "All panels"
     TargetKind.Specific -> "${layer.selected.size} of $panelCount panels"
@@ -539,7 +494,7 @@ private fun StepChip(step: EditableStep, paletteStops: List<PaletteStop>?, baseC
 }
 
 @Composable
-private fun BackgroundColorRow(
+internal fun BackgroundColorRow(
     hex: String?,
     onChange: (String?) -> Unit,
 ) {

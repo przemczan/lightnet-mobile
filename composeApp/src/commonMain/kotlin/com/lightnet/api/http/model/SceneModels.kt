@@ -127,6 +127,10 @@ data class SceneColors(
 
 @Serializable
 data class SceneStep(
+    // Optional label, unique within the layer's sequence. Lets other layers target this
+    // step via `startAfter: "group:stepId"` (schemaVersion 8+). Not used by the firmware
+    // at runtime — parse-time only.
+    val id: String? = null,
     val type: String? = null,
     val runner: String? = null,
     val color: ColorRef? = null,

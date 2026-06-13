@@ -1,5 +1,10 @@
 package com.lightnet.ui.screens.scene
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,7 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -39,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.model.ColorRef
 import com.lightnet.api.http.model.PaletteStop
@@ -56,7 +66,13 @@ internal fun <T> MutableList<T>.move(from: Int, to: Int) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun EditorTopBar(title: String, onBack: () -> Unit) {
+internal fun EditorTopBar(
+    title: String,
+    onBack: () -> Unit,
+    onDelete: (() -> Unit)? = null,
+    deleteConfirmText: String = "This cannot be undone.",
+) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     TopAppBar(
         title = { Text(title) },
         navigationIcon = {
@@ -64,7 +80,65 @@ internal fun EditorTopBar(title: String, onBack: () -> Unit) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
         },
+        actions = {
+            if (onDelete != null) {
+                IconButton(onClick = { showDeleteConfirm = true }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete")
+                }
+            }
+        },
     )
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title            = { Text("Delete $title?") },
+            text             = { Text(deleteConfirmText) },
+            confirmButton    = { TextButton(onClick = { showDeleteConfirm = false; onDelete?.invoke() }) { Text("Delete") } },
+            dismissButton    = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Foldable live-preview card shown above the scene/timeline editors. */
+@Composable
+internal fun VisualizerPreviewCard(
+    panels: List<LightnetDevicePanel>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                Arrangement.SpaceBetween, Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Preview",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse preview" else "Expand preview",
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter   = expandVertically() + fadeIn(),
+                exit    = shrinkVertically() + fadeOut(),
+            ) {
+                LightnetDeviceVisualizer(
+                    panels      = panels,
+                    modifier    = Modifier.fillMaxWidth().height(220.dp),
+                    interactive = false,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -164,6 +238,68 @@ internal fun LabeledDropdown(
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { name ->
                 DropdownMenuItem(text = { Text(name) }, onClick = { onSelect(name); expanded = false })
+            }
+        }
+    }
+}
+
+/**
+ * "Start after" picker: lists every other layer plus, indented underneath, each of its steps
+ * (as "N (no id)" or "N <id>", N = 1-based step index). Picking a layer waits for its whole
+ * sequence; picking a step waits for just that step — auto-assigning it a `stepN` id first if
+ * it doesn't have one yet.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun StartAfterDropdown(
+    layer: EditableLayer,
+    otherLayers: List<EditableLayer>,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = layer.startAfter?.trim()?.takeIf(String::isNotBlank)
+    val (depGroup, depStep) = current?.split(":", limit = 2)?.let { it[0] to it.getOrNull(1) } ?: (null to null)
+    val depLayer = depGroup?.let { name -> otherLayers.firstOrNull { it.name.trim() == name } }
+    val displayValue = when {
+        current == null -> "Nothing (start immediately)"
+        depStep == null || depLayer == null -> current
+        else -> {
+            val idx = depLayer.steps.indexOfFirst { it.stepId?.trim() == depStep }
+            if (idx >= 0) "$depGroup: step ${idx + 1} ($depStep)" else current
+        }
+    }
+
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        TextField(
+            value         = displayValue,
+            onValueChange = {},
+            readOnly      = true,
+            label         = { Text("Start after") },
+            trailingIcon  = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier      = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text    = { Text("Nothing (start immediately)") },
+                onClick = { layer.startAfter = null; expanded = false },
+            )
+            otherLayers.forEach { l ->
+                val name = l.name.trim()
+                DropdownMenuItem(
+                    text    = { Text(name, fontWeight = FontWeight.Bold) },
+                    onClick = { layer.startAfter = name; expanded = false },
+                )
+                l.steps.forEachIndexed { si, s ->
+                    val sid = s.stepId?.trim()?.takeIf(String::isNotBlank)
+                    DropdownMenuItem(
+                        text    = { Text("    ${si + 1} ${sid ?: "(no id)"}") },
+                        onClick = {
+                            val id = sid ?: nextStepId(l).also { s.stepId = it }
+                            layer.startAfter = "$name:$id"
+                            expanded = false
+                        },
+                    )
+                }
             }
         }
     }

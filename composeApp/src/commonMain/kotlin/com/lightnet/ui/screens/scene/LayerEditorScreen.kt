@@ -63,8 +63,9 @@ internal fun LayerEditorScreen(
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
     tags: List<String>,
-    otherNames: List<String>,
+    otherLayers: List<EditableLayer>,
     onBack: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     BackHandlerCompat(onBack = onBack)
     var editingStep by remember { mutableStateOf<EditableStep?>(null) }
@@ -76,11 +77,14 @@ internal fun LayerEditorScreen(
             paletteStops = paletteStops,
             baseColors   = baseColors,
             onBack       = { editingStep = null },
+            onDelete     = if (layer.steps.size > 1) {
+                { layer.steps.remove(step); editingStep = null }
+            } else null,
         )
         return
     }
 
-    Scaffold(topBar = { EditorTopBar(layer.name.ifBlank { "Layer ${index + 1}" }, onBack) }) { padding ->
+    Scaffold(topBar = { EditorTopBar(layer.name.ifBlank { "Layer ${index + 1}" }, onBack, onDelete, "This layer and all its steps will be removed.") }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
@@ -117,12 +121,10 @@ internal fun LayerEditorScreen(
                             }
                         }
                         HorizontalDivider()
-                        LabeledDropdown(
-                            label    = "Start after",
-                            value    = layer.startAfter?.takeIf { it.isNotBlank() } ?: "Nothing (start immediately)",
-                            options  = listOf("Nothing (start immediately)") + otherNames,
-                            onSelect = { layer.startAfter = if (it == "Nothing (start immediately)") null else it },
-                            modifier = Modifier.padding(vertical = 8.dp),
+                        StartAfterDropdown(
+                            layer       = layer,
+                            otherLayers = otherLayers,
+                            modifier    = Modifier.padding(vertical = 8.dp),
                         )
                         HorizontalDivider()
                         LabeledDropdown(

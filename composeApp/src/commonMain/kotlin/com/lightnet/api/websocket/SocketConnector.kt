@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,8 +32,10 @@ import kotlinx.coroutines.launch
 //   3. hostName    — mDNS hostname (e.g. lightnet-3F2A.local); slowest, last resort
 //
 // Each host is attempted attemptsPerHost times before moving to the next.
-// If all hosts exhaust their attempts the state becomes FAILED and the loop stops —
-// the caller must invoke connect() again (e.g. the user pressing Retry).
+// If all hosts exhaust their attempts the state becomes FAILED and the cycle retries
+// from the top after an exponential back-off (1s → doubles → 30s cap, reset on success) —
+// reconnection is automatic and indefinite; the caller never needs to call connect() again
+// to recover from a drop (only to switch hosts/params via disconnect()+connect()).
 // After a successful connection that later drops, the cycle restarts automatically.
 // onConnectedWith is called on every successful connection so the caller can persist
 // the working host as lastIP.
@@ -50,6 +53,7 @@ class SocketConnector(
     private val _incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 32)
     private val sendQueue = Channel<ByteArray>(Channel.BUFFERED)
     private var connectionJob: Job? = null
+    private var backoffMs = INITIAL_BACKOFF_MS
 
     override val state: StateFlow<ConnectorState> = _state
     override val incoming: Flow<ByteArray> = _incoming
@@ -62,45 +66,48 @@ class SocketConnector(
 
     override fun connect() {
         connectionJob?.cancel()
+        backoffMs = INITIAL_BACKOFF_MS
         connectionJob = scope.launch {
             cycle@ while (true) {
                 val hosts = hostsToTry()
-                if (hosts.isEmpty()) {
-                    _state.value = ConnectorState.FAILED
-                    return@launch
-                }
-                for (host in hosts) {
-                    val resolvedIp = resolveHostToIp(host) ?: host
-                    for (attempt in 1..attemptsPerHost) {
-                        _state.value = ConnectorState.CONNECTING
-                        DebugLog.logWsConnect(host, port, ConnectStatus.ATTEMPT)
-                        try {
-                            client.webSocket("ws://$resolvedIp:$port/ws") {
-                                _state.value = ConnectorState.CONNECTED
-                                DebugLog.logWsConnect(resolvedIp, port, ConnectStatus.CONNECTED)
-                                onConnectedWith?.invoke(resolvedIp)
-                                val sender = launch {
-                                    for (data in sendQueue) outgoing.send(Frame.Binary(true, data))
+                if (hosts.isNotEmpty()) {
+                    for (host in hosts) {
+                        val resolvedIp = resolveHostToIp(host) ?: host
+                        for (attempt in 1..attemptsPerHost) {
+                            _state.value = ConnectorState.CONNECTING
+                            DebugLog.logWsConnect(host, port, ConnectStatus.ATTEMPT)
+                            try {
+                                client.webSocket("ws://$resolvedIp:$port/ws") {
+                                    _state.value = ConnectorState.CONNECTED
+                                    backoffMs = INITIAL_BACKOFF_MS
+                                    DebugLog.logWsConnect(resolvedIp, port, ConnectStatus.CONNECTED)
+                                    onConnectedWith?.invoke(resolvedIp)
+                                    val sender = launch {
+                                        for (data in sendQueue) outgoing.send(Frame.Binary(true, data))
+                                    }
+                                    for (frame in incoming) {
+                                        if (frame is Frame.Binary) _incoming.emit(frame.readBytes())
+                                    }
+                                    sender.cancel()
                                 }
-                                for (frame in incoming) {
-                                    if (frame is Frame.Binary) _incoming.emit(frame.readBytes())
-                                }
-                                sender.cancel()
+                                // Clean drop — restart the cycle to reconnect immediately
+                                DebugLog.logWsConnect(resolvedIp, port, ConnectStatus.DISCONNECTED)
+                                _state.value = ConnectorState.DISCONNECTED
+                                continue@cycle
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                DebugLog.logWsConnect(resolvedIp, port, ConnectStatus.FAILED, e.message ?: e::class.simpleName)
                             }
-                            // Clean drop — restart the cycle to reconnect
-                            DebugLog.logWsConnect(resolvedIp, port, ConnectStatus.DISCONNECTED)
-                            _state.value = ConnectorState.DISCONNECTED
-                            continue@cycle
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            DebugLog.logWsConnect(resolvedIp, port, ConnectStatus.FAILED, e.message ?: e::class.simpleName)
                         }
                     }
                 }
-                // All hosts and all attempts exhausted — give up until user retries
+                // All hosts and all attempts exhausted (or no hosts configured) — back off,
+                // then retry indefinitely. Reconnection keeps running in the background
+                // regardless of which screen is active.
                 _state.value = ConnectorState.FAILED
-                return@launch
+                delay(backoffMs)
+                backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
             }
         }
     }
@@ -121,4 +128,8 @@ class SocketConnector(
         scope.cancel()
     }
 
+    private companion object {
+        const val INITIAL_BACKOFF_MS = 1_000L
+        const val MAX_BACKOFF_MS = 30_000L
+    }
 }
