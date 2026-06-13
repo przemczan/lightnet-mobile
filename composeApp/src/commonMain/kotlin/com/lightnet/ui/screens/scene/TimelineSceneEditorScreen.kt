@@ -16,6 +16,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -144,6 +145,17 @@ private data class Connector(val sourceId: Long, val targetId: Long, val boundar
 
 /** One non-gap step placed at an absolute start time on its layer's timeline. */
 private data class Placed(val step: EditableStep, val startMs: Int)
+
+/** A floating copy of a block being dragged, rendered in an unclipped overlay so it can cross
+ *  into other layers' rows. [topLeftPx] is relative to the timeline canvas's window position. */
+private data class DragGhost(
+    val step: EditableStep,
+    val paletteStops: List<PaletteStop>?,
+    val baseColors: List<String>,
+    val width: androidx.compose.ui.unit.Dp,
+    val height: androidx.compose.ui.unit.Dp,
+    val topLeftPx: Offset,
+)
 
 /** Walks the contiguous step list, accruing time; gaps become spacing, real steps become blocks. */
 private fun EditableLayer.placedBlocks(): List<Placed> {
@@ -704,6 +716,10 @@ private fun SceneTimeline(
     // draw meandering links from a target layer/step end into the dependent layer's first step.
     val trackPos = remember { mutableStateMapOf<Long, Offset>() }
     var canvasPos by remember { mutableStateOf<Offset?>(null) }
+
+    // Floating "ghost" of the block currently being dragged, drawn in an unclipped overlay so it
+    // stays visible above other layers' tracks (the per-track horizontalScroll clips overflow).
+    var dragGhost by remember { mutableStateOf<DragGhost?>(null) }
     val connColor = MaterialTheme.colorScheme.primary
     val connectors = run {
         val byName = scene.layers.associateBy { it.name.trim() }
@@ -740,6 +756,8 @@ private fun SceneTimeline(
                     baseColors     = baseColors,
                     isDropTarget   = dropTargetIndex == i && dropTargetIndex != dragSourceIndex,
                     isDragSource   = dragSourceIndex == i,
+                    canvasPos      = canvasPos,
+                    onGhostChange  = { dragGhost = it },
                     onTrackPositioned = { trackPos[layer.id] = it },
                     onEditLayer    = { onEditLayer(layer) },
                     onEditStep     = { step -> onEditStep(layer, step) },
@@ -800,6 +818,20 @@ private fun SceneTimeline(
             color      = connColor,
             modifier   = Modifier.matchParentSize(),
         )
+
+        dragGhost?.let { ghost ->
+            Box(
+                Modifier
+                    .offset { IntOffset(ghost.topLeftPx.x.roundToInt(), ghost.topLeftPx.y.roundToInt()) }
+                    .width(ghost.width)
+                    .height(ghost.height)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp)),
+            ) {
+                BlockContent(ghost.step, ghost.paletteStops, ghost.baseColors)
+            }
+        }
     }
 }
 
@@ -971,6 +1003,8 @@ private fun LayerTrackRow(
     baseColors: List<String>,
     isDropTarget: Boolean,
     isDragSource: Boolean,
+    canvasPos: Offset?,
+    onGhostChange: (DragGhost?) -> Unit,
     onTrackPositioned: (Offset) -> Unit,
     onEditLayer: () -> Unit,
     onEditStep: (EditableStep) -> Unit,
@@ -1051,6 +1085,8 @@ private fun LayerTrackRow(
                         pxPerMs       = pxPerMs,
                         paletteStops  = paletteStops,
                         baseColors    = baseColors,
+                        canvasPos     = canvasPos,
+                        onGhostChange = onGhostChange,
                         onEdit        = { onEditStep(placed.step) },
                         onMove        = { dx, dy -> onBlockMove(placed.step, dx, dy) },
                         onMoveEnd     = { dx, dy -> onBlockMoveEnd(placed.step, dx, dy) },
@@ -1082,6 +1118,38 @@ private fun LayerTrackRow(
     }
 }
 
+/** Color swatches + label shown inside a block (and its drag ghost). */
+@Composable
+private fun BoxScope.BlockContent(step: EditableStep, paletteStops: List<PaletteStop>?, baseColors: List<String>) {
+    Row(
+        modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (step.anim.colorMode != ColorMode.None) {
+            Box(
+                Modifier.size(16.dp).clip(MaterialTheme.shapes.extraSmall)
+                    .background(colorRefToColor(step.colorA, paletteStops, baseColors))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall),
+            )
+        }
+        if (step.anim.colorMode == ColorMode.FromTo) {
+            Box(
+                Modifier.size(16.dp).clip(MaterialTheme.shapes.extraSmall)
+                    .background(colorRefToColor(step.colorB, paletteStops, baseColors))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall),
+            )
+        }
+        Text(
+            step.anim.display,
+            style    = MaterialTheme.typography.labelSmall,
+            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @Composable
 private fun BlockView(
     step: EditableStep,
@@ -1089,6 +1157,8 @@ private fun BlockView(
     pxPerMs: Float,
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
+    canvasPos: Offset?,
+    onGhostChange: (DragGhost?) -> Unit,
     onEdit: () -> Unit,
     onMove: (dxPx: Float, dyPx: Float) -> Unit,
     onMoveEnd: (dxPx: Float, dyPx: Float) -> Unit,
@@ -1107,16 +1177,37 @@ private fun BlockView(
     var rightDx by remember(step.id) { mutableFloatStateOf(0f) }
     var dragging by remember(step.id) { mutableStateOf(false) }
 
-    val offsetPx = (baseStartPx + moveDx + leftDx).roundToInt()
-    val offsetYPx = (with(density) { BLOCK_VERTICAL_INSET_DP.dp.toPx() } + moveDy).roundToInt()
+    // Position stays static while move-dragging; only the floating ghost (in the unclipped
+    // overlay) follows the finger, since this block's own track clips vertical overflow.
+    val offsetPx = (baseStartPx + leftDx).roundToInt()
+    val offsetYPx = with(density) { BLOCK_VERTICAL_INSET_DP.dp.toPx() }.roundToInt()
     val widthPx = (baseWidthPx - leftDx + rightDx).coerceAtLeast(8f)
     val widthDp = with(density) { widthPx.toDp() }
+    val heightDp = (TRACK_HEIGHT_DP - 2 * BLOCK_VERTICAL_INSET_DP).dp
+
+    var blockWindowPos by remember { mutableStateOf(Offset.Zero) }
+
+    fun updateGhost() {
+        val origin = canvasPos ?: return
+        onGhostChange(
+            DragGhost(
+                step         = step,
+                paletteStops = paletteStops,
+                baseColors   = baseColors,
+                width        = widthDp,
+                height       = heightDp,
+                topLeftPx    = blockWindowPos - origin + Offset(moveDx, moveDy),
+            ),
+        )
+    }
 
     Box(
         Modifier
             .offset { IntOffset(offsetPx, offsetYPx) }
-            .height((TRACK_HEIGHT_DP - 2 * BLOCK_VERTICAL_INSET_DP).dp)
+            .onGloballyPositioned { blockWindowPos = it.positionInWindow() }
+            .height(heightDp)
             .width(widthDp)
+            .alpha(if (dragging) 0.4f else 1f)
             .clip(RoundedCornerShape(6.dp))
             .background(if (dragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
             .border(
@@ -1129,45 +1220,20 @@ private fun BlockView(
             }
             .pointerInput(step.id, pxPerMs) {
                 detectDragGesturesAfterLongPress(
-                    onDragStart = { dragging = true; moveDx = 0f; moveDy = 0f },
-                    onDragEnd   = { dragging = false; onMoveEnd(moveDx, moveDy); moveDx = 0f; moveDy = 0f },
-                    onDragCancel = { dragging = false; moveDx = 0f; moveDy = 0f },
+                    onDragStart = { dragging = true; moveDx = 0f; moveDy = 0f; updateGhost() },
+                    onDragEnd   = { dragging = false; onMoveEnd(moveDx, moveDy); moveDx = 0f; moveDy = 0f; onGhostChange(null) },
+                    onDragCancel = { dragging = false; moveDx = 0f; moveDy = 0f; onGhostChange(null) },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         moveDx += dragAmount.x
                         moveDy += dragAmount.y
                         onMove(moveDx, moveDy)
+                        updateGhost()
                     },
                 )
             },
     ) {
-        Row(
-            modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (step.anim.colorMode != ColorMode.None) {
-                Box(
-                    Modifier.size(16.dp).clip(MaterialTheme.shapes.extraSmall)
-                        .background(colorRefToColor(step.colorA, paletteStops, baseColors))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall),
-                )
-            }
-            if (step.anim.colorMode == ColorMode.FromTo) {
-                Box(
-                    Modifier.size(16.dp).clip(MaterialTheme.shapes.extraSmall)
-                        .background(colorRefToColor(step.colorB, paletteStops, baseColors))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall),
-                )
-            }
-            Text(
-                step.anim.display,
-                style    = MaterialTheme.typography.labelSmall,
-                color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        BlockContent(step, paletteStops, baseColors)
 
         // Left resize handle.
         Box(

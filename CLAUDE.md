@@ -6,6 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Firmware** — `../lightnet-firmware` (relative to this repo). Check `lib/Lightnet/Controller/API/http/` for route handler implementations to verify HTTP verb, endpoint path, and exact JSON field names before adding API calls to `LightnetHttpClient`.
 
+## On-Device Debugging (adb)
+
+- **UI element bounds**: `adb shell uiautomator dump //sdcard/ui.xml` then `adb pull //sdcard/ui.xml ./ui.xml` (the `//` prefix avoids Git Bash MSYS path-mangling of `/sdcard/...`). Gives exact `bounds`, `content-desc`, `checked`/`enabled` attributes — far more reliable than tapping based on screenshot coordinates.
+- **Screenshot**: `adb exec-out screencap -p > screen.png`.
+- **Relaunch app**: `adb shell monkey -p com.lightnet -c android.intent.category.LAUNCHER 1`.
+- **HTTP/WS logs**: `DebugLog.debugMode` is in-memory and resets to `false` on every app restart — toggle the "Debug" switch on the Debug Log screen each session, then `adb logcat -c` (clear) and `adb logcat -d | grep -i "Lightnet/HTTP"`.
+- **Ground truth**: `curl http://<device-ip>/api/state` (or other endpoints) hits the firmware directly, bypassing the app — useful for confirming whether a UI mismatch is a client bug or a firmware lag.
+
 ## Commands
 
 ```bat
