@@ -16,7 +16,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.ViewTimeline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,7 +52,6 @@ import com.lightnet.api.http.model.SceneJson
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.settings.AppPreferences
-import com.lightnet.ui.screens.scene.SceneEditorScreen
 import com.lightnet.ui.screens.scene.SceneOrigin
 import com.lightnet.ui.screens.scene.TimelineSceneEditorScreen
 import com.lightnet.ui.BackHandlerCompat
@@ -87,7 +85,6 @@ fun ScenesSettingsScreen(
     var deleteGlobalTarget  by remember { mutableStateOf<SceneJson?>(null) }
     var deleteDeviceTarget  by remember { mutableStateOf<SceneInfo?>(null) }
     var showEditor          by remember { mutableStateOf(false) }
-    var showTimelineEditor  by remember { mutableStateOf(false) }
     var editingScene        by remember { mutableStateOf<SceneJson?>(null) }
     var editingOrigin       by remember { mutableStateOf(SceneOrigin.GLOBAL) }
 
@@ -108,14 +105,8 @@ fun ScenesSettingsScreen(
         showEditor    = true
     }
 
-    fun openTimeline(scene: SceneJson?, origin: SceneOrigin) {
-        editingScene       = scene
-        editingOrigin      = origin
-        showTimelineEditor = true
-    }
-
     if (showEditor) {
-        SceneEditorScreen(
+        TimelineSceneEditorScreen(
             device     = device,
             httpClient = httpClient,
             initial    = editingScene,
@@ -123,22 +114,6 @@ fun ScenesSettingsScreen(
             onBack     = {
                 showEditor   = false
                 editingScene = null
-                reloadGlobal()
-                scope.launch { reloadDevice() }
-            },
-        )
-        return
-    }
-
-    if (showTimelineEditor) {
-        TimelineSceneEditorScreen(
-            device     = device,
-            httpClient = httpClient,
-            initial    = editingScene,
-            origin     = editingOrigin,
-            onBack     = {
-                showTimelineEditor = false
-                editingScene       = null
                 reloadGlobal()
                 scope.launch { reloadDevice() }
             },
@@ -214,7 +189,6 @@ fun ScenesSettingsScreen(
                                     }
                                 },
                                 onEdit   = { openEditor(scene, SceneOrigin.GLOBAL) },
-                                onOpenTimeline = { openTimeline(scene, SceneOrigin.GLOBAL) },
                                 onDelete = { deleteGlobalTarget = scene },
                             )
                         }
@@ -269,13 +243,6 @@ fun ScenesSettingsScreen(
                                         else snackbar.showSnackbar("Failed to load \"${info.name}\".")
                                     }
                                 },
-                                onOpenTimeline = {
-                                    scope.launch {
-                                        val full = httpClient.runCatching { getScene(info.name) }.getOrNull()
-                                        if (full != null) openTimeline(full, SceneOrigin.DEVICE)
-                                        else snackbar.showSnackbar("Failed to load \"${info.name}\".")
-                                    }
-                                },
                                 onDelete = { deleteDeviceTarget = info },
                             )
                         }
@@ -325,7 +292,6 @@ private fun SceneSettingsItem(
     name: String,
     onPlay: () -> Unit,
     onEdit: () -> Unit,
-    onOpenTimeline: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -336,9 +302,6 @@ private fun SceneSettingsItem(
         ) {
             Text(name, style = MaterialTheme.typography.bodyLarge)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onOpenTimeline) {
-                    Icon(Icons.Default.ViewTimeline, contentDescription = "Open in timeline editor")
-                }
                 IconButton(onClick = onPlay) {
                     Icon(Icons.Default.PlayArrow, contentDescription = "Play")
                 }

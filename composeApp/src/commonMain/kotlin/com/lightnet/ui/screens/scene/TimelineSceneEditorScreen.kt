@@ -113,11 +113,10 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-// ── Experimental timeline scene editor ───────────────────────────────────────────
-// An alternative to SceneEditorScreen that lays the whole scene out as a horizontal
-// timeline: layers = stacked tracks, steps = draggable/resizable blocks. It edits the
-// same EditableScene model and reuses the existing step/layer modal editors, conversion,
-// preview and save logic — see SceneEditorModel.kt and SceneEditorScreen.kt.
+// ── Timeline scene editor ────────────────────────────────────────────────────────
+// Lays the whole scene out as a horizontal timeline: layers = stacked tracks, steps =
+// draggable/resizable blocks. Edits an EditableScene model and reuses the existing
+// step/layer modal editors, conversion, preview and save logic — see SceneEditorModel.kt.
 //
 // Time model: free placement with auto-gaps. A block's start = cumulative duration of all
 // preceding steps; GAP steps render as empty space, never as blocks. Every edit operates on

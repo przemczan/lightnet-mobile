@@ -50,12 +50,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import com.lightnet.api.http.model.ColorRef
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.device.LightnetDevicePanel
+import com.lightnet.ui.colorToHex
+import com.lightnet.ui.parseHexColor
 import com.lightnet.ui.components.LightnetDeviceVisualizer
 import com.lightnet.ui.components.PaintMode
 import com.lightnet.ui.components.colorRefToColor
+import com.lightnet.ui.screens.ColorPickerSheet
 
 internal const val BLEND_DEFAULT = "default"
 
@@ -171,6 +175,48 @@ internal fun ColorSwatchRow(
             Modifier.size(32.dp).clip(MaterialTheme.shapes.small)
                 .background(colorRefToColor(color, paletteStops, baseColors))
                 .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
+        )
+    }
+}
+
+@Composable
+internal fun BackgroundColorRow(
+    hex: String?,
+    onChange: (String?) -> Unit,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+    val color = remember(hex) { parseHexColor(hex ?: "#000000") ?: Color.Black }
+
+    Row(
+        Modifier.fillMaxWidth().clickable { showPicker = true }.padding(vertical = 8.dp),
+        Arrangement.SpaceBetween, Alignment.CenterVertically,
+    ) {
+        Column {
+            Text("Background", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                hex ?: "Default (black)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (hex != null) {
+                TextButton(onClick = { onChange(null) }) { Text("Reset") }
+            }
+            Box(
+                Modifier.size(32.dp).clip(MaterialTheme.shapes.small)
+                    .background(color)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
+            )
+        }
+    }
+
+    if (showPicker) {
+        ColorPickerSheet(
+            initial        = color,
+            showBaseColors = false,
+            onPick         = { onChange(colorToHex(it)) },
+            onDismiss      = { showPicker = false },
         )
     }
 }

@@ -12,6 +12,8 @@ import com.lightnet.api.http.model.SceneLayer
 import com.lightnet.api.http.model.SceneStep
 import com.lightnet.device.LightnetDevicePanel
 
+enum class SceneOrigin { GLOBAL, DEVICE }
+
 // ── Animation metadata ─────────────────────────────────────────────────────────
 // Single source of truth that drives the dynamic step form: which colour slots to
 // show, which parameters with what friendly labels/ranges, and how the step maps to

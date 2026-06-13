@@ -81,7 +81,7 @@ import androidx.compose.material.icons.filled.Smartphone
 import com.lightnet.api.http.model.AppStateBody
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
-import com.lightnet.ui.screens.scene.SceneEditorScreen
+import com.lightnet.ui.screens.scene.TimelineSceneEditorScreen
 import com.lightnet.ui.screens.scene.SceneOrigin
 import com.lightnet.device.ConnectionState
 import com.lightnet.settings.AppPreferences
@@ -229,7 +229,7 @@ fun DeviceControllerScreen(
     }
 
     editingScene?.let { scene ->
-        SceneEditorScreen(
+        TimelineSceneEditorScreen(
             device     = device,
             httpClient = httpClient,
             initial    = scene,
