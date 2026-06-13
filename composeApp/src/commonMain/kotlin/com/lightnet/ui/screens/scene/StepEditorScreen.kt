@@ -70,7 +70,7 @@ internal fun StepEditorScreen(
             item { AnimTypeDropdown(step) }
 
             item {
-                OutlinedTextField(
+                TextField(
                     value         = step.stepId ?: "",
                     onValueChange = { step.stepId = it.filter { c -> c.isLetterOrDigit() || c == '_' || c == '-' }.ifBlank { null } },
                     label         = { Text("Step ID (optional)") },

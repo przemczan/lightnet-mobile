@@ -16,6 +16,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -52,7 +53,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -80,8 +81,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -286,7 +287,6 @@ fun TimelineSceneEditorScreen(
     var showPreviewModal by remember { mutableStateOf(false) }
     var optionsExpanded by remember { mutableStateOf(false) }
     var pxPerMs by remember { mutableFloatStateOf(DEFAULT_PX_PER_MS) }
-    var viewportWidthPx by remember { mutableFloatStateOf(0f) }
     var hasAutoFitted by remember { mutableStateOf(false) }
     val hScroll = rememberScrollState()
     var editing by remember { mutableStateOf<Editing?>(null) }
@@ -376,6 +376,10 @@ fun TimelineSceneEditorScreen(
                 },
                 actions = {
                     TextButton(onClick = {
+                        scene = activeScene.clone("${activeScene.name.ifBlank { "Scene" }} copy")
+                        isDirty = true
+                    }) { Text("Clone") }
+                    TextButton(onClick = {
                         val err = activeScene.validationError()
                         if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@TextButton }
                         activeScene.clearUnusedStepIds()
@@ -430,14 +434,16 @@ fun TimelineSceneEditorScreen(
             }
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+        val viewportWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
+        Column(Modifier.fillMaxSize()) {
             // Name + zoom controls (compact).
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                OutlinedTextField(
+                TextField(
                     value         = activeScene.name,
                     onValueChange = { activeScene.name = it },
                     label         = { Text("NAME") },
@@ -457,14 +463,20 @@ fun TimelineSceneEditorScreen(
                 paletteNames    = paletteNames,
             )
 
-            val dynamicMinPxPerMs = minPxPerMsFor(activeScene.layers, viewportWidthPx)
+            val fitPxPerMs = if (viewportWidthPx > 0f) {
+                (viewportWidthPx / maxDurationMs(activeScene.layers)).coerceIn(MIN_PX_PER_MS_FLOOR, MAX_PX_PER_MS)
+            } else {
+                MIN_PX_PER_MS_FLOOR
+            }
+            // The slider must be able to reach the fit level, even if that's more zoomed-out
+            // than the "first 10 steps fill the viewport" heuristic.
+            val dynamicMinPxPerMs = minOf(minPxPerMsFor(activeScene.layers, viewportWidthPx), fitPxPerMs)
 
             // Fit the timeline to the screen once, as soon as the viewport width is known.
             LaunchedEffect(viewportWidthPx, activeScene) {
                 if (hasAutoFitted || viewportWidthPx <= 0f) return@LaunchedEffect
                 hasAutoFitted = true
-                val fitted = viewportWidthPx / maxDurationMs(activeScene.layers)
-                pxPerMs = fitted.coerceIn(MIN_PX_PER_MS_FLOOR, MAX_PX_PER_MS)
+                pxPerMs = fitPxPerMs
                 hScroll.scrollTo(0)
             }
 
@@ -474,8 +486,7 @@ fun TimelineSceneEditorScreen(
                 onPxPerMs   = { pxPerMs = it.coerceIn(dynamicMinPxPerMs, MAX_PX_PER_MS) },
                 onFit       = {
                     if (viewportWidthPx > 0f) {
-                        val fitted = viewportWidthPx / maxDurationMs(activeScene.layers)
-                        pxPerMs = fitted.coerceIn(MIN_PX_PER_MS_FLOOR, MAX_PX_PER_MS)
+                        pxPerMs = fitPxPerMs
                         scope.launch { hScroll.scrollTo(0) }
                     }
                 },
@@ -489,7 +500,7 @@ fun TimelineSceneEditorScreen(
                 stopsFor     = ::stopsFor,
                 onEditStep   = { layer, step -> editing = Editing.Step(layer, step) },
                 onEditLayer  = { layer -> editing = Editing.Layer(layer) },
-                onViewportWidthChange = { viewportWidthPx = it },
+                viewportWidthPx = viewportWidthPx,
                 onRemoveLayer = { layer ->
                     val name = layer.name.trim()
                     activeScene.layers.forEach { l ->
@@ -500,6 +511,7 @@ fun TimelineSceneEditorScreen(
                 },
                 modifier     = Modifier.weight(1f).fillMaxWidth(),
             )
+        }
         }
     }
 
@@ -669,7 +681,7 @@ private fun SceneTimeline(
     stopsFor: (EditableLayer) -> List<PaletteStop>?,
     onEditStep: (EditableLayer, EditableStep) -> Unit,
     onEditLayer: (EditableLayer) -> Unit,
-    onViewportWidthChange: (Float) -> Unit,
+    viewportWidthPx: Float,
     onRemoveLayer: (EditableLayer) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -680,8 +692,6 @@ private fun SceneTimeline(
     val maxDurationMs = maxDurationMs(scene.layers)
     val contentWidthPx = maxDurationMs * pxPerMs + CONTENT_TAIL_PX
     val contentWidthDp = with(density) { contentWidthPx.toDp() }
-
-    var viewportWidthPx by remember { mutableFloatStateOf(0f) }
 
     // Cross-layer drag session: how many rows the finger has moved from the source layer.
     val rowHeightPx = with(density) { TRACK_HEIGHT_DP.dp.toPx() }
@@ -711,11 +721,7 @@ private fun SceneTimeline(
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .onGloballyPositioned {
-                    viewportWidthPx = it.size.width.toFloat()
-                    onViewportWidthChange(it.size.width.toFloat())
-                },
+                .verticalScroll(rememberScrollState()),
         ) {
             TimeRuler(maxDurationMs, pxPerMs, hScroll, contentWidthDp, contentWidthPx, viewportWidthPx, scrollScope)
             HorizontalDivider()
@@ -833,8 +839,15 @@ private fun ConnectorArrows(
             val dir   = if (c.downward) 1f else -1f
 
             drawLine(color, start, tip, stroke, StrokeCap.Round)
-            drawLine(color, Offset(x - arrow, tip.y - dir * arrow), tip, stroke, StrokeCap.Round)
-            drawLine(color, Offset(x + arrow, tip.y - dir * arrow), tip, stroke, StrokeCap.Round)
+            drawPath(
+                path = Path().apply {
+                    moveTo(tip.x, tip.y)
+                    lineTo(x - arrow, tip.y - dir * arrow)
+                    lineTo(x + arrow, tip.y - dir * arrow)
+                    close()
+                },
+                color = color,
+            )
         }
     }
 }
@@ -1084,10 +1097,6 @@ private fun BlockView(
     onResizeRight: (dxPx: Float) -> Unit,
 ) {
     val density = LocalDensity.current
-    val baseColor =
-        if (step.anim.colorMode == ColorMode.None) MaterialTheme.colorScheme.surfaceVariant
-        else colorRefToColor(step.colorA, paletteStops, baseColors)
-    val onColor = if (baseColor.luminance() > 0.5f) Color.Black else Color.White
 
     val baseStartPx = startMs * pxPerMs
     val baseWidthPx = (step.durationMs * pxPerMs).coerceAtLeast(8f)
@@ -1110,7 +1119,7 @@ private fun BlockView(
             .height((TRACK_HEIGHT_DP - 2 * BLOCK_VERTICAL_INSET_DP).dp)
             .width(widthDp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (dragging) baseColor.copy(alpha = 0.7f) else baseColor)
+            .background(if (dragging) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
             .border(
                 width = if (dragging) 2.dp else 1.dp,
                 color = if (dragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
@@ -1133,14 +1142,33 @@ private fun BlockView(
                 )
             },
     ) {
-        Text(
-            step.anim.display,
-            style    = MaterialTheme.typography.labelSmall,
-            color    = onColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.align(Alignment.Center).padding(horizontal = 10.dp),
-        )
+        Row(
+            modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (step.anim.colorMode != ColorMode.None) {
+                Box(
+                    Modifier.size(16.dp).clip(MaterialTheme.shapes.extraSmall)
+                        .background(colorRefToColor(step.colorA, paletteStops, baseColors))
+                        .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall),
+                )
+            }
+            if (step.anim.colorMode == ColorMode.FromTo) {
+                Box(
+                    Modifier.size(16.dp).clip(MaterialTheme.shapes.extraSmall)
+                        .background(colorRefToColor(step.colorB, paletteStops, baseColors))
+                        .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall),
+                )
+            }
+            Text(
+                step.anim.display,
+                style    = MaterialTheme.typography.labelSmall,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
         // Left resize handle.
         Box(
@@ -1157,7 +1185,7 @@ private fun BlockView(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            ResizeGrip(onColor)
+            ResizeGrip(MaterialTheme.colorScheme.onSurfaceVariant)
         }
         // Right resize handle.
         Box(
@@ -1174,7 +1202,7 @@ private fun BlockView(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            ResizeGrip(onColor)
+            ResizeGrip(MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

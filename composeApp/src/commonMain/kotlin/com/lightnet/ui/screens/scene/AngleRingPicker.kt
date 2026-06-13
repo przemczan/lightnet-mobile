@@ -63,16 +63,16 @@ internal fun AngleRingPicker(
         val radius = (size.width.coerceAtMost(size.height) / 2f) - 12.dp.toPx()
 
         // Ring
-        drawCircle(color = ringColor, radius = radius, style = Stroke(width = 2.dp.toPx()))
+        drawCircle(color = ringColor, radius = radius, style = Stroke(width = 4.dp.toPx()))
 
         // Cardinal ticks (every 45°)
         for (i in 0 until 8) {
             val t = Math.toRadians(i * 45.0).toFloat()
             drawLine(
                 color       = tickColor,
-                start       = Offset(cx + (radius - 6.dp.toPx()) * cos(t), cy + (radius - 6.dp.toPx()) * sin(t)),
+                start       = Offset(cx + (radius - 8.dp.toPx()) * cos(t), cy + (radius - 8.dp.toPx()) * sin(t)),
                 end         = Offset(cx + radius * cos(t), cy + radius * sin(t)),
-                strokeWidth = 1.5f.dp.toPx(),
+                strokeWidth = 3.dp.toPx(),
                 cap         = StrokeCap.Round,
             )
         }

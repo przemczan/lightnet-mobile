@@ -510,6 +510,10 @@ private fun AdjustSheet(
     var speed          by remember { mutableFloatStateOf(1f) }
     var applyingPalette by remember { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(httpClient) {
+        httpClient?.runCatching { getAppState() }?.getOrNull()?.let { speed = it.speed }
+    }
+
     // Conflated channels throttle each control to at most one API call per 250 ms.
     val brightnessPending = remember { Channel<Float>(Channel.CONFLATED) }
     LaunchedEffect(Unit) {

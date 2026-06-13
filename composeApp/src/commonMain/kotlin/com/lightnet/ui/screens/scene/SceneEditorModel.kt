@@ -291,6 +291,16 @@ private fun EditableStep.clone(): EditableStep = EditableStep(
     stepId      = stepId,
 )
 
+/** Deep copy of the whole scene, with fresh ids for every layer and step — backs the scene "Clone" action. */
+fun EditableScene.clone(name: String): EditableScene = EditableScene(
+    name       = name,
+    loop       = loop,
+    speed      = speed,
+    palette    = palette,
+    background = background,
+    layers     = layers.map { it.clone(it.name) },
+)
+
 /** Deep copy with a fresh id (and fresh ids for its steps) — backs the layer-row "Clone" action. */
 fun EditableLayer.clone(name: String): EditableLayer = EditableLayer(
     name          = name,

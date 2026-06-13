@@ -197,6 +197,10 @@ fun SceneEditorScreen(
                 },
                 actions = {
                     TextButton(onClick = {
+                        scene = activeScene.clone("${activeScene.name.ifBlank { "Scene" }} copy")
+                        isDirty = true
+                    }) { Text("Clone") }
+                    TextButton(onClick = {
                         val err = activeScene.validationError()
                         if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@TextButton }
                         activeScene.clearUnusedStepIds()
