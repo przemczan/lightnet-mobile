@@ -7,4 +7,7 @@ import kotlinx.serialization.Serializable
 data class AppStateBody(
     val isOn: Boolean,
     val lastPlayedScene: String = "",
+    val lastPlayedSceneIsStored: Boolean = true,
+    val playing: Boolean = false,
+    val speed: Float = 1.0f,
 )

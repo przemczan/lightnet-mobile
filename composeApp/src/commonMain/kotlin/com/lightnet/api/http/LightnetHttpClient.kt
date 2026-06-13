@@ -15,7 +15,6 @@ import com.lightnet.api.http.model.PanelStateResponse
 import com.lightnet.api.http.model.LogicalRootRequest
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
-import com.lightnet.api.http.model.SceneStatus
 import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.debug.DebugLog
 import io.ktor.client.HttpClient
@@ -116,16 +115,16 @@ class LightnetHttpClient(private val baseUrl: String) {
         client.post("$baseUrl/api/scenes/$name/play").voidOrThrow()
 
     suspend fun playSceneInline(scene: SceneJson) =
-        client.post("$baseUrl/api/scenes/play") { jsonBody(scene) }.voidOrThrow()
+        client.post("$baseUrl/api/scenes/play/one-shot") { jsonBody(scene) }.voidOrThrow()
+
+    suspend fun playLastScene() =
+        client.post("$baseUrl/api/scenes/play").voidOrThrow()
 
     suspend fun stopScene() =
         client.post("$baseUrl/api/scenes/stop").voidOrThrow()
 
     suspend fun setSceneSpeed(speed: Float) =
         client.post("$baseUrl/api/scenes/speed") { jsonBody(SceneSpeedValue(speed)) }.voidOrThrow()
-
-    suspend fun getSceneStatus(): SceneStatus =
-        client.get("$baseUrl/api/scenes/status").bodyOrThrow()
 
     // endregion
 

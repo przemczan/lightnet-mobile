@@ -78,9 +78,9 @@ import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.PaletteJson
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Smartphone
+import com.lightnet.api.http.model.AppStateBody
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
-import com.lightnet.api.http.model.SceneStatus
 import com.lightnet.ui.screens.scene.SceneEditorScreen
 import com.lightnet.ui.screens.scene.SceneOrigin
 import com.lightnet.device.ConnectionState
@@ -178,17 +178,16 @@ fun DeviceControllerScreen(
     val savedRotation       by devicePrefs.visualizerRotation.collectAsState()
     val rotationAngle       = (savedRotation / 5f).roundToInt() * 5f
 
-    var sceneStatus          by remember(device) { mutableStateOf<SceneStatus?>(null) }
-    var lastPlayedScene      by remember(device) { mutableStateOf("") }
+    var appState             by remember(device) { mutableStateOf<AppStateBody?>(null) }
     var sceneStatusRefresh   by remember(device) { mutableStateOf(0) }
-    val isScenePlaying       = sceneStatus?.playing == true
-    val playToolbarSceneName = (if (isScenePlaying) sceneStatus?.scene else null)?.takeIf { it.isNotBlank() } ?: lastPlayedScene
+    val isScenePlaying       = appState?.playing == true
+    val lastPlayedScene      = appState?.lastPlayedScene ?: ""
+    val playToolbarSceneName = lastPlayedScene
 
     // Refresh scene playback status + last-played-scene name on screen open and after a play/stop action.
     LaunchedEffect(device, connectionState, httpClient, sceneStatusRefresh) {
         if (connectionState == ConnectionState.CONNECTED) {
-            httpClient?.runCatching { getSceneStatus() }?.getOrNull()?.let { sceneStatus = it }
-            httpClient?.runCatching { getAppState() }?.getOrNull()?.let { lastPlayedScene = it.lastPlayedScene }
+            httpClient?.runCatching { getAppState() }?.getOrNull()?.let { appState = it }
         }
     }
 
@@ -417,7 +416,7 @@ fun DeviceControllerScreen(
                                         if (isScenePlaying) {
                                             httpClient?.runCatching { stopScene() }
                                         } else {
-                                            httpClient?.runCatching { playSceneByName(lastPlayedScene) }
+                                            httpClient?.runCatching { playLastScene() }
                                         }
                                         sceneStatusRefresh++
                                     }

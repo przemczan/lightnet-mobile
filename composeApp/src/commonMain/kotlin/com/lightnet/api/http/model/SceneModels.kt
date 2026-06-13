@@ -199,12 +199,3 @@ data class SceneInfo(
     val name: String,
     val size: Int? = null,
 )
-
-@Serializable
-data class SceneStatus(
-    val playing: Boolean,
-    val scene: String? = null,
-    val loop: Boolean? = null,
-    val layers: Int? = null,
-    val speed: Float? = null,
-)
