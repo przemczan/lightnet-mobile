@@ -169,11 +169,23 @@ fun ColorRefPickerSheet(
                         onValueChange = { palettePos = it.toInt(); onPick(ColorRef.PalettePosition(palettePos)) },
                         valueRange    = 0f..255f,
                     )
-                    Text(
-                        "Position $palettePos",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(16.dp)
+                                .clip(MaterialTheme.shapes.extraSmall)
+                                .background(colorRefToColor(ColorRef.PalettePosition(palettePos), paletteStops, baseColors))
+                                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall),
+                        )
+                        Text(
+                            "Position $palettePos",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
 
                 RefMode.Base -> Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {

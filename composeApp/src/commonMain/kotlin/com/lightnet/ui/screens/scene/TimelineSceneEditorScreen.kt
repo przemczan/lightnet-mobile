@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Visibility
@@ -49,6 +50,8 @@ import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -124,8 +127,8 @@ import kotlin.math.roundToInt
 // the placed-block view (absolute start times) and rebuilds layer.steps, synthesizing GAPs to
 // realize positions. This round-trips through toSceneJson / sceneFromJson with no new model.
 
-private const val TRACK_HEIGHT_DP = 56
-private const val BLOCK_VERTICAL_INSET_DP = 4
+private const val TRACK_HEIGHT_DP = 48
+private const val BLOCK_VERTICAL_INSET_DP = 3
 private const val TIME_RULER_HEIGHT_DP = 36
 private const val BLOCK_MIN_MS = 50
 private const val DEFAULT_PX_PER_MS = 0.08f
@@ -133,6 +136,7 @@ private const val MIN_PX_PER_MS = 0.01f
 private const val MIN_PX_PER_MS_FLOOR = 0.0005f / 3f
 private const val MAX_PX_PER_MS = 0.5f
 private const val CONTENT_TAIL_PX = 800f
+private const val TIMELINE_HORIZONTAL_PADDING_DP = 8
 
 // startAfter connector arrow. Target and source share the same time boundary, so the link is a
 // straight vertical line between their rows.
@@ -255,12 +259,15 @@ fun TimelineSceneEditorScreen(
 
     var palettesMap by remember { mutableStateOf<Map<String, PaletteJson>>(emptyMap()) }
     var baseColors  by remember { mutableStateOf<List<String>>(emptyList()) }
+    var devicePalette by remember { mutableStateOf<String?>(null) }
     var tags        by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(httpClient) {
         palettesMap = httpClient?.runCatching { getPalettes() }?.getOrNull() ?: emptyMap()
     }
     LaunchedEffect(device) {
-        baseColors = device?.loadAppearance()?.baseColors ?: device?.cachedAppearance?.baseColors ?: emptyList()
+        val appearance = device?.loadAppearance() ?: device?.cachedAppearance
+        baseColors = appearance?.baseColors ?: emptyList()
+        devicePalette = appearance?.palette
         tags = device?.getTopology()?.tags?.values?.flatten()?.distinct()?.sorted() ?: emptyList()
     }
     val paletteNames = remember(palettesMap) { palettesMap.keys.sorted() }
@@ -319,7 +326,7 @@ fun TimelineSceneEditorScreen(
     }
 
     fun stopsFor(layer: EditableLayer): List<PaletteStop>? =
-        (layer.palette ?: activeScene.palette)?.let { palettesMap[it]?.stops }
+        (layer.palette ?: activeScene.palette ?: devicePalette)?.let { palettesMap[it]?.stops }
 
     // ── Modal editors (reused as full-screen dialogs) ────────────────────────────
     when (val e = editing) {
@@ -446,7 +453,8 @@ fun TimelineSceneEditorScreen(
         },
     ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
-        val viewportWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
+        val density = LocalDensity.current
+        val viewportWidthPx = with(density) { maxWidth.toPx() } - with(density) { (TIMELINE_HORIZONTAL_PADDING_DP * 2).dp.toPx() }
         Column(Modifier.fillMaxSize()) {
             // Name + zoom controls (compact).
             Row(
@@ -520,7 +528,7 @@ fun TimelineSceneEditorScreen(
                     }
                     activeScene.layers.remove(layer)
                 },
-                modifier     = Modifier.weight(1f).fillMaxWidth(),
+                modifier     = Modifier.weight(1f).fillMaxWidth().padding(horizontal = TIMELINE_HORIZONTAL_PADDING_DP.dp),
             )
         }
         }
@@ -1018,6 +1026,7 @@ private fun LayerTrackRow(
     onBlockResizeRight: (EditableStep, Float) -> Unit,
 ) {
     var showRemoveConfirm by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxWidth().zIndex(if (isDragSource) 1f else 0f)) {
         // Header (full width, not scrolled).
@@ -1038,11 +1047,15 @@ private fun LayerTrackRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).alpha(if (layer.enabled) 1f else 0.5f),
             )
-            if (layer.asyncMode != AsyncMode.Off || offsetMs > 0) {
+            val blendLabel = layer.blend?.lowercase()
+            if (layer.asyncMode != AsyncMode.Off || blendLabel != null) {
                 Text(
                     buildString {
                         if (layer.asyncMode != AsyncMode.Off) append(layer.asyncMode.name.lowercase())
-                        if (offsetMs > 0) append(" @${formatMs(offsetMs)}")
+                        if (blendLabel != null) {
+                            if (isNotEmpty()) append(" ")
+                            append(blendLabel)
+                        }
                     }.trim(),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1054,14 +1067,27 @@ private fun LayerTrackRow(
             IconButton(onClick = onMoveDown, enabled = canMoveDown) {
                 Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move layer down")
             }
-            IconButton(onClick = onEditLayer) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit layer")
-            }
-            IconButton(onClick = onAddBlock) {
-                Icon(Icons.Default.Add, contentDescription = "Add block")
-            }
-            IconButton(onClick = { showRemoveConfirm = true }) {
-                Icon(Icons.Default.Delete, contentDescription = "Remove layer")
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Layer options")
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Edit layer") },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        onClick = { menuExpanded = false; onEditLayer() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add block") },
+                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                        onClick = { menuExpanded = false; onAddBlock() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Remove layer") },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                        onClick = { menuExpanded = false; showRemoveConfirm = true },
+                    )
+                }
             }
         }
 
@@ -1127,6 +1153,7 @@ private fun BoxScope.BlockContent(step: EditableStep, paletteStops: List<Palette
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (step.anim.colorMode != ColorMode.None) {
+            Spacer(Modifier.width(2.dp))
             Box(
                 Modifier.size(16.dp).clip(MaterialTheme.shapes.extraSmall)
                     .background(colorRefToColor(step.colorA, paletteStops, baseColors))
