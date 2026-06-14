@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
@@ -52,6 +53,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +78,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -86,6 +89,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -136,7 +140,8 @@ private const val MIN_PX_PER_MS = 0.01f
 private const val MIN_PX_PER_MS_FLOOR = 0.0005f / 3f
 private const val MAX_PX_PER_MS = 0.5f
 private const val CONTENT_TAIL_PX = 800f
-private const val TIMELINE_HORIZONTAL_PADDING_DP = 8
+private const val TIMELINE_CONTENT_MARGIN_DP = 8
+private const val SNAP_DISTANCE_PX = 32f
 
 // startAfter connector arrow. Target and source share the same time boundary, so the link is a
 // straight vertical line between their rows.
@@ -159,6 +164,15 @@ private data class DragGhost(
     val width: androidx.compose.ui.unit.Dp,
     val height: androidx.compose.ui.unit.Dp,
     val topLeftPx: Offset,
+)
+
+/** A subtle vertical line + arrowhead drawn from a dragged/resized block's snapped edge to the
+ *  row of the element it snapped to. Coordinates are relative to the timeline canvas's window
+ *  position, shown only while a snap is active during a drag. */
+private data class SnapIndicator(
+    val xPx: Float,
+    val fromYPx: Float,
+    val toYPx: Float,
 )
 
 /** Walks the contiguous step list, accruing time; gaps become spacing, real steps become blocks. */
@@ -304,6 +318,7 @@ fun TimelineSceneEditorScreen(
 
     var showPreviewModal by remember { mutableStateOf(false) }
     var optionsExpanded by remember { mutableStateOf(false) }
+    var snapMode by remember { mutableStateOf(true) }
     var pxPerMs by remember { mutableFloatStateOf(DEFAULT_PX_PER_MS) }
     var hasAutoFitted by remember { mutableStateOf(false) }
     val hScroll = rememberScrollState()
@@ -454,7 +469,8 @@ fun TimelineSceneEditorScreen(
     ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
         val density = LocalDensity.current
-        val viewportWidthPx = with(density) { maxWidth.toPx() } - with(density) { (TIMELINE_HORIZONTAL_PADDING_DP * 2).dp.toPx() }
+        val viewportWidthPx = with(density) { maxWidth.toPx() }
+        val contentMarginPx = with(density) { TIMELINE_CONTENT_MARGIN_DP.dp.toPx() }
         Column(Modifier.fillMaxSize()) {
             // Name + zoom controls (compact).
             Row(
@@ -482,14 +498,15 @@ fun TimelineSceneEditorScreen(
                 paletteNames    = paletteNames,
             )
 
-            val fitPxPerMs = if (viewportWidthPx > 0f) {
-                (viewportWidthPx / maxDurationMs(activeScene.layers)).coerceIn(MIN_PX_PER_MS_FLOOR, MAX_PX_PER_MS)
+            val usableWidthPx = (viewportWidthPx - 2 * contentMarginPx).coerceAtLeast(0f)
+            val fitPxPerMs = if (usableWidthPx > 0f) {
+                (usableWidthPx / maxDurationMs(activeScene.layers)).coerceIn(MIN_PX_PER_MS_FLOOR, MAX_PX_PER_MS)
             } else {
                 MIN_PX_PER_MS_FLOOR
             }
             // The slider must be able to reach the fit level, even if that's more zoomed-out
             // than the "first 10 steps fill the viewport" heuristic.
-            val dynamicMinPxPerMs = minOf(minPxPerMsFor(activeScene.layers, viewportWidthPx), fitPxPerMs)
+            val dynamicMinPxPerMs = minOf(minPxPerMsFor(activeScene.layers, usableWidthPx), fitPxPerMs)
 
             // Fit the timeline to the screen once, as soon as the viewport width is known.
             LaunchedEffect(viewportWidthPx, activeScene) {
@@ -509,6 +526,8 @@ fun TimelineSceneEditorScreen(
                         scope.launch { hScroll.scrollTo(0) }
                     }
                 },
+                snapMode    = snapMode,
+                onSnapModeChange = { snapMode = it },
             )
 
             SceneTimeline(
@@ -517,6 +536,7 @@ fun TimelineSceneEditorScreen(
                 hScroll      = hScroll,
                 baseColors   = baseColors,
                 stopsFor     = ::stopsFor,
+                snapMode     = snapMode,
                 onEditStep   = { layer, step -> editing = Editing.Step(layer, step) },
                 onEditLayer  = { layer -> editing = Editing.Layer(layer) },
                 viewportWidthPx = viewportWidthPx,
@@ -528,7 +548,7 @@ fun TimelineSceneEditorScreen(
                     }
                     activeScene.layers.remove(layer)
                 },
-                modifier     = Modifier.weight(1f).fillMaxWidth().padding(horizontal = TIMELINE_HORIZONTAL_PADDING_DP.dp),
+                modifier     = Modifier.weight(1f).fillMaxWidth(),
             )
         }
         }
@@ -668,7 +688,14 @@ private fun SceneOptionsCard(
 }
 
 @Composable
-private fun ZoomControls(pxPerMs: Float, minPxPerMs: Float, onPxPerMs: (Float) -> Unit, onFit: () -> Unit) {
+private fun ZoomControls(
+    pxPerMs: Float,
+    minPxPerMs: Float,
+    onPxPerMs: (Float) -> Unit,
+    onFit: () -> Unit,
+    snapMode: Boolean,
+    onSnapModeChange: (Boolean) -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -688,6 +715,15 @@ private fun ZoomControls(pxPerMs: Float, minPxPerMs: Float, onPxPerMs: (Float) -
         IconButton(onClick = onFit) {
             Icon(Icons.Default.CropFree, contentDescription = "Fit timeline to screen")
         }
+        FilledIconToggleButton(
+            checked         = snapMode,
+            onCheckedChange = onSnapModeChange,
+        ) {
+            Icon(
+                Icons.Default.GridOn,
+                contentDescription = if (snapMode) "Disable snapping" else "Enable snapping",
+            )
+        }
     }
 }
 
@@ -698,6 +734,7 @@ private fun SceneTimeline(
     hScroll: androidx.compose.foundation.ScrollState,
     baseColors: List<String>,
     stopsFor: (EditableLayer) -> List<PaletteStop>?,
+    snapMode: Boolean,
     onEditStep: (EditableLayer, EditableStep) -> Unit,
     onEditLayer: (EditableLayer) -> Unit,
     viewportWidthPx: Float,
@@ -709,25 +746,37 @@ private fun SceneTimeline(
 
     val layerOffsets = computeLayerOffsets(scene.layers)
     val maxDurationMs = maxDurationMs(scene.layers)
-    val contentWidthPx = maxDurationMs * pxPerMs + CONTENT_TAIL_PX
+    val contentMarginDp = TIMELINE_CONTENT_MARGIN_DP.dp
+    val contentWidthPx = maxDurationMs * pxPerMs + CONTENT_TAIL_PX + 2 * with(density) { contentMarginDp.toPx() }
     val contentWidthDp = with(density) { contentWidthPx.toDp() }
-
-    // Cross-layer drag session: how many rows the finger has moved from the source layer.
-    val rowHeightPx = with(density) { TRACK_HEIGHT_DP.dp.toPx() }
-    var dragSourceIndex by remember { mutableStateOf<Int?>(null) }
-    var dragRowDelta by remember { mutableFloatStateOf(0f) }
-    val dropTargetIndex: Int? = dragSourceIndex?.let { src ->
-        (src + (dragRowDelta / rowHeightPx).roundToInt()).coerceIn(0, scene.layers.lastIndex)
-    }
+    val snapToleranceMs = (SNAP_DISTANCE_PX / pxPerMs).roundToInt().coerceAtLeast(1)
 
     // startAfter connector arrows: capture each track's window position so a fixed overlay can
     // draw meandering links from a target layer/step end into the dependent layer's first step.
     val trackPos = remember { mutableStateMapOf<Long, Offset>() }
     var canvasPos by remember { mutableStateOf<Offset?>(null) }
 
+    // Cross-layer drag session: how many rows the finger has moved from the source layer.
+    // Measured from actual track positions (header + track + divider), not just TRACK_HEIGHT_DP,
+    // since the header adds extra height per row.
+    val fallbackRowHeightPx = with(density) { TRACK_HEIGHT_DP.dp.toPx() }
+    val rowHeightPx = if (scene.layers.size >= 2) {
+        val y0 = trackPos[scene.layers[0].id]?.y
+        val y1 = trackPos[scene.layers[1].id]?.y
+        if (y0 != null && y1 != null && y1 != y0) kotlin.math.abs(y1 - y0) else fallbackRowHeightPx
+    } else fallbackRowHeightPx
+    var dragSourceIndex by remember { mutableStateOf<Int?>(null) }
+    var dragRowDelta by remember { mutableFloatStateOf(0f) }
+    val dropTargetIndex: Int? = dragSourceIndex?.let { src ->
+        (src + (dragRowDelta / rowHeightPx).roundToInt()).coerceIn(0, scene.layers.lastIndex)
+    }
+
     // Floating "ghost" of the block currently being dragged, drawn in an unclipped overlay so it
     // stays visible above other layers' tracks (the per-track horizontalScroll clips overflow).
     var dragGhost by remember { mutableStateOf<DragGhost?>(null) }
+
+    // Subtle line + arrow pointing at the element a block is currently snapped to.
+    var snapIndicator by remember { mutableStateOf<SnapIndicator?>(null) }
     val connColor = MaterialTheme.colorScheme.primary
     val connectors = run {
         val byName = scene.layers.associateBy { it.name.trim() }
@@ -746,7 +795,7 @@ private fun SceneTimeline(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
-            TimeRuler(maxDurationMs, pxPerMs, hScroll, contentWidthDp, contentWidthPx, viewportWidthPx, scrollScope)
+            TimeRuler(maxDurationMs, pxPerMs, hScroll, contentWidthDp, contentMarginDp, contentWidthPx, viewportWidthPx, scrollScope)
             HorizontalDivider()
 
             scene.layers.forEachIndexed { i, layer ->
@@ -760,12 +809,18 @@ private fun SceneTimeline(
                     pxPerMs        = pxPerMs,
                     hScroll        = hScroll,
                     contentWidthDp = contentWidthDp,
+                    contentMarginDp = contentMarginDp,
                     paletteStops   = stopsFor(layer),
                     baseColors     = baseColors,
                     isDropTarget   = dropTargetIndex == i && dropTargetIndex != dragSourceIndex,
                     isDragSource   = dragSourceIndex == i,
                     canvasPos      = canvasPos,
+                    snapMode       = snapMode,
+                    snapTargetsFor = { step -> snapTargets(scene.layers, layerOffsets, step) },
+                    snapToleranceMs = snapToleranceMs,
+                    trackPos       = trackPos,
                     onGhostChange  = { dragGhost = it },
+                    onSnapIndicatorChange = { snapIndicator = it },
                     onTrackPositioned = { trackPos[layer.id] = it },
                     onEditLayer    = { onEditLayer(layer) },
                     onEditStep     = { step -> onEditStep(layer, step) },
@@ -785,7 +840,11 @@ private fun SceneTimeline(
                         val base = layer.placedBlocks().firstOrNull { it.step === step }?.startMs ?: 0
                         val sourceOffset = layerOffsets[layer.id] ?: 0
                         val targetOffset = layerOffsets[target.id] ?: 0
-                        val absoluteNew = base + sourceOffset + deltaMs
+                        var absoluteNew = base + sourceOffset + deltaMs
+                        if (snapMode) {
+                            val points = snapPoints(scene.layers, layerOffsets, step)
+                            absoluteNew = snapBlockEdges(absoluteNew, step.durationMs, points, snapToleranceMs)
+                        }
                         val newStart = (absoluteNew - targetOffset).coerceAtLeast(0)
                         moveBlock(scene.layers, layer, target, step, newStart)
                         dragSourceIndex = null
@@ -796,14 +855,31 @@ private fun SceneTimeline(
                         val p = placed.firstOrNull { it.step === step } ?: return@LayerTrackRow
                         val end = p.startMs + step.durationMs
                         val deltaMs = (dxPx / pxPerMs).roundToInt()
-                        val newStart = (p.startMs + deltaMs).coerceIn(0, end - BLOCK_MIN_MS)
+                        var newStart = (p.startMs + deltaMs).coerceIn(0, end - BLOCK_MIN_MS)
+                        if (snapMode) {
+                            val sourceOffset = layerOffsets[layer.id] ?: 0
+                            val points = snapPoints(scene.layers, layerOffsets, step)
+                            val snapped = points.minByOrNull { kotlin.math.abs(it - (newStart + sourceOffset)) }
+                                ?.takeIf { kotlin.math.abs(it - (newStart + sourceOffset)) <= snapToleranceMs }
+                            if (snapped != null) newStart = (snapped - sourceOffset).coerceIn(0, end - BLOCK_MIN_MS)
+                        }
                         step.durationMs = end - newStart
                         layer.applyPlaced(placed.map { if (it.step === step) Placed(step, newStart) else it })
                     },
                     onBlockResizeRight = { step, dxPx ->
                         val placed = layer.placedBlocks()
+                        val p = placed.firstOrNull { it.step === step } ?: return@LayerTrackRow
                         val deltaMs = (dxPx / pxPerMs).roundToInt()
-                        step.durationMs = (step.durationMs + deltaMs).coerceAtLeast(BLOCK_MIN_MS)
+                        var newDuration = (step.durationMs + deltaMs).coerceAtLeast(BLOCK_MIN_MS)
+                        if (snapMode) {
+                            val sourceOffset = layerOffsets[layer.id] ?: 0
+                            val points = snapPoints(scene.layers, layerOffsets, step)
+                            val absEnd = p.startMs + sourceOffset + newDuration
+                            val snapped = points.minByOrNull { kotlin.math.abs(it - absEnd) }
+                                ?.takeIf { kotlin.math.abs(it - absEnd) <= snapToleranceMs }
+                            if (snapped != null) newDuration = (snapped - sourceOffset - p.startMs).coerceAtLeast(BLOCK_MIN_MS)
+                        }
+                        step.durationMs = newDuration
                         layer.applyPlaced(placed)
                     },
                 )
@@ -826,6 +902,32 @@ private fun SceneTimeline(
             color      = connColor,
             modifier   = Modifier.matchParentSize(),
         )
+
+        snapIndicator?.let { indicator ->
+            val color = MaterialTheme.colorScheme.primary
+            Canvas(Modifier.matchParentSize()) {
+                val arrow = 4.dp.toPx()
+                val dir = if (indicator.toYPx >= indicator.fromYPx) 1f else -1f
+                val tip = Offset(indicator.xPx, indicator.toYPx)
+                drawLine(
+                    color       = color.copy(alpha = 0.6f),
+                    start       = Offset(indicator.xPx, indicator.fromYPx),
+                    end         = tip,
+                    strokeWidth = 1.5.dp.toPx(),
+                    cap         = StrokeCap.Round,
+                    pathEffect  = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())),
+                )
+                drawPath(
+                    path = Path().apply {
+                        moveTo(tip.x, tip.y)
+                        lineTo(tip.x - arrow, tip.y - dir * arrow)
+                        lineTo(tip.x + arrow, tip.y - dir * arrow)
+                        close()
+                    },
+                    color = color.copy(alpha = 0.6f),
+                )
+            }
+        }
 
         dragGhost?.let { ghost ->
             Box(
@@ -866,11 +968,12 @@ private fun ConnectorArrows(
         val inset  = BLOCK_VERTICAL_INSET_DP.dp.toPx()
         val arrow  = CONN_ARROW_DP.dp.toPx()
         val stroke = CONN_STROKE_DP.dp.toPx()
+        val margin = TIMELINE_CONTENT_MARGIN_DP.dp.toPx()
 
         connectors.forEach { c ->
             val sPos = trackPos[c.sourceId] ?: return@forEach
             val tPos = trackPos[c.targetId] ?: return@forEach
-            val x = (tPos.x - origin.x) + c.boundaryMs * pxPerMs - scrollX
+            val x = (tPos.x - origin.x) + margin + c.boundaryMs * pxPerMs - scrollX
 
             // Exit the target's near edge, arrow into the source's near edge (down when below).
             val start = if (c.downward) Offset(x, (tPos.y - origin.y) + rowH - inset) else Offset(x, (tPos.y - origin.y) + inset)
@@ -888,6 +991,43 @@ private fun ConnectorArrows(
                 color = color,
             )
         }
+    }
+}
+
+/** Absolute-timeline edges (block starts and ends) of every step, used as snap targets for
+ *  drags/resizes. Each point is paired with the id of the layer it belongs to (`null` for the
+ *  timeline origin) so a snap indicator can point at the matched row. */
+private fun snapTargets(layers: List<EditableLayer>, layerOffsets: Map<Long, Int>, exclude: EditableStep?): List<Pair<Int, Long?>> {
+    val points = mutableListOf<Pair<Int, Long?>>(0 to null)
+    layers.forEach { layer ->
+        val offset = layerOffsets[layer.id] ?: 0
+        layer.placedBlocks().forEach { p ->
+            if (p.step === exclude) return@forEach
+            points += (offset + p.startMs) to layer.id
+            points += (offset + p.startMs + p.step.durationMs) to layer.id
+        }
+    }
+    return points
+}
+
+/** Absolute-timeline edges (block starts and ends) of every step, used as snap targets for drags/resizes. */
+private fun snapPoints(layers: List<EditableLayer>, layerOffsets: Map<Long, Int>, exclude: EditableStep?): List<Int> =
+    snapTargets(layers, layerOffsets, exclude).map { it.first }
+
+/** Snaps either edge of a [durationMs]-wide block at [startMs] to the nearest [points] within [toleranceMs], preferring whichever edge moves least. */
+private fun snapBlockEdges(startMs: Int, durationMs: Int, points: List<Int>, toleranceMs: Int): Int {
+    fun nearest(value: Int): Int? =
+        points.minByOrNull { kotlin.math.abs(it - value) }?.takeIf { kotlin.math.abs(it - value) <= toleranceMs }
+
+    val endMs = startMs + durationMs
+    val startSnap = nearest(startMs)
+    val endSnap = nearest(endMs)
+    return when {
+        startSnap != null && endSnap != null ->
+            if (kotlin.math.abs(startSnap - startMs) <= kotlin.math.abs(endSnap - endMs)) startSnap else endSnap - durationMs
+        startSnap != null -> startSnap
+        endSnap != null -> endSnap - durationMs
+        else -> startMs
     }
 }
 
@@ -927,6 +1067,7 @@ private fun TimeRuler(
     pxPerMs: Float,
     hScroll: androidx.compose.foundation.ScrollState,
     contentWidthDp: androidx.compose.ui.unit.Dp,
+    contentMarginDp: androidx.compose.ui.unit.Dp,
     contentWidthPx: Float,
     viewportWidthPx: Float,
     scrollScope: CoroutineScope,
@@ -942,7 +1083,7 @@ private fun TimeRuler(
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
     ) {
         Box(Modifier.fillMaxSize().horizontalScroll(hScroll)) {
-            Box(Modifier.width(contentWidthDp).fillMaxHeight()) {
+            Box(Modifier.width(contentWidthDp).fillMaxHeight().padding(horizontal = contentMarginDp)) {
                 ticks.forEach { ms ->
                     val x = (ms * pxPerMs).roundToInt()
                     Text(
@@ -1007,12 +1148,18 @@ private fun LayerTrackRow(
     pxPerMs: Float,
     hScroll: androidx.compose.foundation.ScrollState,
     contentWidthDp: androidx.compose.ui.unit.Dp,
+    contentMarginDp: androidx.compose.ui.unit.Dp,
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
     isDropTarget: Boolean,
     isDragSource: Boolean,
     canvasPos: Offset?,
+    snapMode: Boolean,
+    snapTargetsFor: (EditableStep) -> List<Pair<Int, Long?>>,
+    snapToleranceMs: Int,
+    trackPos: Map<Long, Offset>,
     onGhostChange: (DragGhost?) -> Unit,
+    onSnapIndicatorChange: (SnapIndicator?) -> Unit,
     onTrackPositioned: (Offset) -> Unit,
     onEditLayer: () -> Unit,
     onEditStep: (EditableStep) -> Unit,
@@ -1103,7 +1250,7 @@ private fun LayerTrackRow(
                 .background(trackBg)
                 .horizontalScroll(hScroll),
         ) {
-            Box(Modifier.width(contentWidthDp).fillMaxHeight()) {
+            Box(Modifier.width(contentWidthDp).fillMaxHeight().padding(horizontal = contentMarginDp)) {
                 layer.placedBlocks().forEach { placed ->
                     BlockView(
                         step          = placed.step,
@@ -1112,7 +1259,12 @@ private fun LayerTrackRow(
                         paletteStops  = paletteStops,
                         baseColors    = baseColors,
                         canvasPos     = canvasPos,
+                        snapMode      = snapMode,
+                        snapTargetsFor = snapTargetsFor,
+                        snapToleranceMs = snapToleranceMs,
+                        trackPos      = trackPos,
                         onGhostChange = onGhostChange,
+                        onSnapIndicatorChange = onSnapIndicatorChange,
                         onEdit        = { onEditStep(placed.step) },
                         onMove        = { dx, dy -> onBlockMove(placed.step, dx, dy) },
                         onMoveEnd     = { dx, dy -> onBlockMoveEnd(placed.step, dx, dy) },
@@ -1185,7 +1337,12 @@ private fun BlockView(
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
     canvasPos: Offset?,
+    snapMode: Boolean,
+    snapTargetsFor: (EditableStep) -> List<Pair<Int, Long?>>,
+    snapToleranceMs: Int,
+    trackPos: Map<Long, Offset>,
     onGhostChange: (DragGhost?) -> Unit,
+    onSnapIndicatorChange: (SnapIndicator?) -> Unit,
     onEdit: () -> Unit,
     onMove: (dxPx: Float, dyPx: Float) -> Unit,
     onMoveEnd: (dxPx: Float, dyPx: Float) -> Unit,
@@ -1204,18 +1361,51 @@ private fun BlockView(
     var rightDx by remember(step.id) { mutableFloatStateOf(0f) }
     var dragging by remember(step.id) { mutableStateOf(false) }
 
+    // detectDragGesturesAfterLongPress/detectHorizontalDragGestures loop across multiple gesture
+    // sessions within the same pointerInput launch (keyed on step.id/pxPerMs only), so values that
+    // can change between sessions without relaunching the gesture must be read via
+    // rememberUpdatedState — otherwise later sessions see the values captured at first launch.
+    val currentStartMs by rememberUpdatedState(startMs)
+    val currentCanvasPos by rememberUpdatedState(canvasPos)
+    val currentTrackPos by rememberUpdatedState(trackPos)
+    val currentSnapMode by rememberUpdatedState(snapMode)
+    val currentSnapTargetsFor by rememberUpdatedState(snapTargetsFor)
+    val currentSnapToleranceMs by rememberUpdatedState(snapToleranceMs)
+
+    /** Result of snapping a raw drag delta: the (possibly adjusted) pixel delta, and — if a snap
+     *  point matched — the absolute ms and owning layer id of the matched edge. */
+    data class SnapResult(val deltaPx: Float, val matchedLayerId: Long?)
+
+    /** Snaps [rawDeltaPx] so that the edge currently at [edgeMs] lands on the nearest snap point
+     *  within tolerance, falling back to the raw delta when nothing is close enough. */
+    fun snapResult(rawDeltaPx: Float, edgeMs: Int): SnapResult {
+        // Only snap while actively dragging; at rest (rawDeltaPx == 0) snapping to a nearby
+        // edge would visibly shift this block's width/position whenever snap mode toggles.
+        if (!currentSnapMode || rawDeltaPx == 0f) return SnapResult(rawDeltaPx, null)
+        val candidateMs = edgeMs + (rawDeltaPx / pxPerMs).roundToInt()
+        val match = currentSnapTargetsFor(step)
+            .minByOrNull { kotlin.math.abs(it.first - candidateMs) }
+            ?.takeIf { kotlin.math.abs(it.first - candidateMs) <= currentSnapToleranceMs }
+        return if (match != null) SnapResult((match.first - edgeMs) * pxPerMs, match.second) else SnapResult(rawDeltaPx, null)
+    }
+
+    fun snapDeltaPx(rawDeltaPx: Float, edgeMs: Int): Float = snapResult(rawDeltaPx, edgeMs).deltaPx
+
     // Position stays static while move-dragging; only the floating ghost (in the unclipped
     // overlay) follows the finger, since this block's own track clips vertical overflow.
-    val offsetPx = (baseStartPx + leftDx).roundToInt()
+    val offsetPx = (baseStartPx + snapDeltaPx(leftDx, startMs)).roundToInt()
     val offsetYPx = with(density) { BLOCK_VERTICAL_INSET_DP.dp.toPx() }.roundToInt()
-    val widthPx = (baseWidthPx - leftDx + rightDx).coerceAtLeast(8f)
+    val widthPx = (baseWidthPx - snapDeltaPx(leftDx, startMs) + snapDeltaPx(rightDx, startMs + step.durationMs)).coerceAtLeast(8f)
     val widthDp = with(density) { widthPx.toDp() }
     val heightDp = (TRACK_HEIGHT_DP - 2 * BLOCK_VERTICAL_INSET_DP).dp
+    val heightPx = with(density) { heightDp.toPx() }
+    val rowHPx = with(density) { TRACK_HEIGHT_DP.dp.toPx() }
+    val insetPx = with(density) { BLOCK_VERTICAL_INSET_DP.dp.toPx() }
 
     var blockWindowPos by remember { mutableStateOf(Offset.Zero) }
 
     fun updateGhost() {
-        val origin = canvasPos ?: return
+        val origin = currentCanvasPos ?: return
         onGhostChange(
             DragGhost(
                 step         = step,
@@ -1223,7 +1413,30 @@ private fun BlockView(
                 baseColors   = baseColors,
                 width        = widthDp,
                 height       = heightDp,
-                topLeftPx    = blockWindowPos - origin + Offset(moveDx, moveDy),
+                topLeftPx    = blockWindowPos - origin + Offset(snapDeltaPx(moveDx, currentStartMs), moveDy),
+            ),
+        )
+    }
+
+    /** Shows a line+arrow from this block's near edge to the matching corner of the row
+     *  [result] snapped against, or hides it if nothing matched. Mirrors the corner geometry
+     *  used by [ConnectorArrows] for startAfter links. */
+    fun updateSnapIndicator(result: SnapResult, anchorXPx: Float) {
+        val origin = currentCanvasPos
+        val layerId = result.matchedLayerId
+        val targetTop = layerId?.let { currentTrackPos[it] }
+        if (origin == null || targetTop == null) {
+            onSnapIndicatorChange(null)
+            return
+        }
+        val downward = targetTop.y > blockWindowPos.y
+        val fromY = if (downward) blockWindowPos.y - origin.y + heightPx else blockWindowPos.y - origin.y
+        val toY = if (downward) targetTop.y - origin.y + insetPx else targetTop.y - origin.y + rowHPx - insetPx
+        onSnapIndicatorChange(
+            SnapIndicator(
+                xPx     = anchorXPx,
+                fromYPx = fromY,
+                toYPx   = toY,
             ),
         )
     }
@@ -1248,14 +1461,29 @@ private fun BlockView(
             .pointerInput(step.id, pxPerMs) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { dragging = true; moveDx = 0f; moveDy = 0f; updateGhost() },
-                    onDragEnd   = { dragging = false; onMoveEnd(moveDx, moveDy); moveDx = 0f; moveDy = 0f; onGhostChange(null) },
-                    onDragCancel = { dragging = false; moveDx = 0f; moveDy = 0f; onGhostChange(null) },
+                    onDragEnd   = {
+                        dragging = false
+                        onMoveEnd(snapDeltaPx(moveDx, currentStartMs), moveDy)
+                        moveDx = 0f; moveDy = 0f
+                        onGhostChange(null)
+                        onSnapIndicatorChange(null)
+                    },
+                    onDragCancel = {
+                        dragging = false; moveDx = 0f; moveDy = 0f
+                        onGhostChange(null)
+                        onSnapIndicatorChange(null)
+                    },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         moveDx += dragAmount.x
                         moveDy += dragAmount.y
-                        onMove(moveDx, moveDy)
+                        val result = snapResult(moveDx, currentStartMs)
+                        onMove(result.deltaPx, moveDy)
                         updateGhost()
+                        val origin = currentCanvasPos
+                        if (origin != null) {
+                            updateSnapIndicator(result, blockWindowPos.x - origin.x + result.deltaPx)
+                        }
                     },
                 )
             },
@@ -1270,9 +1498,15 @@ private fun BlockView(
                 .width(14.dp)
                 .pointerInput(step.id, pxPerMs) {
                     detectHorizontalDragGestures(
-                        onDragEnd = { onResizeLeft(leftDx); leftDx = 0f },
-                        onDragCancel = { leftDx = 0f },
-                        onHorizontalDrag = { change, dx -> change.consume(); leftDx += dx },
+                        onDragEnd = { onResizeLeft(snapDeltaPx(leftDx, currentStartMs)); leftDx = 0f; onSnapIndicatorChange(null) },
+                        onDragCancel = { leftDx = 0f; onSnapIndicatorChange(null) },
+                        onHorizontalDrag = { change, dx ->
+                            change.consume()
+                            leftDx += dx
+                            val result = snapResult(leftDx, currentStartMs)
+                            val origin = currentCanvasPos
+                            if (origin != null) updateSnapIndicator(result, blockWindowPos.x - origin.x)
+                        },
                     )
                 },
             contentAlignment = Alignment.Center,
@@ -1287,9 +1521,15 @@ private fun BlockView(
                 .width(14.dp)
                 .pointerInput(step.id, pxPerMs) {
                     detectHorizontalDragGestures(
-                        onDragEnd = { onResizeRight(rightDx); rightDx = 0f },
-                        onDragCancel = { rightDx = 0f },
-                        onHorizontalDrag = { change, dx -> change.consume(); rightDx += dx },
+                        onDragEnd = { onResizeRight(snapDeltaPx(rightDx, currentStartMs + step.durationMs)); rightDx = 0f; onSnapIndicatorChange(null) },
+                        onDragCancel = { rightDx = 0f; onSnapIndicatorChange(null) },
+                        onHorizontalDrag = { change, dx ->
+                            change.consume()
+                            rightDx += dx
+                            val result = snapResult(rightDx, currentStartMs + step.durationMs)
+                            val origin = currentCanvasPos
+                            if (origin != null) updateSnapIndicator(result, blockWindowPos.x - origin.x + widthPx)
+                        },
                     )
                 },
             contentAlignment = Alignment.Center,
