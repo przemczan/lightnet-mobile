@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**This code is still in heavy development**. At this point anything can be changed, backwards compatibility is not a concern.
+**Never** suggest in comments that something has been changed or how the code was working previously, always treat the current code as the only known version.
+**For now** do NOT bump protocol version when changing protocols/APIs, as I said, backwards compatibility is not a concern at this point.
+
 ## Companion Repos
 
 - **Firmware** — `../lightnet-firmware` (relative to this repo). Check `lib/Lightnet/Controller/API/http/` for route handler implementations to verify HTTP verb, endpoint path, and exact JSON field names before adding API calls to `LightnetHttpClient`.

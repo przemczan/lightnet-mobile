@@ -27,8 +27,10 @@ object AnimationType {
     const val REACTIVE = "REACTIVE"
 
     // Modifier layers — transform the colour composited below them (scene-authoring §5.1).
-    const val MOD_BRIGHTNESS = "MOD_BRIGHTNESS"
-    const val MOD_SATURATION = "MOD_SATURATION"
+    const val MOD_DIM = "MOD_DIM"
+    const val MOD_BRIGHTEN = "MOD_BRIGHTEN"
+    const val MOD_DESATURATE = "MOD_DESATURATE"
+    const val MOD_SATURATE = "MOD_SATURATE"
     const val MOD_HUE_SHIFT = "MOD_HUE_SHIFT"
     const val MOD_INVERT = "MOD_INVERT"
 }

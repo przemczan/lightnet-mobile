@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
+import com.lightnet.api.http.model.AnimationType
 import com.lightnet.api.http.model.ColorRef
 import com.lightnet.api.http.model.PanelTarget
 import com.lightnet.api.http.model.RunnerTarget
@@ -61,13 +62,15 @@ enum class AnimId(
     STROBE("Strobe", false, ColorMode.Single, listOf(ParamSpec("Frequency (Hz)", 1, 30, 8)), "STROBE"),
     REACTIVE("Reactive", false, ColorMode.FromTo, listOf(ParamSpec("Decay", 0, 255, 180)), "REACTIVE"),
     // Modifier layers — transform the colour composited below them (params = from→to scalar).
+    // Wire type depends on direction: from >= to -> MOD_DIM, from < to -> MOD_BRIGHTEN.
     MOD_BRIGHTNESS(
         "Modifier · Brightness", false, ColorMode.None,
-        listOf(ParamSpec("From", 0, 255, 255), ParamSpec("To", 0, 255, 64)), "MOD_BRIGHTNESS", isModifier = true,
+        listOf(ParamSpec("From", 0, 255, 255), ParamSpec("To", 0, 255, 64)), null, isModifier = true,
     ),
+    // Wire type depends on direction: from >= to -> MOD_DESATURATE, from < to -> MOD_SATURATE.
     MOD_SATURATION(
         "Modifier · Saturation", false, ColorMode.None,
-        listOf(ParamSpec("From", 0, 255, 255), ParamSpec("To", 0, 255, 0)), "MOD_SATURATION", isModifier = true,
+        listOf(ParamSpec("From", 0, 255, 255), ParamSpec("To", 0, 255, 0)), null, isModifier = true,
     ),
     MOD_HUE_SHIFT(
         "Modifier · Hue shift", false, ColorMode.None,
@@ -107,6 +110,10 @@ enum class AnimId(
         fun fromStep(step: SceneStep): AnimId {
             step.runner?.let { r -> entries.firstOrNull { it.isRunner && it.wireName == r }?.let { return it } }
             if (step.type == "TRANSITION") return FADE  // firmware alias for FADE
+            when (step.type) {
+                "MOD_DIM", "MOD_BRIGHTEN" -> return MOD_BRIGHTNESS
+                "MOD_DESATURATE", "MOD_SATURATE" -> return MOD_SATURATION
+            }
             step.type?.let { t -> entries.firstOrNull { !it.isRunner && it.wireName == t }?.let { return it } }
             return GAP
         }
@@ -416,12 +423,22 @@ private fun EditableStep.toSceneStepBody(): SceneStep {
     }
     if (a.isModifier) {
         // Modifier: emit the from→to scalar (params[0]/params[1]) as the `from`/`to` keys.
+        // The wire type encodes direction: identity-at-255 (DIM/DESATURATE) when decreasing,
+        // identity-at-0 (BRIGHTEN/SATURATE) when increasing.
+        val from = params.getOrElse(0) { a.params[0].default }
+        val to = params.getOrElse(1) { a.params[1].default }
+        val decreasing = from >= to
+        val wire = when (a) {
+            AnimId.MOD_BRIGHTNESS -> if (decreasing) AnimationType.MOD_DIM else AnimationType.MOD_BRIGHTEN
+            AnimId.MOD_SATURATION -> if (decreasing) AnimationType.MOD_DESATURATE else AnimationType.MOD_SATURATE
+            else -> a.wireName
+        }
         return SceneStep(
-            type     = a.wireName,
+            type     = wire,
             duration = durationMs,
             loop     = if (loop) true else null,
-            from     = params.getOrElse(0) { a.params[0].default },
-            to       = params.getOrElse(1) { a.params[1].default },
+            from     = from,
+            to       = to,
         )
     }
     return SceneStep(
@@ -445,7 +462,7 @@ private fun EditableLayer.toPanelTarget(panels: List<LightnetDevicePanel>): Pane
         TargetKind.Advanced -> rawTarget ?: PanelTarget.All
     }
 
-fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
+fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>, devicePalette: String? = null): SceneJson {
     val usesCompositing = background != null ||
         layers.any { l -> l.blend != null || l.steps.any { it.anim.isModifier } }
     val usesGeometric = layers.any { l -> l.steps.any { it.geometric } }
@@ -471,12 +488,12 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
         loop       = loop,
         speed      = speed,
         background = background,
-        palette    = palette,
+        palette    = palette ?: devicePalette,
         layers     = layers.map { l ->
             SceneLayer(
                 group      = l.name.trim(),
                 panels     = l.toPanelTarget(panels),
-                palette    = l.palette,
+                palette    = l.palette ?: palette ?: devicePalette,
                 sequence   = l.steps.map { it.toSceneStep() },
                 startAfter = l.startAfter?.trim()?.ifBlank { null },
                 async      = when (l.asyncMode) { AsyncMode.Loop -> "loop"; AsyncMode.Free -> "free"; else -> null },
@@ -493,8 +510,8 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
  * live preview. The controller also skips disabled layers during playback, but filtering
  * them here avoids sending them at all for the preview.
  */
-fun EditableScene.toPreviewSceneJson(panels: List<LightnetDevicePanel>): SceneJson {
-    val full = toSceneJson(panels)
+fun EditableScene.toPreviewSceneJson(panels: List<LightnetDevicePanel>, devicePalette: String? = null): SceneJson {
+    val full = toSceneJson(panels, devicePalette)
     if (layers.all { it.enabled }) return full
     val keep = layers.indices.filter { layers[it].enabled }.toSet()
     return full.copy(layers = full.layers.filterIndexed { i, _ -> i in keep })

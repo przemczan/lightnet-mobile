@@ -91,6 +91,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -482,7 +483,7 @@ fun TimelineSceneEditorScreen(
                     onClick = {
                         val err = activeScene.validationError()
                         if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@OutlinedButton }
-                        val json = previewJson.encodeToString(SceneJson.serializer(), activeScene.toPreviewSceneJson(panels))
+                        val json = previewJson.encodeToString(SceneJson.serializer(), activeScene.toPreviewSceneJson(panels, devicePalette))
                         offlineService.play(json)
                         showPreviewModal = true
                     },
@@ -786,6 +787,7 @@ private fun SceneTimeline(
     // draw meandering links from a target layer/step end into the dependent layer's first step.
     val trackPos = remember { mutableStateMapOf<Long, Offset>() }
     var canvasPos by remember { mutableStateOf<Offset?>(null) }
+    var trackAreaTopPx by remember { mutableStateOf(0f) }
 
     // Cross-layer drag session: how many rows the finger has moved from the source layer.
     // Measured from actual track positions (header + track + divider), not just TRACK_HEIGHT_DP,
@@ -821,14 +823,15 @@ private fun SceneTimeline(
     }
 
     Box(modifier.onGloballyPositioned { canvasPos = it.positionInWindow() }) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-        ) {
+        Column(Modifier.fillMaxSize()) {
             TimeRuler(maxDurationMs, pxPerMs, hScroll, contentWidthDp, contentMarginDp, contentWidthPx, viewportWidthPx, scrollScope)
             HorizontalDivider()
 
+            Column(
+                Modifier.onGloballyPositioned { trackAreaTopPx = it.positionInWindow().y - (canvasPos?.y ?: 0f) }
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+            ) {
             scene.layers.forEachIndexed { i, layer ->
                 LayerTrackRow(
                     layer          = layer,
@@ -922,6 +925,7 @@ private fun SceneTimeline(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             ) { Text("+ Add layer") }
             Spacer(Modifier.height(24.dp))
+            }
         }
 
         ConnectorArrows(
@@ -931,12 +935,14 @@ private fun SceneTimeline(
             pxPerMs    = pxPerMs,
             scrollX    = hScroll.value.toFloat(),
             color      = connColor,
+            clipTopPx  = trackAreaTopPx,
             modifier   = Modifier.matchParentSize(),
         )
 
         snapIndicator?.let { indicator ->
             val color = MaterialTheme.colorScheme.primary
             Canvas(Modifier.matchParentSize()) {
+                clipRect(top = trackAreaTopPx) {
                 val arrow = 4.dp.toPx()
                 val dir = if (indicator.toYPx >= indicator.fromYPx) 1f else -1f
                 val tip = Offset(indicator.xPx, indicator.toYPx)
@@ -957,6 +963,7 @@ private fun SceneTimeline(
                     },
                     color = color.copy(alpha = 0.6f),
                 )
+                }
             }
         }
 
@@ -991,6 +998,7 @@ private fun ConnectorArrows(
     pxPerMs: Float,
     scrollX: Float,
     color: Color,
+    clipTopPx: Float,
     modifier: Modifier = Modifier,
 ) {
     Canvas(modifier.clipToBounds()) {
@@ -1001,6 +1009,7 @@ private fun ConnectorArrows(
         val stroke = CONN_STROKE_DP.dp.toPx()
         val margin = TIMELINE_CONTENT_MARGIN_DP.dp.toPx()
 
+        clipRect(top = clipTopPx) {
         connectors.forEach { c ->
             val sPos = trackPos[c.sourceId] ?: return@forEach
             val tPos = trackPos[c.targetId] ?: return@forEach
@@ -1021,6 +1030,7 @@ private fun ConnectorArrows(
                 },
                 color = color,
             )
+        }
         }
     }
 }
@@ -1422,6 +1432,14 @@ private fun BlockView(
 
     fun snapDeltaPx(rawDeltaPx: Float, edgeMs: Int): Float = snapResult(rawDeltaPx, edgeMs).deltaPx
 
+    /** Re-reads [step.durationMs] (mutated in place by other gestures) so gesture closures from a
+     *  stale pointerInput session — which captured [baseWidthPx]/[widthPx] at launch time — don't
+     *  use a width from before a resize that happened in a different session. */
+    fun currentWidthPx(leftDeltaPx: Float, rightDeltaPx: Float): Float =
+        ((step.durationMs * pxPerMs).coerceAtLeast(8f) -
+            snapDeltaPx(leftDeltaPx, currentStartMs) + snapDeltaPx(rightDeltaPx, currentStartMs + step.durationMs)
+        ).coerceAtLeast(8f)
+
     // Position stays static while move-dragging; only the floating ghost (in the unclipped
     // overlay) follows the finger, since this block's own track clips vertical overflow.
     val offsetPx = (baseStartPx + snapDeltaPx(leftDx, startMs)).roundToInt()
@@ -1442,7 +1460,7 @@ private fun BlockView(
                 step         = step,
                 paletteStops = paletteStops,
                 baseColors   = baseColors,
-                width        = widthDp,
+                width        = with(density) { currentWidthPx(leftDx, rightDx).toDp() },
                 height       = heightDp,
                 topLeftPx    = blockWindowPos - origin + Offset(snapDeltaPx(moveDx, currentStartMs), moveDy),
             ),
@@ -1559,7 +1577,7 @@ private fun BlockView(
                             rightDx += dx
                             val result = snapResult(rightDx, currentStartMs + step.durationMs)
                             val origin = currentCanvasPos
-                            if (origin != null) updateSnapIndicator(result, blockWindowPos.x - origin.x + widthPx)
+                            if (origin != null) updateSnapIndicator(result, blockWindowPos.x - origin.x + currentWidthPx(0f, rightDx))
                         },
                     )
                 },
