@@ -9,7 +9,7 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
 }
 
-// Firmware checkout holding the portable animation core (lib/Lightnet/Core/Anim) + its C ABI
+// Firmware checkout holding the portable animation core (lib/Lightnet/Core/Panel) + its C ABI
 // (lib/Lightnet/Core/CApi). Resolution order: -PlightnetFirmwareDir → third_party submodule → sibling.
 val lightnetFirmwareDir: String = run {
     val explicit = project.findProperty("lightnetFirmwareDir") as String?
@@ -37,15 +37,16 @@ kotlin {
             isStatic = true
         }
         // cinterop bindings for the animation core C ABI (animcore.*). The C++ object code is
-        // linked from the `anim_core` static lib built per-arch with CMake — see
-        // composeApp/src/iosMain/README.md (Mac-only; finalize linking there).
+        // linked from the `panel_core` and `controller_core` static libs built per-arch with
+        // CMake — see composeApp/src/iosMain/README.md (Mac-only; finalize linking there).
         // Guarded to macOS so configuring it never affects the Android build on Windows.
         if (org.jetbrains.kotlin.konan.target.HostManager.hostIsMac) {
             iosTarget.compilations.getByName("main").cinterops.create("animcore") {
                 defFile(project.file("src/nativeInterop/cinterop/animcore.def"))
                 includeDirs(
                     "$lightnetFirmwareDir/lib/Lightnet/Core/CApi",
-                    "$lightnetFirmwareDir/lib/Lightnet/Core/Anim",
+                    "$lightnetFirmwareDir/lib/Lightnet/Core/Panel",
+                    "$lightnetFirmwareDir/lib/Lightnet/Core/Common",
                 )
             }
         }

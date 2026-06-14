@@ -1,8 +1,9 @@
 # Native animation core (Android NDK)
 
-Builds `liblightnet_anim.so` from the firmware's portable `LightnetCore` (`lib/Lightnet/Core/Anim`) +
-its C ABI (`lib/Lightnet/Core/CApi`), wrapped in JNI (`jni_anim.cpp`). This is the shared C++ animation
-math the firmware runs — consumed here instead of re-implemented in Kotlin.
+Builds `liblightnet_anim.so` from the firmware's portable `LightnetCore` (`lib/Lightnet/Core/Panel`
++ `lib/Lightnet/Core/Controller/Scene`) + its C ABIs (`lib/Lightnet/Core/CApi`), wrapped in JNI
+(`jni_anim.cpp`, `jni_scene.cpp`). This is the shared C++ animation math the firmware runs —
+consumed here instead of re-implemented in Kotlin.
 
 ## Prerequisites
 

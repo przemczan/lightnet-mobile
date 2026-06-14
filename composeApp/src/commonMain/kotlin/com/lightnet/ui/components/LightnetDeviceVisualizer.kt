@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lightnet.api.websocket.model.PanelState
 import com.lightnet.device.LightnetDevicePanel
 import com.lightnet.geometry.GeometryUtils
 import com.lightnet.ui.toColorRgb
@@ -58,8 +59,11 @@ fun LightnetDeviceVisualizer(
     onTapWhileOff: (() -> Unit)? = null,
     rotationDegrees: Float = 0f,
     config: PanelVisualConfig = PanelVisualConfig(),
+    /** When set, render from these states (e.g. an offline scene preview) instead of each
+     *  panel's own [LightnetDevicePanel.state] flow. Indices must align with [panels]. */
+    overrideStates: List<PanelState>? = null,
 ) {
-    val states = panels.map { it.state.collectAsState() }
+    val liveStates = panels.map { it.state.collectAsState() }
     val textMeasurer = rememberTextMeasurer()
 
     // Stable refs for gesture handler — changes don't restart the gesture block.
@@ -286,7 +290,7 @@ fun LightnetDeviceVisualizer(
             // Pass 2 — panel bodies and overlays.
             rendered.forEach { r ->
                 val panel = panels[r.index]
-                val state = states[r.index].value
+                val state = overrideStates?.find { it.panelId == panel.info.id } ?: liveStates[r.index].value
                 translate(animOffsets[r.index].x, animOffsets[r.index].y) {
                     scale(animScales[r.index], pivot = panelScreenCenters[r.index]) {
                         drawPanelBackground(r.path, config)

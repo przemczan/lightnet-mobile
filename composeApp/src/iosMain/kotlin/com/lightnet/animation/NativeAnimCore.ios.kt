@@ -25,8 +25,8 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
 
-// iOS actual for NativeAnimCore — cinterop over anim_core_c.h. The C++ object code is linked from
-// the `anim_core` static library (build per arch with CMake; see src/iosMain/README.md).
+// iOS actual for NativeAnimCore — cinterop over panel_core_c.h. The C++ object code is linked from
+// the `panel_core` static library (build per arch with CMake; see src/iosMain/README.md).
 @OptIn(ExperimentalForeignApi::class)
 actual class NativeAnimCore actual constructor() {
     private var handle = anim_create()

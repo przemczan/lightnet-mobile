@@ -141,14 +141,14 @@ All player/state mutation is confined to a single-threaded dispatcher (`work`).
 
 Panel-local animation math (FADE/BREATHE/PULSE/…, layer compositing) is **not** re-implemented in
 Kotlin. The mobile app links the **same portable C++ core** the firmware panels run
-(`lib/Lightnet/Core/Anim` in `lightnet-firmware`), via a small C ABI
-(`lib/Lightnet/Core/CApi/anim_core_c.h`):
+(`lib/Lightnet/Core/Panel` in `lightnet-firmware`), via a small C ABI
+(`lib/Lightnet/Core/CApi/panel_core_c.h`):
 
 - **Android**: built via NDK `externalNativeBuild` (`composeApp/src/androidMain/cpp/`), JNI glue in
   `jni_anim.cpp` → `NativeAnimBridge` → `actual class NativeAnimCore` (`NativeAnimCore.android.kt`).
 - **iOS**: Kotlin/Native cinterop (`src/nativeInterop/cinterop/animcore.def`) binds
-  `anim_core_c.h` directly; `actual class NativeAnimCore` is `NativeAnimCore.ios.kt`. Build steps
-  (Mac-only, must finish linking `libanim_core.a`): `composeApp/src/iosMain/README.md`.
+  `panel_core_c.h` directly; `actual class NativeAnimCore` is `NativeAnimCore.ios.kt`. Build steps
+  (Mac-only, must finish linking `libpanel_core.a`): `composeApp/src/iosMain/README.md`.
 - **Firmware checkout location**: resolved by `composeApp/build.gradle.kts` (`lightnetFirmwareDir`):
   `-PlightnetFirmwareDir` (local.properties) → `third_party/lightnet-firmware` (submodule, not yet
   added) → `../lightnet-firmware` (sibling checkout — current setup).

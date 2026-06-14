@@ -1,7 +1,7 @@
 package com.lightnet.animation
 
 /**
- * Thin Kotlin façade over the shared C++ animation core (firmware lib/Lightnet/Core/Anim) via its
+ * Thin Kotlin façade over the shared C++ animation core (firmware lib/Lightnet/Core/Panel) via its
  * C ABI. Owns one native AnimationPlayer handle (one previewed panel).
  *
  * This is **only the animation math** — deterministic in `now` (a 16-bit ms counter, low 16 bits).
@@ -13,7 +13,7 @@ package com.lightnet.animation
  * Lifecycle: construct, then [close] to release the native handle. Not thread-safe — drive one
  * instance from one thread (the preview tick loop).
  *
- * actual impls: androidMain (JNI → liblightnet_anim.so), iosMain (cinterop → anim_core_c.h).
+ * actual impls: androidMain (JNI → liblightnet_anim.so), iosMain (cinterop → panel_core_c.h).
  */
 expect class NativeAnimCore() {
     /** PacketAnimationPrepare wire bytes (meta header included). */

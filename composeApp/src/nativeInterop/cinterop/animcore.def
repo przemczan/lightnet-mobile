@@ -1,7 +1,7 @@
-# Kotlin/Native cinterop for the animation core C ABI (anim_core_c.h).
-# Generates the `animcore.*` bindings used by iosMain/NativeAnimCore.ios.kt.
+# Kotlin/Native cinterop for the core C ABIs (panel_core_c.h + controller_core_c.h).
+# Generates the `animcore.*` bindings used by iosMain/NativeAnimCore.ios.kt and NativeSceneCore.ios.kt.
 # Include dirs are supplied from build.gradle.kts (resolved firmware path).
 package = animcore
 language = C
-headers = anim_core_c.h
-headerFilter = anim_core_c.h
+headers = panel_core_c.h controller_core_c.h
+headerFilter = panel_core_c.h controller_core_c.h

@@ -103,22 +103,26 @@ import com.lightnet.api.http.LightnetHttpClient
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.SceneJson
+import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.device.LightnetDevice
 import com.lightnet.device.LightnetDevicePanel
+import com.lightnet.device.OfflineSceneService
 import com.lightnet.settings.AppPreferences
 import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.components.LightnetDeviceVisualizer
 import com.lightnet.ui.components.SpeedSlider
 import com.lightnet.ui.components.colorRefToColor
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlin.math.roundToInt
 
 // ── Timeline scene editor ────────────────────────────────────────────────────────
@@ -267,6 +271,7 @@ fun TimelineSceneEditorScreen(
 ) {
     val scope    = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val previewJson = remember { Json { encodeDefaults = false } }
 
     val snapshot by remember(device) { device?.snapshot ?: MutableStateFlow(null) }.collectAsState()
     val panels = snapshot?.panels ?: emptyList()
@@ -274,7 +279,8 @@ fun TimelineSceneEditorScreen(
     var palettesMap by remember { mutableStateOf<Map<String, PaletteJson>>(emptyMap()) }
     var baseColors  by remember { mutableStateOf<List<String>>(emptyList()) }
     var devicePalette by remember { mutableStateOf<String?>(null) }
-    var tags        by remember { mutableStateOf<List<String>>(emptyList()) }
+    var topology    by remember { mutableStateOf<TopologyResponse?>(null) }
+    val tags = remember(topology) { topology?.tags?.values?.flatten()?.distinct()?.sorted() ?: emptyList() }
     LaunchedEffect(httpClient) {
         palettesMap = httpClient?.runCatching { getPalettes() }?.getOrNull() ?: emptyMap()
     }
@@ -282,7 +288,7 @@ fun TimelineSceneEditorScreen(
         val appearance = device?.loadAppearance() ?: device?.cachedAppearance
         baseColors = appearance?.baseColors ?: emptyList()
         devicePalette = appearance?.palette
-        tags = device?.getTopology()?.tags?.values?.flatten()?.distinct()?.sorted() ?: emptyList()
+        topology = device?.getTopology()
     }
     val paletteNames = remember(palettesMap) { palettesMap.keys.sorted() }
 
@@ -310,10 +316,31 @@ fun TimelineSceneEditorScreen(
     }
 
     val cleanupScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+
+    // Local, controller-free preview: runs the shared scene engine in-process and renders its
+    // packets through the same per-panel players the live mirror uses (OfflineSceneService).
+    val offlineService = remember { OfflineSceneService(cleanupScope) }
+    DisposableEffect(offlineService) { onDispose { offlineService.close() } }
+    val offlineStates by offlineService.states.collectAsState()
+    val offlineError by offlineService.error.collectAsState()
+
+    LaunchedEffect(panels, topology) {
+        if (panels.isEmpty()) return@LaunchedEffect
+        offlineService.setTopology(panels.map { it.info }, topology?.logicalRoot ?: 0)
+        offlineService.clearTags()
+        topology?.tags?.entries?.fold(mutableMapOf<String, MutableList<Int>>()) { acc, (panelId, panelTags) ->
+            val id = panelId.toIntOrNull()
+            if (id != null) panelTags.forEach { acc.getOrPut(it) { mutableListOf() }.add(id) }
+            acc
+        }?.forEach { (name, ids) -> offlineService.registerTag(name, ids) }
+    }
+    LaunchedEffect(palettesMap) {
+        offlineService.clearPalettes()
+        palettesMap.forEach { (name, palette) -> offlineService.registerPalette(name, palette.stops) }
+    }
+
     fun stopPreview() {
-        device?.setLivePreview(false)
-        val c = httpClient
-        if (c != null) cleanupScope.launch(NonCancellable) { runCatching { c.stopScene() } }
+        offlineService.stop()
     }
 
     var showPreviewModal by remember { mutableStateOf(false) }
@@ -455,8 +482,8 @@ fun TimelineSceneEditorScreen(
                     onClick = {
                         val err = activeScene.validationError()
                         if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@OutlinedButton }
-                        device?.setLivePreview(true)
-                        scope.launch { httpClient?.runCatching { playSceneInline(activeScene.toPreviewSceneJson(panels)) } }
+                        val json = previewJson.encodeToString(SceneJson.serializer(), activeScene.toPreviewSceneJson(panels))
+                        offlineService.play(json)
                         showPreviewModal = true
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -569,10 +596,14 @@ fun TimelineSceneEditorScreen(
             Surface(shape = MaterialTheme.shapes.large) {
                 Column(Modifier.padding(16.dp)) {
                     LightnetDeviceVisualizer(
-                        panels      = panels,
-                        modifier    = Modifier.fillMaxWidth().height(320.dp),
-                        interactive = false,
+                        panels         = panels,
+                        modifier       = Modifier.fillMaxWidth().height(320.dp),
+                        interactive    = false,
+                        overrideStates = offlineStates,
                     )
+                    offlineError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) {
                         TextButton(onClick = { stopPreview(); showPreviewModal = false }) { Text("Close") }
                     }

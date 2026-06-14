@@ -1,9 +1,10 @@
 # iOS native animation core (build on macOS)
 
-The iOS `NativeAnimCore` actual binds to the firmware C ABI (`anim_core_c.h`) via Kotlin/Native
+The iOS `NativeAnimCore` actual binds to the firmware C ABI (`panel_core_c.h`) via Kotlin/Native
 **cinterop** (configured in `composeApp/build.gradle.kts` → `cinterops.create("animcore")`, def at
 `src/nativeInterop/cinterop/animcore.def`). cinterop generates the `animcore.*` bindings; the C++
-object code (the player + shim) must be linked from the `anim_core` **static library**.
+object code (the player + shim) must be linked from the `panel_core` **static library** (and
+`controller_core` for `NativeSceneCore`).
 
 > iOS targets only build on macOS + Xcode. On Windows the iOS compilations are skipped, so the
 > Android build is unaffected — but the steps below must be completed on a Mac before the iOS app
@@ -11,8 +12,8 @@ object code (the player + shim) must be linked from the `anim_core` **static lib
 
 ## 1. Build the static lib per architecture (CMake, iOS toolchain)
 
-`lib/Lightnet/Core/CApi/CMakeLists.txt` already produces `libanim_core.a`. Build it for each slice
-(disable the host smoke exe):
+`lib/Lightnet/Core/CApi/CMakeLists.txt` already produces `libpanel_core.a` and
+`libcontroller_core.a`. Build it for each slice (disable the host smoke exes):
 
 ```bash
 FW=../lightnet-firmware   # or third_party/lightnet-firmware (submodule)
@@ -36,11 +37,12 @@ Point each iOS target's framework at its slice in `composeApp/build.gradle.kts` 
 `iosTarget.binaries.framework { … }` block (per target, choosing the matching lib path):
 
 ```kotlin
-linkerOpts("-L${'$'}{<dir-for-this-target>}", "-lanim_core", "-lc++")
+linkerOpts("-L${'$'}{<dir-for-this-target>}", "-lpanel_core", "-lcontroller_core", "-lc++")
 ```
 
-(Or, equivalently, add `staticLibraries = libanim_core.a` + `libraryPaths = <dir>` to `animcore.def`
-once the per-arch path is known.) `-lc++` pulls in the C++ runtime the player needs.
+(Or, equivalently, add `staticLibraries = libpanel_core.a libcontroller_core.a` +
+`libraryPaths = <dir>` to `animcore.def` once the per-arch path is known.) `-lc++` pulls in the C++
+runtime the player needs.
 
 ## 3. Verify
 

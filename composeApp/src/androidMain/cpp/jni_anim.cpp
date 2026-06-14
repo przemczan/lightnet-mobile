@@ -1,11 +1,11 @@
 // jni_anim.cpp — JNI bindings for the portable animation core (Android).
 //
 // Maps com.lightnet.animation.NativeAnimBridge (a JVM object of `external` functions) onto the C
-// ABI (anim_core_c.h). The handle is the native pointer carried as a jlong. Packet entry points
+// ABI (panel_core_c.h). The handle is the native pointer carried as a jlong. Packet entry points
 // take the raw wire bytes (PacketMeta header included) — same bytes the firmware parses.
 
 #include <jni.h>
-#include "anim_core_c.h"
+#include "panel_core_c.h"
 
 namespace {
 inline anim_handle handle(jlong h) { return reinterpret_cast<anim_handle>(h); }
