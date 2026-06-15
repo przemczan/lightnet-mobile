@@ -165,8 +165,6 @@ class LightnetHttpClient(private val baseUrl: String) {
     suspend fun getAppState(): AppStateBody =
         client.get("$baseUrl/api/state").bodyOrThrow()
 
-    suspend fun getPowerState(): Boolean = getAppState().isOn
-
     suspend fun setPowerState(on: Boolean) =
         client.post("$baseUrl/api/state/power") { jsonBody(PowerStateBody(on)) }.voidOrThrow()
 

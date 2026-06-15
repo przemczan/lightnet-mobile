@@ -84,6 +84,10 @@ class LightnetDevice(
     @Volatile var cachedPowerState: Boolean? = null
         private set
 
+    /** Last known controller firmware version, read from `/api/state`. */
+    @Volatile var cachedControllerFirmware: String? = null
+        private set
+
     init {
         scope.launch {
             connector.state.collect { cs ->
@@ -173,7 +177,10 @@ class LightnetDevice(
     }
 
     suspend fun getPowerState(): Boolean? =
-        httpClient?.runCatching { getPowerState() }?.getOrNull()?.also { cachedPowerState = it }
+        httpClient?.runCatching { getAppState() }?.getOrNull()?.also {
+            cachedPowerState = it.isOn
+            cachedControllerFirmware = it.controllerFirmware
+        }?.isOn
 
     suspend fun setPowerState(on: Boolean) {
         httpClient?.runCatching { setPowerState(on) }

@@ -237,9 +237,15 @@ private fun DeviceInfoScreen(
     var rootMenuExpanded by remember { mutableStateOf(false) }
     val panelIds = remember(snapshot) { snapshot?.panels?.map { it.info.id } ?: emptyList() }
 
+    var controllerFirmware by remember { mutableStateOf(device?.cachedControllerFirmware) }
+
     LaunchedEffect(device) {
         val config = device?.getConfiguration() ?: return@LaunchedEffect
         powerStateOnBoot = config.powerStateOnBoot
+    }
+    LaunchedEffect(device) {
+        device?.getPowerState()
+        controllerFirmware = device?.cachedControllerFirmware
     }
     LaunchedEffect(httpClient) {
         logicalRoot = httpClient?.runCatching { getTopology().logicalRoot }?.getOrNull()
@@ -397,7 +403,7 @@ private fun DeviceInfoScreen(
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                         ListItem(
                             headlineContent = { Text("Firmware") },
-                            trailingContent = { Text("—") },
+                            trailingContent = { Text(controllerFirmware?.ifEmpty { "—" } ?: "—") },
                         )
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                         ListItem(

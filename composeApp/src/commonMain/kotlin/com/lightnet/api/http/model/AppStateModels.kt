@@ -10,4 +10,5 @@ data class AppStateBody(
     val lastPlayedSceneIsStored: Boolean = true,
     val playing: Boolean = false,
     val speed: Float = 1.0f,
+    val controllerFirmware: String = "",
 )
