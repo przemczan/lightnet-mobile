@@ -82,8 +82,12 @@ fun ScenesSettingsScreen(
     var tab by remember { mutableIntStateOf(0) }
 
     var globalScenes        by remember { mutableStateOf(AppPreferences.scenes.getAll()) }
-    var deviceScenes        by remember { mutableStateOf<List<SceneInfo>>(emptyList()) }
-    var loadingDevice       by remember { mutableStateOf(false) }
+    val deviceScenes by remember(device) {
+        device?.scenes ?: MutableStateFlow<List<SceneInfo>?>(null)
+    }.collectAsState()
+    val loadingDevice by remember(device) {
+        device?.scenesLoading ?: MutableStateFlow(false)
+    }.collectAsState()
     var deleteGlobalTarget  by remember { mutableStateOf<SceneJson?>(null) }
     var deleteDeviceTarget  by remember { mutableStateOf<SceneInfo?>(null) }
     var showEditor          by remember { mutableStateOf(false) }
@@ -93,13 +97,10 @@ fun ScenesSettingsScreen(
     fun reloadGlobal() { globalScenes = AppPreferences.scenes.getAll() }
 
     suspend fun reloadDevice() {
-        if (httpClient == null) { deviceScenes = emptyList(); return }
-        loadingDevice = true
-        deviceScenes  = httpClient.runCatching { getScenes() }.getOrNull() ?: emptyList()
-        loadingDevice = false
+        device?.refreshScenes()
     }
 
-    LaunchedEffect(httpClient, deviceConnected) { if (deviceConnected) reloadDevice() }
+    LaunchedEffect(device, deviceConnected) { if (deviceConnected) device?.loadScenes() }
 
     fun openEditor(scene: SceneJson?, origin: SceneOrigin) {
         editingScene  = scene
@@ -209,13 +210,13 @@ fun ScenesSettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    loadingDevice && deviceScenes.isEmpty() -> Box(
+                    loadingDevice && deviceScenes.isNullOrEmpty() -> Box(
                         listModifier,
                         contentAlignment = Alignment.Center,
                     ) {
                         CircularProgressIndicator()
                     }
-                    deviceScenes.isEmpty() -> Box(
+                    deviceScenes.isNullOrEmpty() -> Box(
                         listModifier,
                         contentAlignment = Alignment.Center,
                     ) {
@@ -230,10 +231,10 @@ fun ScenesSettingsScreen(
                         contentPadding      = listPadding,
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        itemsIndexed(deviceScenes, key = { _, it -> it.name }) { index, info ->
+                        itemsIndexed(deviceScenes!!, key = { _, it -> it.name }) { index, info ->
                             SceneSettingsItem(
                                 name     = info.name,
-                                shape    = groupedListItemShape(index, deviceScenes.size),
+                                shape    = groupedListItemShape(index, deviceScenes!!.size),
                                 onPlay   = {
                                     scope.launch {
                                         val r = runCatching { httpClient.playSceneByName(info.name) }
@@ -282,6 +283,7 @@ fun ScenesSettingsScreen(
                     deleteDeviceTarget = null
                     scope.launch {
                         httpClient?.runCatching { deleteScene(target.name) }
+                        device?.refreshPalettes()
                         reloadDevice()
                     }
                 }) { Text("Delete") }

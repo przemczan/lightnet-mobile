@@ -166,8 +166,8 @@ fun DeviceControllerScreen(
 
     var brightness          by remember(device) { mutableStateOf(device.cachedAppearance?.brightness?.toFloat() ?: 128f) }
     var palette             by remember(device) { mutableStateOf(device.cachedAppearance?.palette) }
-    var palettes            by remember(device) { mutableStateOf<List<PaletteJson>>(emptyList()) }
-    var palettesLoading     by remember(device) { mutableStateOf(false) }
+    val palettes            by device.palettes.collectAsState()
+    val palettesLoading     by device.palettesLoading.collectAsState()
     var baseColors          by remember(device) { mutableStateOf(device.cachedAppearance?.baseColors ?: emptyList()) }
     var paintColor          by remember { mutableStateOf<Color?>(null) }
     var showColorSheet      by remember { mutableStateOf(false) }
@@ -198,15 +198,13 @@ fun DeviceControllerScreen(
             if (power != null) allPanelsOn = power
             deviceInfoReady = true
 
-            palettesLoading = true
             val app = device.loadAppearance()
             if (app != null) {
                 brightness = app.brightness.toFloat()
                 palette    = app.palette
                 baseColors = app.baseColors
             }
-            palettes        = httpClient?.runCatching { getPalettes().values.toList() }?.getOrNull() ?: emptyList()
-            palettesLoading = false
+            device.loadPalettes()
         }
     }
 
@@ -280,29 +278,32 @@ fun DeviceControllerScreen(
             )
         },
         bottomBar = {
-            BottomAppBar(
-                actions = {
-                    IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
-                        Icon(Icons.Default.Brush, contentDescription = "Pick color")
-                    }
-                    IconButton(onClick = { showAdjustSheet = true }, enabled = isConnected) {
-                        Icon(Icons.Default.Tune, contentDescription = "Adjust brightness, palette and speed")
-                    }
-                    IconButton(onClick = { showScenesSheet = true }, enabled = isConnected) {
-                        Icon(Icons.Default.Movie, contentDescription = "Scenes")
-                    }
-                    FilledIconToggleButton(
-                        checked         = livePreview,
-                        onCheckedChange = { device.setLivePreview(it) },
-                        enabled         = isConnected,
+            BottomAppBar {
+                Box(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(
-                            Icons.Default.Visibility,
-                            contentDescription = if (livePreview) "Stop live preview" else "Live preview",
-                        )
+                        Row(
+                            Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                        ) {
+                            IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
+                                Icon(Icons.Default.Brush, contentDescription = "Pick color", modifier = Modifier.size(28.dp))
+                            }
+                            IconButton(onClick = { showAdjustSheet = true }, enabled = isConnected) {
+                                Icon(Icons.Default.Tune, contentDescription = "Adjust brightness, palette and speed", modifier = Modifier.size(28.dp))
+                            }
+                        }
+                        Row(
+                            Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                        ) {
+                            IconButton(onClick = { showScenesSheet = true }, enabled = isConnected) {
+                                Icon(Icons.Default.Movie, contentDescription = "Scenes", modifier = Modifier.size(28.dp))
+                            }
+                        }
                     }
-                },
-                floatingActionButton = {
                     // Power is the primary control — a color-coded FAB makes the on/off
                     // state glanceable and gives it the largest touch target.
                     FloatingActionButton(
@@ -317,14 +318,15 @@ fun DeviceControllerScreen(
                             allPanelsOn  -> MaterialTheme.colorScheme.primaryContainer
                             else         -> BottomAppBarDefaults.bottomAppBarFabColor
                         },
+                        modifier = Modifier.align(Alignment.Center),
                     ) {
                         Icon(
                             Icons.Default.PowerSettingsNew,
                             contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
                         )
                     }
-                },
-            )
+                }
+            }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -444,6 +446,18 @@ fun DeviceControllerScreen(
                                 Icon(
                                     if (isScenePlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
                                     contentDescription = if (isScenePlaying) "Stop scene" else "Play \"$lastPlayedScene\"",
+                                    modifier = Modifier.size(28.dp),
+                                )
+                            }
+                            FilledIconToggleButton(
+                                checked         = livePreview,
+                                onCheckedChange = { device.setLivePreview(it) },
+                                enabled         = isConnected,
+                            ) {
+                                Icon(
+                                    Icons.Default.Visibility,
+                                    contentDescription = if (livePreview) "Stop live preview" else "Live preview",
+                                    modifier = Modifier.size(28.dp),
                                 )
                             }
                         }
@@ -463,7 +477,10 @@ fun DeviceControllerScreen(
                     while (list.size <= i) list.add("#FFFFFF")
                     list[i] = colorToHex(color)
                 }
-                scope.launch { device.setAppearance(AppearanceRequest(baseColors = baseColors)) }
+                scope.launch {
+                    device.setAppearance(AppearanceRequest(baseColors = baseColors))
+                    device.refreshPalettes()
+                }
             },
             onDismiss  = { showColorSheet = false },
         )
@@ -474,8 +491,8 @@ fun DeviceControllerScreen(
             initialBrightness  = brightness,
             onBrightnessChange = { brightness = it },
             onBrightnessApply  = { device.setAppearance(AppearanceRequest(brightness = it.toInt())) },
-            palettes           = palettes,
-            palettesLoading    = palettesLoading,
+            palettes           = palettes ?: emptyList(),
+            palettesLoading    = palettesLoading || palettes == null,
             currentPalette     = palette,
             onSelectPalette    = { name ->
                 palette = name
@@ -488,6 +505,7 @@ fun DeviceControllerScreen(
 
     if (showScenesSheet) {
         ScenesSheet(
+            device        = device,
             httpClient    = httpClient,
             appState      = appState,
             onDismiss     = { showScenesSheet = false },
@@ -680,6 +698,7 @@ private sealed class ScenesSheetItem {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ScenesSheet(
+    device: LightnetDevice,
     httpClient: LightnetHttpClient?,
     appState: AppStateBody?,
     onDismiss: () -> Unit,
@@ -690,17 +709,15 @@ private fun ScenesSheet(
     val scope       = rememberCoroutineScope()
     val snackbar    = remember { SnackbarHostState() }
     val globalScenes = remember { AppPreferences.scenes.getAll() }
-    var deviceScenes by remember { mutableStateOf<List<SceneInfo>>(emptyList()) }
+    val deviceScenes by device.scenes.collectAsState()
     var playing     by remember { mutableStateOf<String?>(null) }
     var stopping    by remember { mutableStateOf(false) }
     var loadingEdit by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(httpClient) {
-        deviceScenes = httpClient?.runCatching { getScenes() }?.getOrNull() ?: emptyList()
-    }
+    LaunchedEffect(device) { device.loadScenes() }
 
     val items = remember(globalScenes, deviceScenes) {
-        globalScenes.map { ScenesSheetItem.Global(it) } + deviceScenes.map { ScenesSheetItem.Device(it) }
+        globalScenes.map { ScenesSheetItem.Global(it) } + (deviceScenes ?: emptyList()).map { ScenesSheetItem.Device(it) }
     }
 
     ModalBottomSheet(
@@ -732,33 +749,38 @@ private fun ScenesSheet(
                     val isPlayingItem = appState?.playing == true &&
                         appState.lastPlayedScene == name &&
                         appState.lastPlayedSceneIsStored == (item is ScenesSheetItem.Device)
+
+                    val playAction: () -> Unit = {
+                        scope.launch {
+                            if (httpClient == null && item is ScenesSheetItem.Device) {
+                                snackbar.showSnackbar("Connect a device to play device scenes.")
+                                return@launch
+                            }
+                            playing = name
+                            val ok = when (item) {
+                                is ScenesSheetItem.Global -> {
+                                    if (httpClient == null) {
+                                        snackbar.showSnackbar("Connect a device to play scenes.")
+                                        playing = null; return@launch
+                                    }
+                                    runCatching { httpClient.playSceneInline(item.scene) }.isSuccess
+                                }
+                                is ScenesSheetItem.Device ->
+                                    runCatching { httpClient!!.playSceneByName(item.info.name) }.isSuccess
+                            }
+                            if (ok) onScenePlayed() else snackbar.showSnackbar("Failed to play \"$name\".")
+                            playing = null
+                        }
+                    }
+
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = playing == null && loadingEdit == null && !stopping) {
-                                scope.launch {
-                                    if (httpClient == null && item is ScenesSheetItem.Device) {
-                                        snackbar.showSnackbar("Connect a device to play device scenes.")
-                                        return@launch
-                                    }
-                                    playing = name
-                                    val ok = when (item) {
-                                        is ScenesSheetItem.Global -> {
-                                            if (httpClient == null) {
-                                                snackbar.showSnackbar("Connect a device to play scenes.")
-                                                playing = null; return@launch
-                                            }
-                                            runCatching { httpClient.playSceneInline(item.scene) }.isSuccess
-                                        }
-                                        is ScenesSheetItem.Device ->
-                                            runCatching { httpClient!!.playSceneByName(item.info.name) }.isSuccess
-                                    }
-                                    if (ok) onScenePlayed() else snackbar.showSnackbar("Failed to play \"$name\".")
-                                    playing = null
-                                    if (ok) onDismiss()
-                                }
-                            }
-                            .padding(vertical = 12.dp),
+                            .clickable(
+                                enabled = !isPlayingItem && !stopping && playing == null && loadingEdit == null,
+                                onClick = playAction,
+                            )
+                            .padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment     = Alignment.CenterVertically,
                     ) {
@@ -772,11 +794,10 @@ private fun ScenesSheet(
                             Text(name, style = MaterialTheme.typography.bodyMedium)
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (playing == name) CircularProgressIndicator(Modifier.size(20.dp))
-                            if (isPlayingItem) {
-                                IconButton(
-                                    enabled = !stopping && playing == null && loadingEdit == null,
-                                    onClick = {
+                            IconButton(
+                                enabled = !stopping && playing == null && loadingEdit == null,
+                                onClick = {
+                                    if (isPlayingItem) {
                                         if (httpClient == null) return@IconButton
                                         scope.launch {
                                             stopping = true
@@ -784,10 +805,15 @@ private fun ScenesSheet(
                                             stopping = false
                                             if (ok) onSceneStopped() else snackbar.showSnackbar("Failed to stop \"$name\".")
                                         }
-                                    },
-                                ) {
-                                    if (stopping) CircularProgressIndicator(Modifier.size(20.dp))
-                                    else Icon(Icons.Default.Stop, contentDescription = "Stop \"$name\"")
+                                    } else {
+                                        playAction()
+                                    }
+                                },
+                            ) {
+                                when {
+                                    playing == name || (isPlayingItem && stopping) -> CircularProgressIndicator(Modifier.size(20.dp))
+                                    isPlayingItem -> Icon(Icons.Default.Stop, contentDescription = "Stop \"$name\"")
+                                    else -> Icon(Icons.Default.PlayArrow, contentDescription = "Play \"$name\"")
                                 }
                             }
                             IconButton(

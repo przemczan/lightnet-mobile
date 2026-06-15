@@ -5,6 +5,8 @@ import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
 import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.api.http.model.ConfigurationResponse
+import com.lightnet.api.http.model.PaletteJson
+import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.api.websocket.Connector
 import com.lightnet.api.websocket.ConnectorState
@@ -88,6 +90,20 @@ class LightnetDevice(
     @Volatile var cachedControllerFirmware: String? = null
         private set
 
+    private val _palettes = MutableStateFlow<List<PaletteJson>?>(null)
+    /** Device palettes — null until first loaded; survives navigation. */
+    val palettes: StateFlow<List<PaletteJson>?> = _palettes
+
+    private val _palettesLoading = MutableStateFlow(false)
+    val palettesLoading: StateFlow<Boolean> = _palettesLoading
+
+    private val _scenes = MutableStateFlow<List<SceneInfo>?>(null)
+    /** Device scenes — null until first loaded; survives navigation. */
+    val scenes: StateFlow<List<SceneInfo>?> = _scenes
+
+    private val _scenesLoading = MutableStateFlow(false)
+    val scenesLoading: StateFlow<Boolean> = _scenesLoading
+
     init {
         scope.launch {
             connector.state.collect { cs ->
@@ -113,6 +129,12 @@ class LightnetDevice(
                         panelMirrorService.reset()
                         messageApiService.send(SetMirrorMessage(true))
                     }
+                }
+                // Invalidate the palette cache on (re)connect so the next loadPalettes() call
+                // picks up any changes made on the controller while we were disconnected.
+                if (cs == ConnectorState.CONNECTED) {
+                    _palettes.value = null
+                    _scenes.value = null
                 }
                 if (cs == ConnectorState.DISCONNECTED || cs == ConnectorState.FAILED) _snapshot.value = null
             }
@@ -188,6 +210,26 @@ class LightnetDevice(
 
     suspend fun getPalettes(): List<String> =
         httpClient?.runCatching { getPalettes().keys.toList() }?.getOrNull() ?: emptyList()
+
+    /** Loads device palettes once and caches them; pass `force = true` to reload (e.g. on reconnect or after a base-color/scene change). */
+    suspend fun loadPalettes(force: Boolean = false) {
+        if (!force && _palettes.value != null) return
+        _palettesLoading.value = true
+        _palettes.value = httpClient?.runCatching { getPalettes().values.toList() }?.getOrNull() ?: emptyList()
+        _palettesLoading.value = false
+    }
+
+    suspend fun refreshPalettes() = loadPalettes(force = true)
+
+    /** Loads device scenes once and caches them; pass `force = true` to reload (e.g. on reconnect or after a scene edit). */
+    suspend fun loadScenes(force: Boolean = false) {
+        if (!force && _scenes.value != null) return
+        _scenesLoading.value = true
+        _scenes.value = httpClient?.runCatching { getScenes() }?.getOrNull() ?: emptyList()
+        _scenesLoading.value = false
+    }
+
+    suspend fun refreshScenes() = loadScenes(force = true)
 
     suspend fun getConfiguration(): ConfigurationResponse? =
         httpClient?.runCatching { getConfiguration() }?.getOrNull()

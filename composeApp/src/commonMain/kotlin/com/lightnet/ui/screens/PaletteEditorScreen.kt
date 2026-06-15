@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -35,6 +37,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -114,10 +117,17 @@ fun PaletteEditorScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                actions = {
-                    TextButton(
-                        enabled = isValid && name.isNotBlank(),
+            )
+        },
+        bottomBar = {
+            BottomAppBar {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Button(
                         onClick = {
+                            if (!isValid || name.isBlank()) {
+                                scope.launch { snackbar.showSnackbar("Enter a name and valid stops (0 and 255 required).") }
+                                return@Button
+                            }
                             scope.launch {
                                 val result = httpClient?.runCatching {
                                     savePalette(PaletteJson(name = name, stops = sortedStops))
@@ -133,16 +143,20 @@ fun PaletteEditorScreen(
                                 }
                             }
                         },
-                    ) { Text("Save") }
-                },
-            )
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Save")
+                    }
+                }
+            }
         },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 top    = padding.calculateTopPadding() + 8.dp,
-                bottom = padding.calculateBottomPadding() + 24.dp,
+                bottom = padding.calculateBottomPadding() + 8.dp,
                 start  = 16.dp,
                 end    = 16.dp,
             ),

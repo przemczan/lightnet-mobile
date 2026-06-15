@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -49,6 +50,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -98,7 +100,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.lightnet.api.http.LightnetHttpClient
-import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.TopologyResponse
@@ -274,13 +275,14 @@ fun TimelineSceneEditorScreen(
     val snapshot by remember(device) { device?.snapshot ?: MutableStateFlow(null) }.collectAsState()
     val panels = snapshot?.panels ?: emptyList()
 
-    var palettesMap by remember { mutableStateOf<Map<String, PaletteJson>>(emptyMap()) }
+    val devicePalettes by remember(device) { device?.palettes ?: MutableStateFlow(null) }.collectAsState()
+    val palettesMap = remember(devicePalettes) { devicePalettes?.associateBy { it.name } ?: emptyMap() }
     var baseColors  by remember { mutableStateOf<List<String>>(emptyList()) }
     var devicePalette by remember { mutableStateOf<String?>(null) }
     var topology    by remember { mutableStateOf<TopologyResponse?>(null) }
     val tags = remember(topology) { topology?.tags?.values?.flatten()?.distinct()?.sorted() ?: emptyList() }
-    LaunchedEffect(httpClient) {
-        palettesMap = httpClient?.runCatching { getPalettes() }?.getOrNull() ?: emptyMap()
+    LaunchedEffect(device) {
+        device?.loadPalettes()
     }
     LaunchedEffect(device) {
         val appearance = device?.loadAppearance() ?: device?.cachedAppearance
@@ -437,57 +439,74 @@ fun TimelineSceneEditorScreen(
                         scene = activeScene.clone("${activeScene.name.ifBlank { "Scene" }} copy")
                         isDirty = true
                     }) { Text("Clone") }
-                    TextButton(onClick = {
-                        val err = activeScene.validationError()
-                        if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@TextButton }
-                        activeScene.clearUnusedStepIds()
-                        val sceneJson = activeScene.toSceneJson(panels)
-                        when (origin) {
-                            SceneOrigin.GLOBAL -> {
-                                val ok = runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess
-                                if (!ok) { scope.launch { snackbar.showSnackbar("Failed to save scene.") }; return@TextButton }
-                                isDirty = false
-                                if (alsoSaveToOther && httpClient != null) {
-                                    scope.launch {
-                                        if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess)
-                                            snackbar.showSnackbar("Saved locally but failed to save to device.")
-                                        onBack()
-                                    }
-                                } else {
-                                    onBack()
-                                }
-                            }
-                            SceneOrigin.DEVICE -> {
-                                if (httpClient == null) { scope.launch { snackbar.showSnackbar("Connect a device to save.") }; return@TextButton }
-                                scope.launch {
-                                    if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess) {
-                                        snackbar.showSnackbar("Failed to save scene to device."); return@launch
-                                    }
-                                    isDirty = false
-                                    if (alsoSaveToOther && !runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess)
-                                        snackbar.showSnackbar("Saved to device but failed to save locally.")
-                                    onBack()
-                                }
-                            }
-                        }
-                    }) { Text("Save") }
                 },
             )
         },
         bottomBar = {
             BottomAppBar(
                 actions = {
-                    IconButton(onClick = {
-                        val err = activeScene.validationError()
-                        if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@IconButton }
-                        val json = previewJson.encodeToString(SceneJson.serializer(), activeScene.toPreviewSceneJson(panels, devicePalette))
-                        offlineService.play(json)
-                        showPreviewModal = true
-                    }) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Preview")
+                    IconButton(
+                        onClick = {
+                            val err = activeScene.validationError()
+                            if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@IconButton }
+                            val json = previewJson.encodeToString(SceneJson.serializer(), activeScene.toPreviewSceneJson(panels, devicePalette))
+                            offlineService.play(json)
+                            showPreviewModal = true
+                        },
+                        modifier = Modifier.size(56.dp),
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Preview", modifier = Modifier.size(32.dp))
                     }
-                    IconButton(onClick = { showOptionsSheet = true }) {
-                        Icon(Icons.Default.Tune, contentDescription = "Scene options")
+                },
+                floatingActionButton = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        IconButton(onClick = { showOptionsSheet = true }) {
+                            Icon(Icons.Default.Tune, contentDescription = "Scene options")
+                        }
+                        ExtendedFloatingActionButton(onClick = {
+                            val err = activeScene.validationError()
+                            if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@ExtendedFloatingActionButton }
+                            activeScene.clearUnusedStepIds()
+                            val sceneJson = activeScene.toSceneJson(panels)
+                            when (origin) {
+                                SceneOrigin.GLOBAL -> {
+                                    val ok = runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess
+                                    if (!ok) { scope.launch { snackbar.showSnackbar("Failed to save scene.") }; return@ExtendedFloatingActionButton }
+                                    isDirty = false
+                                    if (alsoSaveToOther && httpClient != null) {
+                                        scope.launch {
+                                            if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess)
+                                                snackbar.showSnackbar("Saved locally but failed to save to device.")
+                                            else {
+                                                device?.refreshPalettes()
+                                                device?.refreshScenes()
+                                            }
+                                            onBack()
+                                        }
+                                    } else {
+                                        onBack()
+                                    }
+                                }
+                                SceneOrigin.DEVICE -> {
+                                    if (httpClient == null) { scope.launch { snackbar.showSnackbar("Connect a device to save.") }; return@ExtendedFloatingActionButton }
+                                    scope.launch {
+                                        if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess) {
+                                            snackbar.showSnackbar("Failed to save scene to device."); return@launch
+                                        }
+                                        isDirty = false
+                                        device?.refreshPalettes()
+                                        device?.refreshScenes()
+                                        if (alsoSaveToOther && !runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess)
+                                            snackbar.showSnackbar("Saved to device but failed to save locally.")
+                                        onBack()
+                                    }
+                                }
+                            }
+                        }) {
+                            Icon(Icons.Default.Save, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Save")
+                        }
                     }
                 },
             )

@@ -4,8 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -55,5 +57,8 @@ fun SpeedSlider(
             color    = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(44.dp),
         )
+        IconButton(onClick = { onSpeedChange(1f) }, enabled = speed != 1f) {
+            Icon(Icons.Default.RestartAlt, contentDescription = "Reset speed to 1.0×")
+        }
     }
 }
