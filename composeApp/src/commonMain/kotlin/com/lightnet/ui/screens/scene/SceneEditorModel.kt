@@ -4,10 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
-import com.lightnet.api.http.model.AnimationType
+import com.lightnet.api.http.model.AnimateTarget
 import com.lightnet.api.http.model.ColorRef
 import com.lightnet.api.http.model.PanelTarget
-import com.lightnet.api.http.model.RunnerTarget
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.SceneLayer
 import com.lightnet.api.http.model.SceneStep
@@ -29,11 +28,8 @@ data class ParamSpec(val label: String, val min: Int, val max: Int, val default:
 /** Where a runner emanates from (independent of directionality mode). */
 enum class RunnerSrc { Root, Leaves, All, Panel }
 
-/** What a runner's sweep modulates (independent of its movement pattern and source). */
-enum class RunnerAnimates { Color, Dim, Brighten, Desaturate, Saturate, Hue, Invert }
-
-/** Envelope shape of a non-color modifier runner sweep. */
-enum class RunnerModShape { Fall, Rise, Bell }
+/** What an animation step modulates (its own colour, or a scalar modifier property below it). */
+enum class Animates { Color, Dim, Brighten, Desaturate, Saturate, Hue, Invert }
 
 /** Layer async mode: Off = sync, Loop = loops independently (holds scene), Free = loops independently (scene ignores it). */
 enum class AsyncMode { Off, Loop, Free }
@@ -47,7 +43,6 @@ enum class AnimId(
     val supportsLoopFlags: Boolean = true,
     val widthLabel: String? = null,   // runner band/ring width (rings); null = no width
     val defaultWidth: Int = 0,
-    val isModifier: Boolean = false,  // MOD_* — params are the from→to scalar, emitted as from/to
 ) {
     SOLID("Solid", false, ColorMode.Single, emptyList(), "SOLID"),
     FADE("Fade", false, ColorMode.FromTo, emptyList(), "FADE"),
@@ -61,25 +56,6 @@ enum class AnimId(
     HUE_CYCLE("Hue cycle", false, ColorMode.None, listOf(ParamSpec("Speed", 0, 255, 25)), "HUE_CYCLE"),
     STROBE("Strobe", false, ColorMode.Single, listOf(ParamSpec("Frequency (Hz)", 1, 30, 8)), "STROBE"),
     REACTIVE("Reactive", false, ColorMode.FromTo, listOf(ParamSpec("Decay", 0, 255, 180)), "REACTIVE"),
-    // Modifier layers — transform the colour composited below them (params = from→to scalar).
-    // Wire type depends on direction: from >= to -> MOD_DIM, from < to -> MOD_BRIGHTEN.
-    MOD_BRIGHTNESS(
-        "Modifier · Brightness", false, ColorMode.None,
-        listOf(ParamSpec("From", 0, 255, 255), ParamSpec("To", 0, 255, 64)), null, isModifier = true,
-    ),
-    // Wire type depends on direction: from >= to -> MOD_DESATURATE, from < to -> MOD_SATURATE.
-    MOD_SATURATION(
-        "Modifier · Saturation", false, ColorMode.None,
-        listOf(ParamSpec("From", 0, 255, 255), ParamSpec("To", 0, 255, 0)), null, isModifier = true,
-    ),
-    MOD_HUE_SHIFT(
-        "Modifier · Hue shift", false, ColorMode.None,
-        listOf(ParamSpec("From", 0, 255, 0), ParamSpec("To", 0, 255, 255)), "MOD_HUE_SHIFT", isModifier = true,
-    ),
-    MOD_INVERT(
-        "Modifier · Invert", false, ColorMode.None,
-        listOf(ParamSpec("From", 0, 255, 0), ParamSpec("To", 0, 255, 255)), "MOD_INVERT", isModifier = true,
-    ),
     GAP("Gap (hold)", false, ColorMode.None, emptyList(), null, supportsLoopFlags = false),
     WAVE("Wave", true, ColorMode.Single, emptyList(), "WAVE", supportsLoopFlags = false, widthLabel = "Width (rings)", defaultWidth = 3),
     RIPPLE("Ripple", true, ColorMode.Single, emptyList(), "RIPPLE", supportsLoopFlags = false, widthLabel = "Ring width", defaultWidth = 2),
@@ -110,10 +86,6 @@ enum class AnimId(
         fun fromStep(step: SceneStep): AnimId {
             step.runner?.let { r -> entries.firstOrNull { it.isRunner && it.wireName == r }?.let { return it } }
             if (step.type == "TRANSITION") return FADE  // firmware alias for FADE
-            when (step.type) {
-                "MOD_DIM", "MOD_BRIGHTEN" -> return MOD_BRIGHTNESS
-                "MOD_DESATURATE", "MOD_SATURATE" -> return MOD_SATURATION
-            }
             step.type?.let { t -> entries.firstOrNull { !it.isRunner && it.wireName == t }?.let { return it } }
             return GAP
         }
@@ -148,9 +120,10 @@ class EditableStep(
     angle: Int = 0,
     reverse: Boolean = false,
     width: Int = anim.defaultWidth,
-    animates: RunnerAnimates = RunnerAnimates.Color,
+    animates: Animates = Animates.Color,
     amount: Int = 128,
-    modShape: RunnerModShape = RunnerModShape.Fall,
+    valueFrom: Int = 255,
+    valueTo: Int = 64,
     repeat: Boolean = false,
     repeatCount: Int = 1,
     lines: Int = 1,
@@ -173,9 +146,10 @@ class EditableStep(
     var angle by mutableStateOf(angle)          // geometric sweep direction, degrees [0,360)
     var reverse by mutableStateOf(reverse)
     var width by mutableStateOf(width)
-    var animates by mutableStateOf(animates)    // what the sweep modulates
-    var amount by mutableStateOf(amount)        // peak intensity for non-Color targets, 0-255
-    var modShape by mutableStateOf(modShape)    // modifier envelope shape (non-Color only; WHEEL forces bell)
+    var animates by mutableStateOf(animates)    // what this animation modulates
+    var amount by mutableStateOf(amount)        // runner-only: peak intensity for non-Color targets, 0-255
+    var valueFrom by mutableStateOf(valueFrom)  // panel-local non-Color: scalar ramp start, 0-255
+    var valueTo by mutableStateOf(valueTo)      // panel-local non-Color: scalar ramp end, 0-255
     // WAVE/RIPPLE/CHASE: continuous train of sweeps instead of a single pass (colour-only).
     var repeat by mutableStateOf(repeat)
     var repeatCount by mutableStateOf(repeatCount) // waves/rings in flight at once; 1 = single sweep
@@ -195,6 +169,8 @@ class EditableStep(
         params = next.defaultParams()
         width = next.defaultWidth
         if (!next.supportsLoopFlags) { loop = false; pingpong = false }
+        // HUE_CYCLE is colour-only — it has no scalar output to drive a modifier.
+        if (next == AnimId.HUE_CYCLE) animates = Animates.Color
         // RAIN/MATRIX are particle spawners: `duration` is the play window and `speed` is the
         // (constant) drop fall-time. Seed a sensible fall-time the first time one is picked. SPARKLE
         // has no fall (its flashes don't move) — it uses `width` for the fade, so it needs no speed.
@@ -291,7 +267,8 @@ private fun EditableStep.clone(): EditableStep = EditableStep(
     width       = width,
     animates    = animates,
     amount      = amount,
-    modShape    = modShape,
+    valueFrom   = valueFrom,
+    valueTo     = valueTo,
     repeat      = repeat,
     repeatCount = repeatCount,
     lines       = lines,
@@ -336,36 +313,24 @@ private fun EditableStep.runnerSourceToken(): String? = when (source) {
     RunnerSrc.Panel  -> "panel:$sourcePanel"
 }
 
-private fun RunnerAnimates.toToken(): String? = when (this) {
-    RunnerAnimates.Color      -> null   // default — omit
-    RunnerAnimates.Dim        -> RunnerTarget.DIM
-    RunnerAnimates.Brighten   -> RunnerTarget.BRIGHTEN
-    RunnerAnimates.Desaturate -> RunnerTarget.DESATURATE
-    RunnerAnimates.Saturate   -> RunnerTarget.SATURATE
-    RunnerAnimates.Hue        -> RunnerTarget.HUE
-    RunnerAnimates.Invert     -> RunnerTarget.INVERT
+private fun Animates.toToken(): String? = when (this) {
+    Animates.Color      -> null   // default — omit
+    Animates.Dim        -> AnimateTarget.DIM
+    Animates.Brighten   -> AnimateTarget.BRIGHTEN
+    Animates.Desaturate -> AnimateTarget.DESATURATE
+    Animates.Saturate   -> AnimateTarget.SATURATE
+    Animates.Hue        -> AnimateTarget.HUE
+    Animates.Invert     -> AnimateTarget.INVERT
 }
 
-private fun parseRunnerAnimates(animates: String?): RunnerAnimates = when (animates) {
-    RunnerTarget.DIM        -> RunnerAnimates.Dim
-    RunnerTarget.BRIGHTEN   -> RunnerAnimates.Brighten
-    RunnerTarget.DESATURATE -> RunnerAnimates.Desaturate
-    RunnerTarget.SATURATE   -> RunnerAnimates.Saturate
-    RunnerTarget.HUE        -> RunnerAnimates.Hue
-    RunnerTarget.INVERT     -> RunnerAnimates.Invert
-    else                    -> RunnerAnimates.Color
-}
-
-private fun RunnerModShape.toToken(): String? = when (this) {
-    RunnerModShape.Fall -> null    // default — omit
-    RunnerModShape.Rise -> "rise"
-    RunnerModShape.Bell -> "bell"
-}
-
-private fun parseModShape(shape: String?): RunnerModShape = when (shape) {
-    "rise" -> RunnerModShape.Rise
-    "bell" -> RunnerModShape.Bell
-    else   -> RunnerModShape.Fall
+private fun parseAnimates(animates: String?): Animates = when (animates) {
+    AnimateTarget.DIM        -> Animates.Dim
+    AnimateTarget.BRIGHTEN   -> Animates.Brighten
+    AnimateTarget.DESATURATE -> Animates.Desaturate
+    AnimateTarget.SATURATE   -> Animates.Saturate
+    AnimateTarget.HUE        -> Animates.Hue
+    AnimateTarget.INVERT     -> Animates.Invert
+    else                     -> Animates.Color
 }
 
 private fun EditableStep.toSceneStep(): SceneStep =
@@ -376,8 +341,7 @@ private fun EditableStep.toSceneStepBody(): SceneStep {
     if (a == AnimId.GAP) return SceneStep(duration = durationMs)
     if (a == AnimId.WHEEL) {
         // Always geometric, always looping — pivots about `source`/`reverse`.
-        // Supports non-color animates (controller forces bell shape on the modifier blade).
-        val animatesColor = animates == RunnerAnimates.Color
+        val animatesColor = animates == Animates.Color
         return SceneStep(
             runner    = a.wireName,
             color     = if (animatesColor) colorA else null,
@@ -400,7 +364,7 @@ private fun EditableStep.toSceneStepBody(): SceneStep {
         // source), topology uses `source` (no angle). MATRIX supports both (geometric = straight
         // constant-speed lines, topology = constant-speed tree path). SPARKLE has no directionality.
         val usesSource = !isSparkle && (!geometric || isRipple)
-        val animatesColor = animates == RunnerAnimates.Color
+        val animatesColor = animates == Animates.Color
         return SceneStep(
             runner         = a.wireName,
             color          = if (animatesColor) colorA else null,
@@ -418,38 +382,22 @@ private fun EditableStep.toSceneStepBody(): SceneStep {
             speed          = if ((a == AnimId.RAIN || isMatrix) && speedMs > 0) speedMs else null, // SPARKLE has no fall-time
             animates       = animates.toToken(),
             amount         = if (animatesColor) null else amount,
-            shape          = if (animatesColor) null else modShape.toToken(),
         )
     }
-    if (a.isModifier) {
-        // Modifier: emit the from→to scalar (params[0]/params[1]) as the `from`/`to` keys.
-        // The wire type encodes direction: identity-at-255 (DIM/DESATURATE) when decreasing,
-        // identity-at-0 (BRIGHTEN/SATURATE) when increasing.
-        val from = params.getOrElse(0) { a.params[0].default }
-        val to = params.getOrElse(1) { a.params[1].default }
-        val decreasing = from >= to
-        val wire = when (a) {
-            AnimId.MOD_BRIGHTNESS -> if (decreasing) AnimationType.MOD_DIM else AnimationType.MOD_BRIGHTEN
-            AnimId.MOD_SATURATION -> if (decreasing) AnimationType.MOD_DESATURATE else AnimationType.MOD_SATURATE
-            else -> a.wireName
-        }
-        return SceneStep(
-            type     = wire,
-            duration = durationMs,
-            loop     = if (loop) true else null,
-            from     = from,
-            to       = to,
-        )
-    }
+    val animatesColor = animates == Animates.Color
+    val isInvert = animates == Animates.Invert
     return SceneStep(
         type      = a.wireName,
-        color     = if (a.colorMode == ColorMode.Single) colorA else null,
-        colorFrom = if (a.colorMode == ColorMode.FromTo) colorA else null,
-        colorTo   = if (a.colorMode == ColorMode.FromTo) colorB else null,
+        color     = if (animatesColor && a.colorMode == ColorMode.Single) colorA else null,
+        colorFrom = if (animatesColor && a.colorMode == ColorMode.FromTo) colorA else null,
+        colorTo   = if (animatesColor && a.colorMode == ColorMode.FromTo) colorB else null,
         duration  = durationMs,
         loop      = if (loop) true else null,
         pingpong  = if (pingpong) true else null,
         params    = a.params.indices.map { params.getOrElse(it) { a.params[it].default } }.ifEmpty { null },
+        animates  = if (animatesColor) null else animates.toToken(),
+        from      = if (animatesColor || isInvert) null else valueFrom,
+        to        = if (animatesColor || isInvert || a == AnimId.SOLID) null else valueTo,
     )
 }
 
@@ -464,7 +412,7 @@ private fun EditableLayer.toPanelTarget(panels: List<LightnetDevicePanel>): Pane
 
 fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>, devicePalette: String? = null): SceneJson {
     val usesCompositing = background != null ||
-        layers.any { l -> l.blend != null || l.steps.any { it.anim.isModifier } }
+        layers.any { l -> l.blend != null || l.steps.any { it.animates != Animates.Color } }
     val usesGeometric = layers.any { l -> l.steps.any { it.geometric } }
     val usesWheelOrRepeat = layers.any { l -> l.steps.any { it.anim == AnimId.WHEEL || (it.anim.isRunner && it.repeat) } }
     val usesV7 = layers.any { l -> l.steps.any { it.anim == AnimId.BOUNCE || it.anim == AnimId.RAIN || it.anim == AnimId.SPARKLE || it.anim == AnimId.MATRIX } }
@@ -534,10 +482,7 @@ private fun parseRunnerSource(source: String?, directionality: String?): Triple<
 private fun stepFrom(step: SceneStep): EditableStep {
     val anim = AnimId.fromStep(step)
     val (isGeometric, src, srcPanel) = parseRunnerSource(step.source, step.directionality)
-    val params = when {
-        anim.isModifier -> listOf(step.from ?: anim.params[0].default, step.to ?: anim.params[1].default)
-        else            -> step.params ?: anim.defaultParams()
-    }
+    val params = step.params ?: anim.defaultParams()
     return EditableStep(
         anim        = anim,
         colorA      = step.color ?: step.colorFrom ?: ColorRef.Hex("#FF0000"),
@@ -552,9 +497,10 @@ private fun stepFrom(step: SceneStep): EditableStep {
         angle       = step.angle ?: 0,
         reverse     = step.reverse == true,
         width       = step.waveWidth ?: step.rippleWidth ?: step.width ?: step.params?.getOrNull(0) ?: anim.defaultWidth,
-        animates    = parseRunnerAnimates(step.animates),
+        animates    = parseAnimates(step.animates),
         amount      = step.amount ?: 128,
-        modShape    = parseModShape(step.shape),
+        valueFrom   = step.from ?: 255,
+        valueTo     = step.to ?: 64,
         repeat      = step.repeat == true,
         repeatCount = (step.repeatCount ?: step.waves ?: 1).coerceAtLeast(1),
         lines       = step.lines ?: 1,

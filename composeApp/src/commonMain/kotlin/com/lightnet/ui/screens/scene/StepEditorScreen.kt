@@ -80,7 +80,7 @@ internal fun StepEditorScreen(
                 )
             }
 
-            if (!step.anim.isRunner) {
+            if (!step.anim.isRunner && step.anim != AnimId.GAP && step.animates == Animates.Color) {
                 when (step.anim.colorMode) {
                     ColorMode.Single -> item {
                         ColorSlotRow("Color", step.colorA, paletteStops, baseColors) { colorSlot = 0 }
@@ -144,6 +144,8 @@ internal fun StepEditorScreen(
                 if (step.anim == AnimId.RAIN || step.anim == AnimId.MATRIX) {
                     item { SpeedEditor(step) }
                 }
+            } else if (step.anim != AnimId.GAP && step.anim != AnimId.HUE_CYCLE) {
+                item { PanelAnimatesEditor(step) }
             }
 
             step.anim.params.forEachIndexed { i, spec ->
@@ -444,15 +446,15 @@ private fun WheelAnimatesCard(
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Animates", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(step.animates == RunnerAnimates.Color,      { step.animates = RunnerAnimates.Color },      { Text("Color") })
-                FilterChip(step.animates == RunnerAnimates.Dim,        { step.animates = RunnerAnimates.Dim },        { Text("Dim") })
-                FilterChip(step.animates == RunnerAnimates.Brighten,   { step.animates = RunnerAnimates.Brighten },   { Text("Brighten") })
-                FilterChip(step.animates == RunnerAnimates.Desaturate, { step.animates = RunnerAnimates.Desaturate }, { Text("Desaturate") })
-                FilterChip(step.animates == RunnerAnimates.Saturate,   { step.animates = RunnerAnimates.Saturate },   { Text("Saturate") })
-                FilterChip(step.animates == RunnerAnimates.Hue,        { step.animates = RunnerAnimates.Hue },        { Text("Hue") })
-                FilterChip(step.animates == RunnerAnimates.Invert,     { step.animates = RunnerAnimates.Invert },     { Text("Invert") })
+                FilterChip(step.animates == Animates.Color,      { step.animates = Animates.Color },      { Text("Color") })
+                FilterChip(step.animates == Animates.Dim,        { step.animates = Animates.Dim },        { Text("Dim") })
+                FilterChip(step.animates == Animates.Brighten,   { step.animates = Animates.Brighten },   { Text("Brighten") })
+                FilterChip(step.animates == Animates.Desaturate, { step.animates = Animates.Desaturate }, { Text("Desaturate") })
+                FilterChip(step.animates == Animates.Saturate,   { step.animates = Animates.Saturate },   { Text("Saturate") })
+                FilterChip(step.animates == Animates.Hue,        { step.animates = Animates.Hue },        { Text("Hue") })
+                FilterChip(step.animates == Animates.Invert,     { step.animates = Animates.Invert },     { Text("Invert") })
             }
-            if (step.animates == RunnerAnimates.Color) {
+            if (step.animates == Animates.Color) {
                 HorizontalDivider()
                 ColorSwatchRow(
                     label          = "Color",
@@ -489,15 +491,15 @@ private fun RunnerAnimatesEditor(
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Animates", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(step.animates == RunnerAnimates.Color,      { step.animates = RunnerAnimates.Color },      { Text("Color") })
-                FilterChip(step.animates == RunnerAnimates.Dim,        { step.animates = RunnerAnimates.Dim },        { Text("Dim") })
-                FilterChip(step.animates == RunnerAnimates.Brighten,   { step.animates = RunnerAnimates.Brighten },   { Text("Brighten") })
-                FilterChip(step.animates == RunnerAnimates.Desaturate, { step.animates = RunnerAnimates.Desaturate }, { Text("Desaturate") })
-                FilterChip(step.animates == RunnerAnimates.Saturate,   { step.animates = RunnerAnimates.Saturate },   { Text("Saturate") })
-                FilterChip(step.animates == RunnerAnimates.Hue,        { step.animates = RunnerAnimates.Hue },        { Text("Hue") })
-                FilterChip(step.animates == RunnerAnimates.Invert,     { step.animates = RunnerAnimates.Invert },     { Text("Invert") })
+                FilterChip(step.animates == Animates.Color,      { step.animates = Animates.Color },      { Text("Color") })
+                FilterChip(step.animates == Animates.Dim,        { step.animates = Animates.Dim },        { Text("Dim") })
+                FilterChip(step.animates == Animates.Brighten,   { step.animates = Animates.Brighten },   { Text("Brighten") })
+                FilterChip(step.animates == Animates.Desaturate, { step.animates = Animates.Desaturate }, { Text("Desaturate") })
+                FilterChip(step.animates == Animates.Saturate,   { step.animates = Animates.Saturate },   { Text("Saturate") })
+                FilterChip(step.animates == Animates.Hue,        { step.animates = Animates.Hue },        { Text("Hue") })
+                FilterChip(step.animates == Animates.Invert,     { step.animates = Animates.Invert },     { Text("Invert") })
             }
-            if (step.animates == RunnerAnimates.Color) {
+            if (step.animates == Animates.Color) {
                 ColorSwatchRow(
                     label          = "Color",
                     color          = step.colorA,
@@ -515,13 +517,6 @@ private fun RunnerAnimatesEditor(
                         onValueChange = { step.amount = it.roundToInt() },
                         valueRange    = 0f..255f,
                     )
-                }
-                HorizontalDivider()
-                Text("Shape", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(step.modShape == RunnerModShape.Fall, { step.modShape = RunnerModShape.Fall }, { Text("Fall") })
-                    FilterChip(step.modShape == RunnerModShape.Rise, { step.modShape = RunnerModShape.Rise }, { Text("Rise") })
-                    FilterChip(step.modShape == RunnerModShape.Bell, { step.modShape = RunnerModShape.Bell }, { Text("Bell") })
                 }
                 if (step.anim != AnimId.BOUNCE) HorizontalDivider()
             }
@@ -551,6 +546,61 @@ private fun RunnerAnimatesEditor(
                                 valueRange    = 1f..16f,
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Shared "Animates" selector for panel-local (non-runner) steps. When set to something other
+ * than Color, the step's own colour is ignored and it instead ramps a 0-255 scalar
+ * (`valueFrom`/`valueTo`) on the chosen modifier target — SOLID holds at `valueFrom` only, and
+ * Invert ignores both (binary, full-strength).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PanelAnimatesEditor(step: EditableStep) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Animates", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(step.animates == Animates.Color,      { step.animates = Animates.Color },      { Text("Color") })
+                FilterChip(step.animates == Animates.Dim,        { step.animates = Animates.Dim },        { Text("Dim") })
+                FilterChip(step.animates == Animates.Brighten,   { step.animates = Animates.Brighten },   { Text("Brighten") })
+                FilterChip(step.animates == Animates.Desaturate, { step.animates = Animates.Desaturate }, { Text("Desaturate") })
+                FilterChip(step.animates == Animates.Saturate,   { step.animates = Animates.Saturate },   { Text("Saturate") })
+                FilterChip(step.animates == Animates.Hue,        { step.animates = Animates.Hue },        { Text("Hue") })
+                FilterChip(step.animates == Animates.Invert,     { step.animates = Animates.Invert },     { Text("Invert") })
+            }
+            if (step.animates != Animates.Color && step.animates != Animates.Invert) {
+                HorizontalDivider()
+                if (step.anim == AnimId.SOLID) {
+                    Column {
+                        Text("Value  ${step.valueFrom}", style = MaterialTheme.typography.bodyLarge)
+                        Slider(
+                            value         = step.valueFrom.toFloat(),
+                            onValueChange = { step.valueFrom = it.roundToInt() },
+                            valueRange    = 0f..255f,
+                        )
+                    }
+                } else {
+                    Column {
+                        Text("From  ${step.valueFrom}", style = MaterialTheme.typography.bodyLarge)
+                        Slider(
+                            value         = step.valueFrom.toFloat(),
+                            onValueChange = { step.valueFrom = it.roundToInt() },
+                            valueRange    = 0f..255f,
+                        )
+                    }
+                    Column {
+                        Text("To  ${step.valueTo}", style = MaterialTheme.typography.bodyLarge)
+                        Slider(
+                            value         = step.valueTo.toFloat(),
+                            onValueChange = { step.valueTo = it.roundToInt() },
+                            valueRange    = 0f..255f,
+                        )
                     }
                 }
             }

@@ -25,14 +25,6 @@ object AnimationType {
     const val HUE_CYCLE = "HUE_CYCLE"
     const val STROBE = "STROBE"
     const val REACTIVE = "REACTIVE"
-
-    // Modifier layers — transform the colour composited below them (scene-authoring §5.1).
-    const val MOD_DIM = "MOD_DIM"
-    const val MOD_BRIGHTEN = "MOD_BRIGHTEN"
-    const val MOD_DESATURATE = "MOD_DESATURATE"
-    const val MOD_SATURATE = "MOD_SATURATE"
-    const val MOD_HUE_SHIFT = "MOD_HUE_SHIFT"
-    const val MOD_INVERT = "MOD_INVERT"
 }
 
 object RunnerType {
@@ -46,8 +38,8 @@ object RunnerType {
     const val MATRIX = "MATRIX"
 }
 
-/** What a runner's sweep modulates (scene-authoring §7.3 `animates`). Default is `color`. */
-object RunnerTarget {
+/** What an animation step modulates (`animates`, types.md#modifier-targets-animates). Default is `color`. */
+object AnimateTarget {
     const val COLOR = "color"
     const val DIM = "dim"
     const val BRIGHTEN = "brighten"
@@ -142,7 +134,7 @@ data class SceneStep(
     val loop: Boolean? = null,
     val pingpong: Boolean? = null,
     val params: List<Int>? = null,
-    // Modifier steps (MOD_*): animate a 0–255 scalar from → to.
+    // animates != color: animate a 0–255 scalar from → to instead of colorFrom/colorTo.
     val from: Int? = null,
     val to: Int? = null,
     // Runner directionality (WAVE/RIPPLE/CHASE) — never combine with `params`.
@@ -167,11 +159,9 @@ data class SceneStep(
     // and number of evenly-spaced rotating blades, 1-6.
     val thickness: Int? = null,
     val lines: Int? = null,
-    // What the runner's sweep modulates (RunnerTarget) and its peak intensity for non-color targets.
+    // What this animation modulates (AnimateTarget) and its peak intensity for runner non-color targets.
     val animates: String? = null,
     val amount: Int? = null,
-    // Modifier envelope shape ("fall" default, "rise", "bell") — only meaningful for non-color animates.
-    val shape: String? = null,
 )
 
 @Serializable
