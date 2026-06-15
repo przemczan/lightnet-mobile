@@ -292,6 +292,7 @@ fun TimelineSceneEditorScreen(
     }
     val paletteNames = remember(palettesMap) { palettesMap.keys.sorted() }
 
+    val originalName = remember(initial) { initial?.name?.trim()?.takeIf { it.isNotBlank() } }
     var scene by remember { mutableStateOf<EditableScene?>(null) }
     LaunchedEffect(initial, panels.size) {
         if (scene != null) return@LaunchedEffect
@@ -468,16 +469,19 @@ fun TimelineSceneEditorScreen(
                             if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@ExtendedFloatingActionButton }
                             activeScene.clearUnusedStepIds()
                             val sceneJson = activeScene.toSceneJson(panels)
+                            val renamed = originalName != null && originalName != sceneJson.name
                             when (origin) {
                                 SceneOrigin.GLOBAL -> {
                                     val ok = runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess
                                     if (!ok) { scope.launch { snackbar.showSnackbar("Failed to save scene.") }; return@ExtendedFloatingActionButton }
+                                    if (renamed) AppPreferences.scenes.delete(originalName!!)
                                     isDirty = false
                                     if (alsoSaveToOther && httpClient != null) {
                                         scope.launch {
                                             if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess)
                                                 snackbar.showSnackbar("Saved locally but failed to save to device.")
                                             else {
+                                                if (renamed) runCatching { httpClient.deleteScene(originalName!!) }
                                                 device?.refreshPalettes()
                                                 device?.refreshScenes()
                                             }
@@ -493,11 +497,16 @@ fun TimelineSceneEditorScreen(
                                         if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess) {
                                             snackbar.showSnackbar("Failed to save scene to device."); return@launch
                                         }
+                                        if (renamed) runCatching { httpClient.deleteScene(originalName!!) }
                                         isDirty = false
                                         device?.refreshPalettes()
                                         device?.refreshScenes()
-                                        if (alsoSaveToOther && !runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess)
-                                            snackbar.showSnackbar("Saved to device but failed to save locally.")
+                                        if (alsoSaveToOther) {
+                                            if (!runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess)
+                                                snackbar.showSnackbar("Saved to device but failed to save locally.")
+                                            else if (renamed)
+                                                AppPreferences.scenes.delete(originalName!!)
+                                        }
                                         onBack()
                                     }
                                 }

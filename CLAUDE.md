@@ -214,6 +214,10 @@ cp "$SRC/drawable/ic_launcher_monochrome.xml"       "$RES/drawable/ic_launcher_m
 
 The zip supplies vector-based adaptive icons (API 26+). The existing raster `.webp` files in `mipmap-hdpi/mdpi/xhdpi/xxhdpi/xxxhdpi` are kept as fallbacks for API 24–25 (minSdk).
 
+## Takig APP screenshots
+
+Look for guide in `docs/assets/screenshots/CLAUDE.md`.
+
 ## Versions
 
 | Component | Version |

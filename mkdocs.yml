@@ -12,6 +12,7 @@ theme:
 nav:
   - index.md
   - Overview: overview.md
+  - Screenshots: screenshots.md
   - Getting Started: getting-started.md
   - Development: development.md
   - Connectivity: connectivity.md

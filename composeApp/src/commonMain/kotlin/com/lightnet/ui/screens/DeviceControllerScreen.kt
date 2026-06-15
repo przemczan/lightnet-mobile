@@ -137,6 +137,9 @@ fun DeviceControllerScreen(
     // Refresh panel states on screen entry when already connected.
     LaunchedEffect(device) { device?.refreshPanelStates() }
 
+    // Auto-enable live preview when opening a device.
+    LaunchedEffect(device) { device?.setLivePreview(true) }
+
     // Turn off live preview when the visualizer screen leaves composition.
     DisposableEffect(device) { onDispose { device.setLivePreview(false) } }
 
