@@ -1,10 +1,5 @@
 package com.lightnet.ui.screens.scene
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,23 +39,25 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.TextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -345,7 +342,7 @@ fun TimelineSceneEditorScreen(
     }
 
     var showPreviewModal by remember { mutableStateOf(false) }
-    var optionsExpanded by remember { mutableStateOf(false) }
+    var showOptionsSheet by remember { mutableStateOf(false) }
     var snapMode by remember { mutableStateOf(true) }
     var pxPerMs by remember { mutableFloatStateOf(DEFAULT_PX_PER_MS) }
     var hasAutoFitted by remember { mutableStateOf(false) }
@@ -478,21 +475,22 @@ fun TimelineSceneEditorScreen(
             )
         },
         bottomBar = {
-            BottomAppBar {
-                OutlinedButton(
-                    onClick = {
+            BottomAppBar(
+                actions = {
+                    IconButton(onClick = {
                         val err = activeScene.validationError()
-                        if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@OutlinedButton }
+                        if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@IconButton }
                         val json = previewJson.encodeToString(SceneJson.serializer(), activeScene.toPreviewSceneJson(panels, devicePalette))
                         offlineService.play(json)
                         showPreviewModal = true
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.size(8.dp)); Text("Preview")
-                }
-            }
+                    }) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Preview")
+                    }
+                    IconButton(onClick = { showOptionsSheet = true }) {
+                        Icon(Icons.Default.Tune, contentDescription = "Scene options")
+                    }
+                },
+            )
         },
     ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
@@ -514,17 +512,6 @@ fun TimelineSceneEditorScreen(
                     modifier      = Modifier.weight(1f),
                 )
             }
-
-            SceneOptionsCard(
-                scene           = activeScene,
-                expanded        = optionsExpanded,
-                onToggle        = { optionsExpanded = !optionsExpanded },
-                origin          = origin,
-                httpClient      = httpClient,
-                alsoSaveToOther = alsoSaveToOther,
-                onAlsoSaveToOtherChange = { alsoSaveToOther = it },
-                paletteNames    = paletteNames,
-            )
 
             val usableWidthPx = (viewportWidthPx - 2 * contentMarginPx).coerceAtLeast(0f)
             val fitPxPerMs = if (usableWidthPx > 0f) {
@@ -592,6 +579,19 @@ fun TimelineSceneEditorScreen(
         )
     }
 
+    if (showOptionsSheet) {
+        ModalBottomSheet(onDismissRequest = { showOptionsSheet = false }) {
+            SceneOptionsContent(
+                scene           = activeScene,
+                origin          = origin,
+                httpClient      = httpClient,
+                alsoSaveToOther = alsoSaveToOther,
+                onAlsoSaveToOtherChange = { alsoSaveToOther = it },
+                paletteNames    = paletteNames,
+            )
+        }
+    }
+
     if (showPreviewModal) {
         Dialog(onDismissRequest = { stopPreview(); showPreviewModal = false }) {
             Surface(shape = MaterialTheme.shapes.large) {
@@ -619,103 +619,81 @@ private sealed interface Editing {
     data class Layer(val layer: EditableLayer) : Editing
 }
 
-/** Foldable scene-wide options: also-save-to-other, loop, speed, default palette, background. */
+/** Scene-wide options: also-save-to-other, loop, speed, default palette, background. */
 @Composable
-private fun SceneOptionsCard(
+private fun SceneOptionsContent(
     scene: EditableScene,
-    expanded: Boolean,
-    onToggle: () -> Unit,
     origin: SceneOrigin,
     httpClient: LightnetHttpClient?,
     alsoSaveToOther: Boolean,
     onAlsoSaveToOtherChange: (Boolean) -> Unit,
     paletteNames: List<String>,
 ) {
-    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-        Column {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onToggle)
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                Arrangement.SpaceBetween, Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Scene options",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Icon(
-                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse scene options" else "Expand scene options",
-                )
-            }
-            AnimatedVisibility(
-                visible = expanded,
-                enter   = expandVertically() + fadeIn(),
-                exit    = shrinkVertically() + fadeOut(),
-            ) {
-                Column(Modifier.padding(horizontal = 12.dp)) {
-                    val checkboxEnabled = when (origin) {
-                        SceneOrigin.GLOBAL -> httpClient != null
-                        SceneOrigin.DEVICE -> true
-                    }
-                    val checkboxLabel = when (origin) {
-                        SceneOrigin.GLOBAL -> "Also save to device"
-                        SceneOrigin.DEVICE -> "Also save to Global"
-                    }
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = checkboxEnabled) { onAlsoSaveToOtherChange(!alsoSaveToOther) }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked         = alsoSaveToOther,
-                            onCheckedChange = onAlsoSaveToOtherChange,
-                            enabled         = checkboxEnabled,
-                        )
-                        Column {
-                            Text(checkboxLabel, style = MaterialTheme.typography.bodyMedium)
-                            if (origin == SceneOrigin.GLOBAL && httpClient == null) {
-                                Text(
-                                    "Connect a device to enable",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-                    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                        Text("Loop", style = MaterialTheme.typography.bodyLarge)
-                        Switch(checked = scene.loop, onCheckedChange = { scene.loop = it })
-                    }
-                    HorizontalDivider()
-                    Column(Modifier.padding(vertical = 8.dp)) {
-                        Text("Speed", style = MaterialTheme.typography.bodyLarge)
-                        SpeedSlider(
-                            speed         = scene.speed,
-                            onSpeedChange = { scene.speed = it },
-                        )
-                    }
-                    HorizontalDivider()
-                    PaletteDropdown(
-                        label    = "Default palette",
-                        value    = scene.palette,
-                        options  = paletteNames,
-                        onSelect = { scene.palette = it },
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                    HorizontalDivider()
-                    BackgroundColorRow(
-                        hex      = scene.background,
-                        onChange = { scene.background = it },
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Text(
+            "Scene options",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        val checkboxEnabled = when (origin) {
+            SceneOrigin.GLOBAL -> httpClient != null
+            SceneOrigin.DEVICE -> true
+        }
+        val checkboxLabel = when (origin) {
+            SceneOrigin.GLOBAL -> "Also save to device"
+            SceneOrigin.DEVICE -> "Also save to Global"
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = checkboxEnabled) { onAlsoSaveToOtherChange(!alsoSaveToOther) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked         = alsoSaveToOther,
+                onCheckedChange = onAlsoSaveToOtherChange,
+                enabled         = checkboxEnabled,
+            )
+            Column {
+                Text(checkboxLabel, style = MaterialTheme.typography.bodyMedium)
+                if (origin == SceneOrigin.GLOBAL && httpClient == null) {
+                    Text(
+                        "Connect a device to enable",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
+        HorizontalDivider()
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text("Loop", style = MaterialTheme.typography.bodyLarge)
+            Switch(checked = scene.loop, onCheckedChange = { scene.loop = it })
+        }
+        HorizontalDivider()
+        Column(Modifier.padding(vertical = 8.dp)) {
+            Text("Speed", style = MaterialTheme.typography.bodyLarge)
+            SpeedSlider(
+                speed         = scene.speed,
+                onSpeedChange = { scene.speed = it },
+            )
+        }
+        HorizontalDivider()
+        PaletteDropdown(
+            label    = "Default palette",
+            value    = scene.palette,
+            options  = paletteNames,
+            onSelect = { scene.palette = it },
+            modifier = Modifier.padding(vertical = 8.dp),
+        )
+        HorizontalDivider()
+        BackgroundColorRow(
+            hex      = scene.background,
+            onChange = { scene.background = it },
+        )
+        Spacer(Modifier.size(16.dp))
     }
 }
 

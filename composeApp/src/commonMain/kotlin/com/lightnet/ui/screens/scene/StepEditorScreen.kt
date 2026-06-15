@@ -535,17 +535,13 @@ private fun RunnerAnimatesEditor(
                     }
                 }
                 else -> {
-                    ToggleRow("Repeat — continuous train", step.repeat) { step.repeat = it }
-                    if (step.repeat) {
-                        HorizontalDivider()
-                        Column {
-                            Text("Waves  ${step.repeatCount}", style = MaterialTheme.typography.bodyLarge)
-                            Slider(
-                                value         = step.repeatCount.toFloat(),
-                                onValueChange = { step.repeatCount = it.roundToInt().coerceAtLeast(1) },
-                                valueRange    = 1f..16f,
-                            )
-                        }
+                    Column {
+                        Text("Density  ${step.density}", style = MaterialTheme.typography.bodyLarge)
+                        Slider(
+                            value         = step.density.toFloat(),
+                            onValueChange = { step.density = it.roundToInt().coerceIn(0, 255) },
+                            valueRange    = 0f..255f,
+                        )
                     }
                 }
             }

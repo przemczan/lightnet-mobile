@@ -124,7 +124,7 @@ class EditableStep(
     amount: Int = 128,
     valueFrom: Int = 255,
     valueTo: Int = 64,
-    repeat: Boolean = false,
+    density: Int = 0,
     repeatCount: Int = 1,
     lines: Int = 1,
     thickness: Int = 18,
@@ -150,9 +150,10 @@ class EditableStep(
     var amount by mutableStateOf(amount)        // runner-only: peak intensity for non-Color targets, 0-255
     var valueFrom by mutableStateOf(valueFrom)  // panel-local non-Color: scalar ramp start, 0-255
     var valueTo by mutableStateOf(valueTo)      // panel-local non-Color: scalar ramp end, 0-255
-    // WAVE/RIPPLE/CHASE: continuous train of sweeps instead of a single pass (colour-only).
-    var repeat by mutableStateOf(repeat)
-    var repeatCount by mutableStateOf(repeatCount) // waves/rings in flight at once; 1 = single sweep
+    // WAVE/RIPPLE/CHASE: spawn density (0-255) of the continuous sweep train; 0 = one sweep in
+    // flight at a time, gapless; 255 = max concurrent sweeps.
+    var density by mutableStateOf(density)
+    var repeatCount by mutableStateOf(repeatCount) // RAIN/SPARKLE/MATRIX: drops/flashes per second
     // WHEEL-only: number of rotating blades (1-6) and blade thickness in degrees.
     var lines by mutableStateOf(lines)
     var thickness by mutableStateOf(thickness)
@@ -269,7 +270,7 @@ private fun EditableStep.clone(): EditableStep = EditableStep(
     amount      = amount,
     valueFrom   = valueFrom,
     valueTo     = valueTo,
-    repeat      = repeat,
+    density     = density,
     repeatCount = repeatCount,
     lines       = lines,
     thickness   = thickness,
@@ -376,8 +377,7 @@ private fun EditableStep.toSceneStepBody(): SceneStep {
             waveWidth      = if (a == AnimId.WAVE && a.hasWidth) width else null,
             rippleWidth    = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
             width          = if ((a == AnimId.BOUNCE || isSpawner) && a.hasWidth) width else null,
-            repeat         = if (!isSpawner && a != AnimId.BOUNCE && repeat) true else null,
-            repeatCount    = if (!isSpawner && repeat && repeatCount > 1) repeatCount else null,
+            density        = if (!isSpawner && a != AnimId.BOUNCE && density > 0) density else null,
             waves          = if (isSpawner && repeatCount > 1) repeatCount else null,
             speed          = if ((a == AnimId.RAIN || isMatrix) && speedMs > 0) speedMs else null, // SPARKLE has no fall-time
             animates       = animates.toToken(),
@@ -414,7 +414,7 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>, devicePalette: 
     val usesCompositing = background != null ||
         layers.any { l -> l.blend != null || l.steps.any { it.animates != Animates.Color } }
     val usesGeometric = layers.any { l -> l.steps.any { it.geometric } }
-    val usesWheelOrRepeat = layers.any { l -> l.steps.any { it.anim == AnimId.WHEEL || (it.anim.isRunner && it.repeat) } }
+    val usesWheel = layers.any { l -> l.steps.any { it.anim == AnimId.WHEEL } }
     val usesV7 = layers.any { l -> l.steps.any { it.anim == AnimId.BOUNCE || it.anim == AnimId.RAIN || it.anim == AnimId.SPARKLE || it.anim == AnimId.MATRIX } }
     val usesV8 = layers.any { l ->
         l.steps.any { !it.stepId.isNullOrBlank() } || l.startAfter?.contains(":") == true
@@ -423,14 +423,14 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>, devicePalette: 
     return SceneJson(
         // Pick the lowest schema that still expresses the features used, so scenes keep loading
         // on older controllers: v8 = step `id` / `startAfter: "group:stepId"`, v7 = BOUNCE/RAIN/SPARKLE/MATRIX,
-        // v5 = WHEEL/`repeat`, v4 = blend/modifier/background, v3 = geometric directionality.
+        // v5 = WHEEL, v4 = blend/modifier/background, v3 = geometric directionality.
         schemaVersion = when {
-            usesV8            -> 8
-            usesV7            -> 7
-            usesWheelOrRepeat -> 5
-            usesCompositing   -> 4
-            usesGeometric     -> 3
-            else              -> 2
+            usesV8          -> 8
+            usesV7          -> 7
+            usesWheel       -> 5
+            usesCompositing -> 4
+            usesGeometric   -> 3
+            else            -> 2
         },
         name       = name.trim().ifBlank { null },
         loop       = loop,
@@ -501,8 +501,8 @@ private fun stepFrom(step: SceneStep): EditableStep {
         amount      = step.amount ?: 128,
         valueFrom   = step.from ?: 255,
         valueTo     = step.to ?: 64,
-        repeat      = step.repeat == true,
-        repeatCount = (step.repeatCount ?: step.waves ?: 1).coerceAtLeast(1),
+        density     = (step.density ?: 0).coerceIn(0, 255),
+        repeatCount = (step.waves ?: 1).coerceAtLeast(1),
         lines       = step.lines ?: 1,
         thickness   = step.thickness ?: 18,
         speedMs     = step.speed ?: 0,

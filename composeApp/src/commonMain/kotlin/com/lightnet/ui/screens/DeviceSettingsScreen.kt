@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -70,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetHttpClient
@@ -82,6 +83,7 @@ import com.lightnet.settings.AppPreferences
 import com.lightnet.settings.DevicePreferences
 import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.components.LightnetDeviceVisualizer
+import com.lightnet.ui.components.groupedListItemShape
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -690,11 +692,12 @@ private fun PalettesSettingsScreen(
                     top    = padding.calculateTopPadding() + 8.dp,
                     bottom = padding.calculateBottomPadding() + 80.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                items(palettes, key = { it.name }) { palette ->
+                itemsIndexed(palettes, key = { _, it -> it.name }) { index, palette ->
                     PaletteSettingsItem(
                         palette  = palette,
+                        shape    = groupedListItemShape(index, palettes.size),
                         onEdit   = { editingPalette = palette; showEditor = true },
                         onDelete = { deleteTarget = palette },
                     )
@@ -725,6 +728,7 @@ private fun PalettesSettingsScreen(
 @Composable
 private fun PaletteSettingsItem(
     palette: PaletteJson,
+    shape: Shape,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -737,6 +741,7 @@ private fun PaletteSettingsItem(
     }
 
     Card(
+        shape    = shape,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit),
     ) {
         Column(

@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -44,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
 import com.lightnet.api.http.LightnetHttpClient
@@ -52,6 +53,7 @@ import com.lightnet.api.http.model.SceneJson
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.settings.AppPreferences
+import com.lightnet.ui.components.groupedListItemShape
 import com.lightnet.ui.screens.scene.SceneOrigin
 import com.lightnet.ui.screens.scene.TimelineSceneEditorScreen
 import com.lightnet.ui.BackHandlerCompat
@@ -173,11 +175,12 @@ fun ScenesSettingsScreen(
                     else -> LazyColumn(
                         modifier            = listModifier,
                         contentPadding      = listPadding,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        items(globalScenes, key = { it.name ?: "" }) { scene ->
+                        itemsIndexed(globalScenes, key = { _, it -> it.name ?: "" }) { index, scene ->
                             SceneSettingsItem(
                                 name     = scene.name ?: "Unnamed",
+                                shape    = groupedListItemShape(index, globalScenes.size),
                                 onPlay   = {
                                     scope.launch {
                                         if (httpClient == null) {
@@ -225,11 +228,12 @@ fun ScenesSettingsScreen(
                     else -> LazyColumn(
                         modifier            = listModifier,
                         contentPadding      = listPadding,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        items(deviceScenes, key = { it.name }) { info ->
+                        itemsIndexed(deviceScenes, key = { _, it -> it.name }) { index, info ->
                             SceneSettingsItem(
                                 name     = info.name,
+                                shape    = groupedListItemShape(index, deviceScenes.size),
                                 onPlay   = {
                                     scope.launch {
                                         val r = runCatching { httpClient.playSceneByName(info.name) }
@@ -290,12 +294,13 @@ fun ScenesSettingsScreen(
 @Composable
 private fun SceneSettingsItem(
     name: String,
+    shape: Shape,
     onPlay: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
+    Card(shape = shape, modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
         Row(
             Modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
             Arrangement.SpaceBetween, Alignment.CenterVertically,

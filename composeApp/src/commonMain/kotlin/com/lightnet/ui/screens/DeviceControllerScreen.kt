@@ -489,8 +489,10 @@ fun DeviceControllerScreen(
     if (showScenesSheet) {
         ScenesSheet(
             httpClient    = httpClient,
+            appState      = appState,
             onDismiss     = { showScenesSheet = false },
             onScenePlayed = { sceneStatusRefresh++ },
+            onSceneStopped = { sceneStatusRefresh++ },
             onEdit        = { scene, origin -> showScenesSheet = false; editingSceneOrigin = origin; editingScene = scene },
         )
     }
@@ -679,8 +681,10 @@ private sealed class ScenesSheetItem {
 @Composable
 private fun ScenesSheet(
     httpClient: LightnetHttpClient?,
+    appState: AppStateBody?,
     onDismiss: () -> Unit,
     onScenePlayed: () -> Unit,
+    onSceneStopped: () -> Unit,
     onEdit: (SceneJson, SceneOrigin) -> Unit,
 ) {
     val scope       = rememberCoroutineScope()
@@ -688,6 +692,7 @@ private fun ScenesSheet(
     val globalScenes = remember { AppPreferences.scenes.getAll() }
     var deviceScenes by remember { mutableStateOf<List<SceneInfo>>(emptyList()) }
     var playing     by remember { mutableStateOf<String?>(null) }
+    var stopping    by remember { mutableStateOf(false) }
     var loadingEdit by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(httpClient) {
@@ -724,10 +729,13 @@ private fun ScenesSheet(
                 )
                 else -> items.forEach { item ->
                     val name = item.name
+                    val isPlayingItem = appState?.playing == true &&
+                        appState.lastPlayedScene == name &&
+                        appState.lastPlayedSceneIsStored == (item is ScenesSheetItem.Device)
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = playing == null && loadingEdit == null) {
+                            .clickable(enabled = playing == null && loadingEdit == null && !stopping) {
                                 scope.launch {
                                     if (httpClient == null && item is ScenesSheetItem.Device) {
                                         snackbar.showSnackbar("Connect a device to play device scenes.")
@@ -765,6 +773,23 @@ private fun ScenesSheet(
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (playing == name) CircularProgressIndicator(Modifier.size(20.dp))
+                            if (isPlayingItem) {
+                                IconButton(
+                                    enabled = !stopping && playing == null && loadingEdit == null,
+                                    onClick = {
+                                        if (httpClient == null) return@IconButton
+                                        scope.launch {
+                                            stopping = true
+                                            val ok = runCatching { httpClient.stopScene() }.isSuccess
+                                            stopping = false
+                                            if (ok) onSceneStopped() else snackbar.showSnackbar("Failed to stop \"$name\".")
+                                        }
+                                    },
+                                ) {
+                                    if (stopping) CircularProgressIndicator(Modifier.size(20.dp))
+                                    else Icon(Icons.Default.Stop, contentDescription = "Stop \"$name\"")
+                                }
+                            }
                             IconButton(
                                 enabled = loadingEdit == null && playing == null,
                                 onClick = {

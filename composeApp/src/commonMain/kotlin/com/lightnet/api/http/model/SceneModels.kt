@@ -146,11 +146,10 @@ data class SceneStep(
     val rippleWidth: Int? = null,
     // BOUNCE/RAIN/SPARKLE: generic band/tail/fade width (waveWidth/rippleWidth's equivalent).
     val width: Int? = null,
-    // WAVE/RIPPLE/CHASE: replay as a continuous train of evenly-spaced sweeps (colour-only).
-    val repeat: Boolean? = null,
-    // Number of waves/rings/chases in flight simultaneously (waves per duration). 0 or 1 = one wave.
-    val repeatCount: Int? = null,
-    // RAIN/SPARKLE: alias for repeatCount (number of drops / flicker density).
+    // WAVE/RIPPLE/CHASE: spawn density (0-255) of the continuous sweep train. 0 = one sweep in
+    // flight at a time, gapless; 255 = up to MAX_CONCURRENT_SWEEPS sweeps in flight.
+    val density: Int? = null,
+    // RAIN/SPARKLE/MATRIX: spawn rate — drops/flashes per second.
     val waves: Int? = null,
     // RAIN/SPARKLE: drop-fall / flash period in ms (constant). When set, `duration` is the play
     // window instead of the rate. 0/absent = rate derived from `duration` (legacy).

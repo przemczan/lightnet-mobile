@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
@@ -30,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
@@ -37,6 +38,7 @@ import com.lightnet.discovery.SavedDevice
 import com.lightnet.ui.components.DeviceStatus
 import com.lightnet.ui.components.EmptyState
 import com.lightnet.ui.components.deviceStatus
+import com.lightnet.ui.components.groupedListItemShape
 import com.lightnet.ui.components.StatusDot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,13 +99,14 @@ fun MyDevicesScreen(
                     LazyColumn(
                         Modifier.fillMaxSize(),
                         contentPadding      = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        items(devices, key = { it.id }) { device ->
+                        itemsIndexed(devices, key = { _, it -> it.id }) { index, device ->
                             HomeDeviceCard(
                                 device          = device,
                                 connectionState = devicePool[device.id]?.connectionState,
                                 isOnline        = devicePool[device.id]?.isOnline,
+                                shape           = groupedListItemShape(index, devices.size),
                                 onClick         = { onOpenDevice(device) },
                                 onEditClick     = { onEditDevice(device) },
                             )
@@ -131,6 +134,7 @@ private fun HomeDeviceCard(
     device: SavedDevice,
     connectionState: StateFlow<ConnectionState>?,
     isOnline: StateFlow<Boolean?>?,
+    shape: Shape,
     onClick: () -> Unit,
     onEditClick: () -> Unit,
 ) {
@@ -140,6 +144,7 @@ private fun HomeDeviceCard(
 
     Card(
         onClick  = onClick,
+        shape    = shape,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
