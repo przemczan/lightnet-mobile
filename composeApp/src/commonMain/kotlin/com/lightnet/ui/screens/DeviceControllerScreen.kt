@@ -285,53 +285,57 @@ fun DeviceControllerScreen(
         },
         bottomBar = {
             BottomAppBar(contentPadding = PaddingValues(0.dp)) {
-                Box(Modifier.fillMaxWidth()) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // Left of power button — 2 buttons, SpaceEvenly.
-                        Row(
-                            Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                        ) {
-                            IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
-                                Icon(Icons.Default.Brush, contentDescription = "Pick color", modifier = Modifier.size(28.dp))
-                            }
-                            IconButton(onClick = { showAdjustSheet = true }, enabled = isConnected) {
-                                Icon(Icons.Default.Tune, contentDescription = "Adjust brightness, palette and speed", modifier = Modifier.size(28.dp))
-                            }
-                        }
-                        // Right of power button — each real button is spaced evenly in its own half.
-                        Row(
-                            Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                        ) {
-                            IconButton(onClick = { showScenesSheet = true }, enabled = isConnected) {
-                                Icon(Icons.Default.Movie, contentDescription = "Scenes", modifier = Modifier.size(28.dp))
-                            }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
+                            Icon(Icons.Default.Brush, contentDescription = "Pick color", modifier = Modifier.size(28.dp))
                         }
                     }
-                    // Power is the primary control — a color-coded FAB makes the on/off
-                    // state glanceable and gives it the largest touch target.
-                    FloatingActionButton(
-                        onClick = {
-                            if (!isConnected) return@FloatingActionButton
-                            val on = !allPanelsOn
-                            allPanelsOn = on
-                            scope.launch { device.setPowerState(on) }
-                        },
-                        containerColor = when {
-                            !isConnected -> MaterialTheme.colorScheme.surfaceVariant
-                            allPanelsOn  -> MaterialTheme.colorScheme.primaryContainer
-                            else         -> BottomAppBarDefaults.bottomAppBarFabColor
-                        },
-                        modifier = Modifier.align(Alignment.Center),
-                    ) {
-                        Icon(
-                            Icons.Default.PowerSettingsNew,
-                            contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
-                        )
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        IconButton(onClick = { showAdjustSheet = true }, enabled = isConnected) {
+                            Icon(Icons.Default.Tune, contentDescription = "Adjust brightness, palette and speed", modifier = Modifier.size(28.dp))
+                        }
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        FloatingActionButton(
+                            onClick = {
+                                if (!isConnected) return@FloatingActionButton
+                                val on = !allPanelsOn
+                                allPanelsOn = on
+                                scope.launch { device.setPowerState(on) }
+                            },
+                            containerColor = when {
+                                !isConnected -> MaterialTheme.colorScheme.surfaceVariant
+                                allPanelsOn  -> MaterialTheme.colorScheme.primaryContainer
+                                else         -> BottomAppBarDefaults.bottomAppBarFabColor
+                            },
+                        ) {
+                            Icon(
+                                Icons.Default.PowerSettingsNew,
+                                contentDescription = if (allPanelsOn) "Turn off" else "Turn on",
+                            )
+                        }
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        IconButton(onClick = { showScenesSheet = true }, enabled = isConnected) {
+                            Icon(Icons.Default.Movie, contentDescription = "Scenes", modifier = Modifier.size(28.dp))
+                        }
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        FilledIconToggleButton(
+                            checked         = livePreview,
+                            onCheckedChange = { device.setLivePreview(it) },
+                            enabled         = isConnected,
+                        ) {
+                            Icon(
+                                Icons.Default.Visibility,
+                                contentDescription = if (livePreview) "Stop live preview" else "Live preview",
+                                modifier = Modifier.size(28.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -454,17 +458,6 @@ fun DeviceControllerScreen(
                                 Icon(
                                     if (isScenePlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
                                     contentDescription = if (isScenePlaying) "Stop scene" else "Play \"$lastPlayedScene\"",
-                                    modifier = Modifier.size(28.dp),
-                                )
-                            }
-                            FilledIconToggleButton(
-                                checked         = livePreview,
-                                onCheckedChange = { device.setLivePreview(it) },
-                                enabled         = isConnected,
-                            ) {
-                                Icon(
-                                    Icons.Default.Visibility,
-                                    contentDescription = if (livePreview) "Stop live preview" else "Live preview",
                                     modifier = Modifier.size(28.dp),
                                 )
                             }

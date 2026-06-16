@@ -108,6 +108,10 @@ class LightnetDevice(
     @Volatile var cachedControllerFirmware: String? = null
         private set
 
+    /** Last known logical root — 0 means the physical root (panel 1). */
+    @Volatile private var cachedLogicalRoot: Int = 0
+        private set
+
     private val _palettes = MutableStateFlow<List<PaletteJson>?>(null)
     /** Device palettes — null until first loaded; survives navigation. */
     val palettes: StateFlow<List<PaletteJson>?> = _palettes
@@ -134,6 +138,7 @@ class LightnetDevice(
                 }
                 if (cs == ConnectorState.CONNECTED) {
                     panelsListService.load()
+                    scope.launch { refreshCachedLogicalRoot() }
                     // Mirroring is per-connection and defaults off on the controller, so a
                     // reconnect while preview is on must re-enable it (and re-trigger the snapshot).
                     // A controller restart resets its animation/seq state, so drop our stale
@@ -160,7 +165,7 @@ class LightnetDevice(
         scope.launch {
             panelsListService.panels.collect { panels ->
                 _snapshot.value = panels?.let { buildSnapshot(it) }
-                if (panels != null) offlineSceneService.setTopology(panels)
+                if (panels != null) offlineSceneService.setTopology(panels, cachedLogicalRoot)
             }
         }
     }
@@ -184,6 +189,9 @@ class LightnetDevice(
     /** Called from App when the resolved HTTP base URL becomes available (after WS connects). */
     fun attachHttpClient(client: DeviceHttpApi?) {
         httpClient = client
+        if (connectionState.value == ConnectionState.CONNECTED) {
+            scope.launch { refreshCachedLogicalRoot() }
+        }
     }
 
     /** Requests a fresh PANELS_STATES update over WebSocket if currently connected. */
@@ -283,11 +291,18 @@ class LightnetDevice(
     }
 
     suspend fun getTopology(): TopologyResponse? =
-        httpClient?.runCatching { getTopology() }?.getOrNull()
+        httpClient?.runCatching { getTopology() }?.getOrNull()?.also { cachedLogicalRoot = it.logicalRoot }
 
     /** Set the logical root panel index (0 resets to the physical root). */
     suspend fun setLogicalRoot(root: Int) {
         httpClient?.runCatching { setLogicalRoot(root) }
+        cachedLogicalRoot = root
+        panelsListService.panels.value?.let { offlineSceneService.setTopology(it, root) }
+    }
+
+    private suspend fun refreshCachedLogicalRoot() {
+        cachedLogicalRoot = httpClient?.runCatching { getTopology() }?.getOrNull()?.logicalRoot ?: 0
+        panelsListService.panels.value?.let { offlineSceneService.setTopology(it, cachedLogicalRoot) }
     }
 
     // ────────────────────────────────────────────────────────────────────────

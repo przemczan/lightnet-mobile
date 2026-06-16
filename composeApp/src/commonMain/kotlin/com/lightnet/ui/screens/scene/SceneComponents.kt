@@ -352,12 +352,17 @@ internal fun StartAfterDropdown(
 }
 
 @Composable
-internal fun PanelPickerField(
+fun PanelPickerField(
     label: String,
     selectedPanelId: Int?,
     panels: List<LightnetDevicePanel>,
     onPick: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** When set, shown instead of "Tap to choose" when [selectedPanelId] is null. */
+    emptyLabel: String = "Tap to choose",
+    /** Optional reset choice (e.g. logical root → physical root). */
+    defaultOptionLabel: String? = null,
+    onPickDefault: (() -> Unit)? = null,
 ) {
     var show by remember { mutableStateOf(false) }
     Card(modifier = modifier.fillMaxWidth().clickable { show = true }) {
@@ -369,7 +374,7 @@ internal fun PanelPickerField(
             Column {
                 Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    selectedPanelId?.let { "Panel $it" } ?: "Tap to choose",
+                    selectedPanelId?.let { "Panel $it" } ?: emptyLabel,
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
@@ -378,11 +383,18 @@ internal fun PanelPickerField(
     }
     if (show) {
         PanelPickerSheet(
-            title           = label,
-            panels          = panels,
-            selectedPanelId = selectedPanelId,
-            onPick          = { onPick(it); show = false },
-            onDismiss       = { show = false },
+            title               = label,
+            panels              = panels,
+            selectedPanelId     = selectedPanelId,
+            defaultOptionLabel  = defaultOptionLabel,
+            onPickDefault       = onPickDefault?.let { pickDefault ->
+                {
+                    pickDefault()
+                    show = false
+                }
+            },
+            onPick              = { onPick(it); show = false },
+            onDismiss           = { show = false },
         )
     }
 }
@@ -395,6 +407,8 @@ private fun PanelPickerSheet(
     selectedPanelId: Int?,
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
+    defaultOptionLabel: String? = null,
+    onPickDefault: (() -> Unit)? = null,
 ) {
     val selectedIndex = remember(panels, selectedPanelId) {
         panels.indexOfFirst { it.info.id == selectedPanelId }
@@ -412,6 +426,11 @@ private fun PanelPickerSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (defaultOptionLabel != null && onPickDefault != null) {
+                TextButton(onClick = onPickDefault, modifier = Modifier.fillMaxWidth()) {
+                    Text(defaultOptionLabel)
+                }
+            }
             LightnetDeviceVisualizer(
                 panels            = panels,
                 modifier          = Modifier.fillMaxWidth().height(340.dp),

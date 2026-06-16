@@ -579,9 +579,12 @@ private val stepIdRegex = Regex("^[A-Za-z0-9_-]+$")
 fun sanitizeLayerName(input: String): String =
     input.filter { groupNameCharRegex.matches(it.toString()) }.take(GROUP_NAME_MAX_LEN)
 
+fun EditableScene.nameValidationError(): String? =
+    if (!sceneNameRegex.matches(name.trim())) "Name must be 1–18 chars (letters, digits, - or _)." else null
+
 /** Returns the first validation error message, or null when the scene is valid to save/preview. */
 fun EditableScene.validationError(): String? {
-    if (!sceneNameRegex.matches(name.trim())) return "Name must be 1–18 chars (letters, digits, - or _)."
+    nameValidationError()?.let { return it }
     if (layers.isEmpty()) return "Add at least one layer."
     val names = layers.map { it.name.trim() }
     if (names.toSet().size != names.size) return "Layer names must be unique."

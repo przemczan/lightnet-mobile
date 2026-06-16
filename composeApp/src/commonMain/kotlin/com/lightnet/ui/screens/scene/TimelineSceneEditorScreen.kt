@@ -59,7 +59,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.TextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -82,6 +81,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -117,6 +118,7 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -305,7 +307,9 @@ fun TimelineSceneEditorScreen(
 
     var isDirty by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
-    var alsoSaveToOther by remember { mutableStateOf(false) }
+    var showSaveConfirm by remember { mutableStateOf(false) }
+    var saveAlsoToOther by remember { mutableStateOf(false) }
+    var focusNameOnSettingsOpen by remember { mutableStateOf(false) }
 
     val activeSceneForTracking = scene
     LaunchedEffect(activeSceneForTracking, panels.isEmpty()) {
@@ -425,6 +429,75 @@ fun TimelineSceneEditorScreen(
     }
     BackHandlerCompat(onBack = ::requestBack)
 
+    fun performSave(alsoSaveToOther: Boolean) {
+        activeScene.clearUnusedStepIds()
+        val sceneJson = activeScene.toSceneJson(panels)
+        val renamed = originalName != null && originalName != sceneJson.name
+        when (origin) {
+            SceneOrigin.GLOBAL -> {
+                val ok = runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess
+                if (!ok) {
+                    scope.launch { snackbar.showSnackbar("Failed to save scene.") }
+                    return
+                }
+                if (renamed) AppPreferences.scenes.delete(originalName!!)
+                isDirty = false
+                if (alsoSaveToOther && httpClient != null) {
+                    scope.launch {
+                        if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess)
+                            snackbar.showSnackbar("Saved locally but failed to save to device.")
+                        else {
+                            if (renamed) runCatching { httpClient.deleteScene(originalName!!) }
+                            device?.refreshPalettes()
+                            device?.refreshScenes()
+                        }
+                        onBack()
+                    }
+                } else {
+                    onBack()
+                }
+            }
+            SceneOrigin.DEVICE -> {
+                if (httpClient == null) {
+                    scope.launch { snackbar.showSnackbar("Connect a device to save.") }
+                    return
+                }
+                scope.launch {
+                    if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess) {
+                        snackbar.showSnackbar("Failed to save scene to device.")
+                        return@launch
+                    }
+                    if (renamed) runCatching { httpClient.deleteScene(originalName!!) }
+                    isDirty = false
+                    device?.refreshPalettes()
+                    device?.refreshScenes()
+                    if (alsoSaveToOther) {
+                        if (!runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess)
+                            snackbar.showSnackbar("Saved to device but failed to save locally.")
+                        else if (renamed)
+                            AppPreferences.scenes.delete(originalName!!)
+                    }
+                    onBack()
+                }
+            }
+        }
+    }
+
+    fun requestSave() {
+        activeScene.nameValidationError()?.let {
+            focusNameOnSettingsOpen = true
+            showOptionsSheet = true
+            return
+        }
+        val err = activeScene.validationError()
+        if (err != null) {
+            scope.launch { snackbar.showSnackbar(err) }
+            return
+        }
+        saveAlsoToOther = false
+        showSaveConfirm = true
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -467,54 +540,7 @@ fun TimelineSceneEditorScreen(
                         IconButton(onClick = { showOptionsSheet = true }) {
                             Icon(Icons.Default.Tune, contentDescription = "Scene options")
                         }
-                        ExtendedFloatingActionButton(onClick = {
-                            val err = activeScene.validationError()
-                            if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@ExtendedFloatingActionButton }
-                            activeScene.clearUnusedStepIds()
-                            val sceneJson = activeScene.toSceneJson(panels)
-                            val renamed = originalName != null && originalName != sceneJson.name
-                            when (origin) {
-                                SceneOrigin.GLOBAL -> {
-                                    val ok = runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess
-                                    if (!ok) { scope.launch { snackbar.showSnackbar("Failed to save scene.") }; return@ExtendedFloatingActionButton }
-                                    if (renamed) AppPreferences.scenes.delete(originalName!!)
-                                    isDirty = false
-                                    if (alsoSaveToOther && httpClient != null) {
-                                        scope.launch {
-                                            if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess)
-                                                snackbar.showSnackbar("Saved locally but failed to save to device.")
-                                            else {
-                                                if (renamed) runCatching { httpClient.deleteScene(originalName!!) }
-                                                device?.refreshPalettes()
-                                                device?.refreshScenes()
-                                            }
-                                            onBack()
-                                        }
-                                    } else {
-                                        onBack()
-                                    }
-                                }
-                                SceneOrigin.DEVICE -> {
-                                    if (httpClient == null) { scope.launch { snackbar.showSnackbar("Connect a device to save.") }; return@ExtendedFloatingActionButton }
-                                    scope.launch {
-                                        if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess) {
-                                            snackbar.showSnackbar("Failed to save scene to device."); return@launch
-                                        }
-                                        if (renamed) runCatching { httpClient.deleteScene(originalName!!) }
-                                        isDirty = false
-                                        device?.refreshPalettes()
-                                        device?.refreshScenes()
-                                        if (alsoSaveToOther) {
-                                            if (!runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess)
-                                                snackbar.showSnackbar("Saved to device but failed to save locally.")
-                                            else if (renamed)
-                                                AppPreferences.scenes.delete(originalName!!)
-                                        }
-                                        onBack()
-                                    }
-                                }
-                            }
-                        }) {
+                        ExtendedFloatingActionButton(onClick = ::requestSave) {
                             Icon(Icons.Default.Save, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("Save")
@@ -529,21 +555,6 @@ fun TimelineSceneEditorScreen(
         val viewportWidthPx = with(density) { maxWidth.toPx() }
         val contentMarginPx = with(density) { TIMELINE_CONTENT_MARGIN_DP.dp.toPx() }
         Column(Modifier.fillMaxSize()) {
-            // Name + zoom controls (compact).
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextField(
-                    value         = activeScene.name,
-                    onValueChange = { activeScene.name = it },
-                    label         = { Text("NAME") },
-                    singleLine    = true,
-                    modifier      = Modifier.weight(1f),
-                )
-            }
-
             val usableWidthPx = (viewportWidthPx - 2 * contentMarginPx).coerceAtLeast(0f)
             val fitPxPerMs = if (usableWidthPx > 0f) {
                 (usableWidthPx / maxDurationMs(activeScene.layers)).coerceIn(MIN_PX_PER_MS_FLOOR, MAX_PX_PER_MS)
@@ -610,15 +621,61 @@ fun TimelineSceneEditorScreen(
         )
     }
 
+    if (showSaveConfirm) {
+        val alsoSaveLabel = when (origin) {
+            SceneOrigin.GLOBAL -> "Also save to device"
+            SceneOrigin.DEVICE -> "Also save to Global"
+        }
+        val alsoSaveEnabled = when (origin) {
+            SceneOrigin.GLOBAL -> httpClient != null
+            SceneOrigin.DEVICE -> true
+        }
+        AlertDialog(
+            onDismissRequest = { showSaveConfirm = false },
+            title            = { Text("Save scene?") },
+            text             = {
+                Column {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = alsoSaveEnabled) { saveAlsoToOther = !saveAlsoToOther },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked         = saveAlsoToOther,
+                            onCheckedChange = { saveAlsoToOther = it },
+                            enabled         = alsoSaveEnabled,
+                        )
+                        Column {
+                            Text(alsoSaveLabel, style = MaterialTheme.typography.bodyMedium)
+                            if (origin == SceneOrigin.GLOBAL && httpClient == null) {
+                                Text(
+                                    "Connect a device to enable",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton    = {
+                TextButton(onClick = {
+                    showSaveConfirm = false
+                    performSave(saveAlsoToOther)
+                }) { Text("OK") }
+            },
+            dismissButton    = { TextButton(onClick = { showSaveConfirm = false }) { Text("Cancel") } },
+        )
+    }
+
     if (showOptionsSheet) {
         ModalBottomSheet(onDismissRequest = { showOptionsSheet = false }) {
             SceneOptionsContent(
-                scene           = activeScene,
-                origin          = origin,
-                httpClient      = httpClient,
-                alsoSaveToOther = alsoSaveToOther,
-                onAlsoSaveToOtherChange = { alsoSaveToOther = it },
-                paletteNames    = paletteNames,
+                scene                   = activeScene,
+                paletteNames            = paletteNames,
+                requestNameFocus        = focusNameOnSettingsOpen,
+                onNameFocusHandled      = { focusNameOnSettingsOpen = false },
             )
         }
     }
@@ -650,16 +707,23 @@ private sealed interface Editing {
     data class Layer(val layer: EditableLayer) : Editing
 }
 
-/** Scene-wide options: also-save-to-other, loop, speed, default palette, background. */
+/** Scene-wide options: name, loop, speed, default palette, background. */
 @Composable
 private fun SceneOptionsContent(
     scene: EditableScene,
-    origin: SceneOrigin,
-    httpClient: DeviceHttpApi?,
-    alsoSaveToOther: Boolean,
-    onAlsoSaveToOtherChange: (Boolean) -> Unit,
     paletteNames: List<String>,
+    requestNameFocus: Boolean,
+    onNameFocusHandled: () -> Unit,
 ) {
+    val nameFocusRequester = remember { FocusRequester() }
+    val nameError = scene.nameValidationError()
+    LaunchedEffect(requestNameFocus) {
+        if (requestNameFocus) {
+            delay(350)
+            nameFocusRequester.requestFocus()
+            onNameFocusHandled()
+        }
+    }
     Column(Modifier.padding(horizontal = 16.dp)) {
         Text(
             "Scene options",
@@ -667,38 +731,16 @@ private fun SceneOptionsContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 8.dp),
         )
-        val checkboxEnabled = when (origin) {
-            SceneOrigin.GLOBAL -> httpClient != null
-            SceneOrigin.DEVICE -> true
-        }
-        val checkboxLabel = when (origin) {
-            SceneOrigin.GLOBAL -> "Also save to device"
-            SceneOrigin.DEVICE -> "Also save to Global"
-        }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(enabled = checkboxEnabled) { onAlsoSaveToOtherChange(!alsoSaveToOther) }
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Checkbox(
-                checked         = alsoSaveToOther,
-                onCheckedChange = onAlsoSaveToOtherChange,
-                enabled         = checkboxEnabled,
-            )
-            Column {
-                Text(checkboxLabel, style = MaterialTheme.typography.bodyMedium)
-                if (origin == SceneOrigin.GLOBAL && httpClient == null) {
-                    Text(
-                        "Connect a device to enable",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        HorizontalDivider()
+        TextField(
+            value         = scene.name,
+            onValueChange = { scene.name = it },
+            label         = { Text("Name") },
+            singleLine    = true,
+            isError       = nameError != null,
+            supportingText = nameError?.let { err -> { Text(err) } },
+            modifier      = Modifier.fillMaxWidth().focusRequester(nameFocusRequester),
+        )
+        HorizontalDivider(Modifier.padding(top = 8.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text("Loop", style = MaterialTheme.typography.bodyLarge)
             Switch(checked = scene.loop, onCheckedChange = { scene.loop = it })

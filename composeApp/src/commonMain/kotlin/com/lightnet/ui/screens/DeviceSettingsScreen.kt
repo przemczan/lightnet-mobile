@@ -37,13 +37,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -84,6 +84,7 @@ import com.lightnet.settings.DevicePreferences
 import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.components.LightnetDeviceVisualizer
 import com.lightnet.ui.components.groupedListItemShape
+import com.lightnet.ui.screens.scene.PanelPickerField
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -235,9 +236,12 @@ private fun DeviceInfoScreen(
     var powerMenuExpanded by remember { mutableStateOf(false) }
     val powerOptions = listOf("Always on", "Always off", "Restore last")
 
-    var logicalRoot      by remember { mutableStateOf<Int?>(null) }
-    var rootMenuExpanded by remember { mutableStateOf(false) }
-    val panelIds = remember(snapshot) { snapshot?.panels?.map { it.info.id } ?: emptyList() }
+    var logicalRoot by remember { mutableStateOf<Int?>(null) }
+    val panels    = snapshot?.panels.orEmpty()
+    val panelIds  = remember(panels) { panels.map { it.info.id } }
+    val selectedRootPanelId = remember(logicalRoot, panelIds) {
+        logicalRoot?.takeIf { it != 0 && it in panelIds }
+    }
 
     var controllerFirmware by remember { mutableStateOf(device?.cachedControllerFirmware) }
 
@@ -249,8 +253,8 @@ private fun DeviceInfoScreen(
         device?.getPowerState()
         controllerFirmware = device?.cachedControllerFirmware
     }
-    LaunchedEffect(httpClient) {
-        logicalRoot = httpClient?.runCatching { getTopology().logicalRoot }?.getOrNull()
+    LaunchedEffect(device) {
+        logicalRoot = device?.getTopology()?.logicalRoot
     }
 
     Scaffold(
@@ -322,46 +326,28 @@ private fun DeviceInfoScreen(
 
                         // Logical root — re-centres depth/subtree selectors and the default
                         // runner source for scenes. 0 (default) means the physical root.
-                        ExposedDropdownMenuBox(
-                            expanded         = rootMenuExpanded,
-                            onExpandedChange = { rootMenuExpanded = it },
-                        ) {
-                            val rootLabel = logicalRoot
-                                ?.takeIf { it != 0 && it in panelIds }
-                                ?.let { "Panel $it" }
-                                ?: "Default (panel 1)"
-                            TextField(
-                                value         = rootLabel,
-                                onValueChange = {},
-                                readOnly      = true,
-                                label         = { Text("Root panel") },
-                                trailingIcon  = {
-                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = rootMenuExpanded)
+                        if (panels.isNotEmpty()) {
+                            PanelPickerField(
+                                label               = "Root panel",
+                                selectedPanelId     = selectedRootPanelId,
+                                panels              = panels,
+                                emptyLabel          = "Default (panel 1)",
+                                defaultOptionLabel  = "Default (panel 1)",
+                                onPickDefault       = {
+                                    logicalRoot = 0
+                                    scope.launch { device?.setLogicalRoot(0) }
                                 },
-                                modifier = Modifier
-                                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                                    .fillMaxWidth(),
+                                onPick              = { id ->
+                                    logicalRoot = id
+                                    scope.launch { device?.setLogicalRoot(id) }
+                                },
                             )
-                            ExposedDropdownMenu(
-                                expanded         = rootMenuExpanded,
-                                onDismissRequest = { rootMenuExpanded = false },
-                            ) {
-                                fun selectRoot(value: Int) {
-                                    logicalRoot      = value
-                                    rootMenuExpanded = false
-                                    scope.launch { httpClient?.runCatching { setLogicalRoot(value) } }
-                                }
-                                DropdownMenuItem(
-                                    text    = { Text("Default (panel 1)") },
-                                    onClick = { selectRoot(0) },
-                                )
-                                panelIds.forEach { id ->
-                                    DropdownMenuItem(
-                                        text    = { Text("Panel $id") },
-                                        onClick = { selectRoot(id) },
-                                    )
-                                }
-                            }
+                        } else {
+                            Text(
+                                "Root panel — connect to a device with discovered panels.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

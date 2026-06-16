@@ -221,8 +221,14 @@ class DemoHttpClient(
 
     // ── Topology ──────────────────────────────────────────────────────────────
 
-    override suspend fun getTopology(): TopologyResponse = TopologyResponse()
-    override suspend fun setLogicalRoot(root: Int) = Unit
+    private var logicalRoot: Int = settings.getIntOrNull(KEY_LOGICAL_ROOT) ?: 0
+
+    override suspend fun getTopology(): TopologyResponse = TopologyResponse(logicalRoot = logicalRoot)
+
+    override suspend fun setLogicalRoot(root: Int) {
+        logicalRoot = root
+        settings.putInt(KEY_LOGICAL_ROOT, root)
+    }
 
     // ── Configuration ─────────────────────────────────────────────────────────
 
@@ -244,5 +250,6 @@ class DemoHttpClient(
         private const val KEY_PALETTES   = "demo_http_palettes"
         private const val KEY_SCENES     = "demo_http_scenes"
         private const val KEY_POWER      = "demo_http_power"
+        private const val KEY_LOGICAL_ROOT = "demo_http_logical_root"
     }
 }

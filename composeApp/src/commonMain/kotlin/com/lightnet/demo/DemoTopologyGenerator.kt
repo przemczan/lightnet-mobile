@@ -9,7 +9,8 @@ import kotlin.random.Random
 internal object DemoTopologyGenerator {
     private const val EDGES_PER_PANEL = 3
     // How many recent free edges to consider when branching (≈ last 2–3 placed panels).
-    private const val BRANCH_RECENT_EDGES = 6
+    private const val BRANCH_RECENT_EDGES = 2
+    private const val BRANCH_FACTOR = 0.95f
 
     /**
      * Generates a random spanning-tree topology of [panelCount] panels guaranteed to have no
@@ -34,7 +35,7 @@ internal object DemoTopologyGenerator {
 
         // Per-generation branch factor: 0 = uniform blob, ~0.85 = very branchy tree.
         // Randomised each run so shapes vary across calls.
-        val branchFactor = Random.nextFloat() * 0.85f
+        val branchFactor = Random.nextFloat() * BRANCH_FACTOR
 
         for (id in 2..panelCount) {
             // Prefer recent free edges (branch tips) with probability branchFactor.
