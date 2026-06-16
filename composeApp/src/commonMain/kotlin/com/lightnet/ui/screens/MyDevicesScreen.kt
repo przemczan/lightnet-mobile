@@ -1,8 +1,10 @@
 package com.lightnet.ui.screens
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
+import com.lightnet.demo.DEMO_DEVICE_ID
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
@@ -108,7 +111,7 @@ fun MyDevicesScreen(
                                 isOnline        = devicePool[device.id]?.isOnline,
                                 shape           = groupedListItemShape(index, devices.size),
                                 onClick         = { onOpenDevice(device) },
-                                onEditClick     = { onEditDevice(device) },
+                                onEditClick     = if (device.id == DEMO_DEVICE_ID) null else ({ onEditDevice(device) }),
                             )
                         }
                     }
@@ -136,7 +139,7 @@ private fun HomeDeviceCard(
     isOnline: StateFlow<Boolean?>?,
     shape: Shape,
     onClick: () -> Unit,
-    onEditClick: () -> Unit,
+    onEditClick: (() -> Unit)?,
 ) {
     val connection by (connectionState ?: idleConnectionState).collectAsState()
     val online by (isOnline ?: unknownIsOnline).collectAsState()
@@ -152,7 +155,23 @@ private fun HomeDeviceCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text(device.name, style = MaterialTheme.typography.titleMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(device.name, style = MaterialTheme.typography.titleMedium)
+                    if (device.id == DEMO_DEVICE_ID) {
+                        Text(
+                            "Demo",
+                            style    = MaterialTheme.typography.labelSmall,
+                            color    = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(4.dp),
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
                 val subtitle = device.panelCount?.let { "$it panels" } ?: "— panels"
                 Text(
                     subtitle,
@@ -160,9 +179,16 @@ private fun HomeDeviceCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            StatusDot(status, modifier = Modifier.padding(end = 12.dp))
-            IconButton(onClick = onEditClick) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Edit device")
+            StatusDot(
+                status,
+                modifier = Modifier.padding(
+                    end = if (onEditClick == null) 60.dp else 12.dp,
+                ),
+            )
+            if (onEditClick != null) {
+                IconButton(onClick = onEditClick) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Edit device")
+                }
             }
         }
     }

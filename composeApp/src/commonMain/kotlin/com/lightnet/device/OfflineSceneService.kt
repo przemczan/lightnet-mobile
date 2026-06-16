@@ -116,6 +116,10 @@ class OfflineSceneService(private val scope: CoroutineScope) {
         }
     }
 
+    fun setSpeed(speed: Float) {
+        scope.launch(work) { core.setSpeed(speed) }
+    }
+
     fun close() {
         scope.launch(work) {
             tickJob?.cancel()

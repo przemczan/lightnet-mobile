@@ -1,6 +1,6 @@
 package com.lightnet.device
 
-import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
 import com.lightnet.api.http.model.ConfigurationRequest
@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.yield
 
 enum class ConnectionState { IDLE, CONNECTING, CONNECTED, DISCONNECTED }
 
@@ -61,13 +62,27 @@ class LightnetDevice(
     // back on. Avoids both the stale-polled-state flicker and a "fast forward" jump from re-polling.
     private val _frozenStates = MutableStateFlow<List<PanelState>?>(null)
 
-    // Source of panel render state: mirrored packets while live preview is on, else polled.
-    // Empty mirror emissions are ignored downstream, so panels keep their last frame.
+    /**
+     * Drives the visualizer when a scene is played offline (demo device or future local preview).
+     * Topology and palettes are kept in sync automatically as the device loads them.
+     */
+    val offlineSceneService = OfflineSceneService(scope)
+
+    // Null when not playing; set to the rendered states while offline playback is active.
+    private val offlineActiveStates: Flow<List<PanelState>?> =
+        offlineSceneService.states.combine(offlineSceneService.playing) { states, playing ->
+            if (playing) states else null
+        }
+
+    // Source of panel render state: frozen > offline animation (live only) > mirror (live only) > polled.
+    // Offline animation is gated on livePreview so turning off preview freezes demo scenes the same
+    // way it freezes mirror-based animation on real devices.
     private val renderStates: Flow<List<PanelState>> =
-        combine(_livePreview, panelsStatesService.states, panelMirrorService.states, _frozenStates) { live, polled, mirror, frozen ->
+        combine(_livePreview, panelsStatesService.states, panelMirrorService.states, _frozenStates, offlineActiveStates) { live, polled, mirror, frozen, offline ->
             when {
                 frozen != null -> frozen
-                live -> mirror
+                offline != null && live -> offline
+                live -> mirror.ifEmpty { polled }
                 else -> polled
             }
         }
@@ -75,8 +90,11 @@ class LightnetDevice(
     private val _snapshot = MutableStateFlow<DeviceSnapshot?>(null)
     val snapshot: StateFlow<DeviceSnapshot?> = _snapshot
 
-    /** Updated from App once the resolved WebSocket host is known. */
-    @Volatile private var httpClient: LightnetHttpClient? = null
+    /** Attached from App once the resolved WebSocket host is known (or pre-wired for demo). */
+    @Volatile private var httpClient: DeviceHttpApi? = null
+
+    /** The currently attached HTTP client (read-only access for App.kt and screens). */
+    val activeHttpClient: DeviceHttpApi? get() = httpClient
 
     /** Last successfully fetched appearance — survives screen navigation so the UI seeds instantly. */
     @Volatile var cachedAppearance: AppearanceResponse? = null
@@ -142,17 +160,29 @@ class LightnetDevice(
         scope.launch {
             panelsListService.panels.collect { panels ->
                 _snapshot.value = panels?.let { buildSnapshot(it) }
+                if (panels != null) offlineSceneService.setTopology(panels)
             }
         }
     }
 
     fun load() {
-        connector.disconnect()
-        connector.connect()
+        scope.launch {
+            connector.disconnect()
+            // Yield so the state collector processes DISCONNECTED before we reconnect.
+            // Without this, StateFlow conflation may swallow the CONNECTED emission when
+            // the previous state was also CONNECTED (e.g. demo shuffle / panel-count change).
+            yield()
+            connector.connect()
+        }
+    }
+
+    /** Re-requests the panel list without disconnecting. Used by demo shuffle. */
+    fun reloadPanels() {
+        if (connectionState.value == ConnectionState.CONNECTED) panelsListService.load()
     }
 
     /** Called from App when the resolved HTTP base URL becomes available (after WS connects). */
-    fun attachHttpClient(client: LightnetHttpClient?) {
+    fun attachHttpClient(client: DeviceHttpApi?) {
         httpClient = client
     }
 
@@ -171,10 +201,14 @@ class LightnetDevice(
             // Drop the freeze from the previous "off" so the live mirror feed shows through.
             _frozenStates.value = null
         } else {
-            // Freeze on the last rendered mirror frame and leave it there — the controller keeps
-            // animating, so polling for a fresh state would jump forward by however long the
-            // poll round-trip took ("fast forward"). The freeze holds until preview is re-enabled.
-            _frozenStates.value = panelMirrorService.states.value.ifEmpty { null }
+            // Freeze on the last rendered frame (mirror for real devices, offline for demo).
+            // This prevents a "fast forward" jump when re-polling after the controller kept animating.
+            val lastMirror  = panelMirrorService.states.value.ifEmpty { null }
+            // Capture the last offline frame even if the scene is no longer playing — the engine
+            // keeps the "stop" frame in states, so this freezes on the stopped animation state
+            // rather than falling through to the (usually white/off) polled states.
+            val lastOffline = offlineSceneService.states.value.ifEmpty { null }
+            _frozenStates.value = lastMirror ?: lastOffline
         }
         _livePreview.value = on
         // Opt in/out of the controller's MIRROR_BATCH stream. Enabling also makes the controller
@@ -186,6 +220,7 @@ class LightnetDevice(
 
     fun close() {
         connector.close()
+        offlineSceneService.close()
         scope.cancel()
     }
 
@@ -211,22 +246,31 @@ class LightnetDevice(
     suspend fun getPalettes(): List<String> =
         httpClient?.runCatching { getPalettes().keys.toList() }?.getOrNull() ?: emptyList()
 
-    /** Loads device palettes once and caches them; pass `force = true` to reload (e.g. on reconnect or after a base-color/scene change). */
+    /** Loads device palettes once and caches them; pass `force = true` to reload. */
     suspend fun loadPalettes(force: Boolean = false) {
         if (!force && _palettes.value != null) return
         _palettesLoading.value = true
-        _palettes.value = httpClient?.runCatching { getPalettes().values.toList() }?.getOrNull() ?: emptyList()
-        _palettesLoading.value = false
+        try {
+            val palettes = httpClient?.runCatching { getPalettes().values.toList() }?.getOrNull() ?: emptyList()
+            _palettes.value = palettes
+            offlineSceneService.clearPalettes()
+            palettes.forEach { offlineSceneService.registerPalette(it.name, it.stops) }
+        } finally {
+            _palettesLoading.value = false
+        }
     }
 
     suspend fun refreshPalettes() = loadPalettes(force = true)
 
-    /** Loads device scenes once and caches them; pass `force = true` to reload (e.g. on reconnect or after a scene edit). */
+    /** Loads device scenes once and caches them; pass `force = true` to reload. */
     suspend fun loadScenes(force: Boolean = false) {
         if (!force && _scenes.value != null) return
         _scenesLoading.value = true
-        _scenes.value = httpClient?.runCatching { getScenes() }?.getOrNull() ?: emptyList()
-        _scenesLoading.value = false
+        try {
+            _scenes.value = httpClient?.runCatching { getScenes() }?.getOrNull() ?: emptyList()
+        } finally {
+            _scenesLoading.value = false
+        }
     }
 
     suspend fun refreshScenes() = loadScenes(force = true)

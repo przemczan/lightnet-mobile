@@ -47,7 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
-import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.device.ConnectionState
@@ -64,7 +64,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ScenesSettingsScreen(
     device: LightnetDevice?,
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     onBack: () -> Unit,
 ) {
     BackHandlerCompat(onBack = onBack)

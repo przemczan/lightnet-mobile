@@ -41,7 +41,7 @@ import kotlinx.serialization.json.Json
 class LightnetApiException(val statusCode: Int, val error: String) :
     Exception("HTTP $statusCode: $error")
 
-class LightnetHttpClient(private val baseUrl: String) {
+class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = false
@@ -69,71 +69,71 @@ class LightnetHttpClient(private val baseUrl: String) {
         }
     }
 
-    fun close() = client.close()
+    override fun close() = client.close()
 
     // region Appearance
 
-    suspend fun getAppearance(): AppearanceResponse =
+    override suspend fun getAppearance(): AppearanceResponse =
         client.get("$baseUrl/api/appearance").bodyOrThrow()
 
-    suspend fun setAppearance(request: AppearanceRequest) =
+    override suspend fun setAppearance(request: AppearanceRequest) =
         client.patch("$baseUrl/api/appearance") { jsonBody(request) }.voidOrThrow()
 
     // endregion
 
     // region Palettes
 
-    suspend fun getPalettes(): Map<String, PaletteJson> =
+    override suspend fun getPalettes(): Map<String, PaletteJson> =
         client.get("$baseUrl/api/palettes").bodyOrThrow()
 
-    suspend fun getPalette(name: String): PaletteJson =
+    override suspend fun getPalette(name: String): PaletteJson =
         client.get("$baseUrl/api/palettes/$name").bodyOrThrow()
 
-    suspend fun savePalette(palette: PaletteJson) =
+    override suspend fun savePalette(palette: PaletteJson) =
         client.post("$baseUrl/api/palettes") { jsonBody(palette) }.voidOrThrow()
 
-    suspend fun deletePalette(name: String) =
+    override suspend fun deletePalette(name: String) =
         client.delete("$baseUrl/api/palettes/$name").voidOrThrow()
 
     // endregion
 
     // region Scenes
 
-    suspend fun getScenes(): List<SceneInfo> =
+    override suspend fun getScenes(): List<SceneInfo> =
         client.get("$baseUrl/api/scenes").bodyOrThrow()
 
-    suspend fun getScene(name: String): SceneJson =
+    override suspend fun getScene(name: String): SceneJson =
         client.get("$baseUrl/api/scenes/$name").bodyOrThrow()
 
-    suspend fun saveScene(scene: SceneJson) =
+    override suspend fun saveScene(scene: SceneJson) =
         client.post("$baseUrl/api/scenes") { jsonBody(scene) }.voidOrThrow()
 
-    suspend fun deleteScene(name: String) =
+    override suspend fun deleteScene(name: String) =
         client.delete("$baseUrl/api/scenes/$name").voidOrThrow()
 
-    suspend fun playSceneByName(name: String) =
+    override suspend fun playSceneByName(name: String) =
         client.post("$baseUrl/api/scenes/$name/play").voidOrThrow()
 
-    suspend fun playSceneInline(scene: SceneJson) =
+    override suspend fun playSceneInline(scene: SceneJson) =
         client.post("$baseUrl/api/scenes/play/one-shot") { jsonBody(scene) }.voidOrThrow()
 
-    suspend fun playLastScene() =
+    override suspend fun playLastScene() =
         client.post("$baseUrl/api/scenes/play").voidOrThrow()
 
-    suspend fun stopScene() =
+    override suspend fun stopScene() =
         client.post("$baseUrl/api/scenes/stop").voidOrThrow()
 
-    suspend fun setSceneSpeed(speed: Float) =
+    override suspend fun setSceneSpeed(speed: Float) =
         client.post("$baseUrl/api/scenes/speed") { jsonBody(SceneSpeedValue(speed)) }.voidOrThrow()
 
     // endregion
 
     // region Animations
 
-    suspend fun playAnimation(request: AnimationPlayRequest) =
+    override suspend fun playAnimation(request: AnimationPlayRequest) =
         client.post("$baseUrl/api/animations/play") { jsonBody(request) }.voidOrThrow()
 
-    suspend fun triggerAnimation(group: Int, value: Int) =
+    override suspend fun triggerAnimation(group: Int, value: Int) =
         client.post("$baseUrl/api/animations/trigger") {
             jsonBody(AnimationTriggerRequest(group, value))
         }.voidOrThrow()
@@ -142,18 +142,18 @@ class LightnetHttpClient(private val baseUrl: String) {
 
     // region Panels
 
-    suspend fun getPanels(): List<PanelStateResponse> =
+    override suspend fun getPanels(): List<PanelStateResponse> =
         client.get("$baseUrl/api/panels").bodyOrThrow()
 
-    suspend fun getPanelEdges(): List<PanelEdgeResponse> =
+    override suspend fun getPanelEdges(): List<PanelEdgeResponse> =
         client.get("$baseUrl/api/panels/edges").bodyOrThrow()
 
-    suspend fun setPanelOn(address: Int, on: Boolean) =
+    override suspend fun setPanelOn(address: Int, on: Boolean) =
         client.put("$baseUrl/api/panels/$address/on") {
             jsonBody(IntValue(if (on) 1 else 0))
         }.voidOrThrow()
 
-    suspend fun setPanelColor(address: Int, color: String) =
+    override suspend fun setPanelColor(address: Int, color: String) =
         client.put("$baseUrl/api/panels/$address/color") {
             jsonBody(ColorValue(color))
         }.voidOrThrow()
@@ -162,43 +162,43 @@ class LightnetHttpClient(private val baseUrl: String) {
 
     // region App state
 
-    suspend fun getAppState(): AppStateBody =
+    override suspend fun getAppState(): AppStateBody =
         client.get("$baseUrl/api/state").bodyOrThrow()
 
-    suspend fun setPowerState(on: Boolean) =
+    override suspend fun setPowerState(on: Boolean) =
         client.post("$baseUrl/api/state/power") { jsonBody(PowerStateBody(on)) }.voidOrThrow()
 
     // endregion
 
     // region Topology
 
-    suspend fun getTopology(): TopologyResponse =
+    override suspend fun getTopology(): TopologyResponse =
         client.get("$baseUrl/api/topology").bodyOrThrow()
 
-    suspend fun setLogicalRoot(root: Int) =
+    override suspend fun setLogicalRoot(root: Int) =
         client.put("$baseUrl/api/topology/root") { jsonBody(LogicalRootRequest(root)) }.voidOrThrow()
 
     // endregion
 
     // region Configuration
 
-    suspend fun getConfiguration(): ConfigurationResponse =
+    override suspend fun getConfiguration(): ConfigurationResponse =
         client.get("$baseUrl/api/configuration").bodyOrThrow()
 
-    suspend fun setConfiguration(request: ConfigurationRequest) =
+    override suspend fun setConfiguration(request: ConfigurationRequest) =
         client.patch("$baseUrl/api/configuration") { jsonBody(request) }.voidOrThrow()
 
     // endregion
 
     // region Firmware
 
-    suspend fun uploadPanelFirmware(data: ByteArray): FirmwareFlashResponse =
+    override suspend fun uploadPanelFirmware(data: ByteArray): FirmwareFlashResponse =
         client.post("$baseUrl/api/firmware/panels") {
             contentType(ContentType.Application.OctetStream)
             setBody(data)
         }.bodyOrThrow()
 
-    suspend fun getFirmwareStatus(): FirmwareStatusResponse =
+    override suspend fun getFirmwareStatus(): FirmwareStatusResponse =
         client.get("$baseUrl/api/firmware/status").bodyOrThrow()
 
     // endregion

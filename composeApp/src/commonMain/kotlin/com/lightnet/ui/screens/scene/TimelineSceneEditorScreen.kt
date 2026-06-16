@@ -99,7 +99,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.TopologyResponse
@@ -263,7 +263,7 @@ private fun minPxPerMsFor(layers: List<EditableLayer>, viewportWidthPx: Float): 
 @Composable
 fun TimelineSceneEditorScreen(
     device: LightnetDevice?,
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     initial: SceneJson?,
     origin: SceneOrigin = SceneOrigin.GLOBAL,
     onBack: () -> Unit,
@@ -652,7 +652,7 @@ private sealed interface Editing {
 private fun SceneOptionsContent(
     scene: EditableScene,
     origin: SceneOrigin,
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     alsoSaveToOther: Boolean,
     onAlsoSaveToOtherChange: (Boolean) -> Unit,
     paletteNames: List<String>,

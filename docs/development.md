@@ -10,16 +10,17 @@ All application code lives in `composeApp/src/commonMain/`. The project follows 
 
 | Package | Responsibility |
 |---|---|
-| `api/http/` | HTTP client: `LightnetHttpClient`, JSON models |
-| `api/websocket/` | WebSocket transport: `Connector`, `SocketConnector`, `MockConnector`, `MessageApiService`, `PanelsGenerator` |
+| `api/http/` | HTTP client: `LightnetHttpClient`, `DeviceHttpApi` interface, JSON models |
+| `api/websocket/` | WebSocket transport: `Connector`, `SocketConnector`, `MessageApiService` |
 | `api/websocket/protocol/` | Binary codec: `ByteReader`, `ByteWriter`, `Crc`, `MessageParser`, message types |
 | `api/websocket/model/` | WebSocket domain models: `PanelInfo`, `EdgeInfo`, `PanelLayout`, `EdgeCoords`, `PanelState` |
-| `device/` | Device domain layer: `LightnetDevice`, `LightnetDevicePanel`, panel services |
+| `device/` | Device domain layer: `LightnetDevice`, `LightnetDevicePanel`, panel services, `OfflineSceneService` |
+| `demo/` | Demo device: `DemoConnector`, `DemoHttpClient`, `DemoTopologyGenerator`, `DemoDataInitializer`, `DemoDevice` |
 | `geometry/` | `GeometryUtils.isInsidePolygon()` — ray-casting hit test used by the visualiser |
 | `discovery/` | `ServiceDiscovery` interface, `SavedDevice`, `DeviceRepository` |
 | `animation/` | `NativeAnimCore`, `PanelAnimationPlayer` — client-side preview of panel animations |
 | `network/` | `DnsResolver` — resolves mDNS hostnames to IPs |
-| `settings/` | `AppPreferences`, `DevicePreferences`, `SceneRepository` — multiplatform-settings backed prefs |
+| `settings/` | `AppPreferences`, `DevicePreferences`, `DemoSettings`, `SceneRepository` — multiplatform-settings backed prefs |
 | `debug/` | `DebugLog` — in-app log buffer + debug mode flag |
 | `ui/screens/` | Compose screens: `MyDevicesScreen`, `DeviceControllerScreen`, `DeviceSettingsScreen`, `GlobalSettingsScreen`, `DebugScreen`, `PaletteEditorScreen`, `ScenesSettingsScreen`; bottom sheets: `AddDeviceSheet`, `EditDeviceSheet`, `ColorPickerSheet`, `DeviceSwitcherSheet` |
 | `ui/screens/scene/` | Scene editor: `SceneEditorScreen`, `LayerEditorScreen`, `StepEditorScreen` |
@@ -55,12 +56,24 @@ fun close()
 
 **`SocketConnector`** — Ktor WebSocket with exponential back-off reconnect (1 s → doubles → 30 s cap). `CancellationException` breaks the loop on explicit `disconnect()` / `close()`.
 
-**`MockConnector`** — self-contained fake device; auto-responds to `GET_EDGES_LIST`, `GET_PANELS_STATES`, `TOGGLE`, `SET_COLOR` with properly CRC-correct protocol packets. Used by **Demo Device** in `DeviceDiscoveryScreen`.
+**`DemoConnector`** — in-memory fake device used by the demo device. Responds to `GET_EDGES_LIST`, `GET_PANELS_STATES`, `TOGGLE`, `SET_COLOR`, `PING` with properly CRC-correct protocol packets. Persists topology and panel state in `Settings` across app restarts. Calling `resetLayout(newCount)` clears the stored topology so the next `connect()` generates a fresh random layout.
 
-!!! tip "Prefer `MockConnector` for testing"
-    Test domain logic against `MockConnector` rather than mocking individual services — it exercises the full protocol path including CRC validation.
+## Demo Device
 
-`DeviceControllerScreen` uses `host == "mock"` to choose `MockConnector` vs `SocketConnector`.
+The demo device (`com.lightnet.demo`) is a fully functional virtual device that runs without any physical hardware. It is enabled via **Settings → Enable demo device** and always appears at the top of the device list with a "Demo" badge.
+
+| Component | Role |
+|---|---|
+| `DemoConnector` | Implements `Connector`; handles WebSocket protocol in-memory. Persists topology + panel state in `Settings`. |
+| `DemoHttpClient` | Implements `DeviceHttpApi`; stores palettes and scenes in `Settings`; routes scene playback to `OfflineSceneService`. |
+| `DemoTopologyGenerator` | Generates a random spanning-tree panel topology (3 edges per panel). |
+| `DemoDataInitializer` | Default palette set seeded on first use. |
+| `DemoDevice.kt` | `createDemoDevice()` factory + `DEMO_DEVICE_ID` constant. |
+| `DemoSettings` | Persists `demoEnabled` and `demoPanelCount` (1–50). |
+
+**Panel regeneration**: changing the panel count clears the stored topology via `DemoConnector.resetLayout()` and triggers a reconnect — the next `connect()` call generates a fresh random layout. In `DeviceControllerScreen` the **shuffle button** (only shown for the demo) also triggers an immediate regeneration.
+
+**Scene playback**: routes through `LightnetDevice.offlineSceneService` (`OfflineSceneService` + shared C++ scene engine) — no separate demo-specific player. Palettes must be registered (via `device.loadPalettes()`) before a scene is played; this happens automatically when `DeviceControllerScreen` opens.
 
 ## Navigation
 
@@ -82,6 +95,6 @@ Device add/edit is handled by `AddDeviceSheet` / `EditDeviceSheet` bottom sheets
 
 - **`ByteWriter` / `ByteReader`** are in `com.lightnet.api.websocket.protocol` — use them for any manual binary serialisation. Do not use `java.nio.ByteBuffer` (not available in `commonMain`).
 - **Coroutine scope ownership**: `LightnetDevice` owns the scope; child services receive it as a constructor parameter. Never create a persistent `CoroutineScope` inside a `@Composable` — use `rememberCoroutineScope()` or `DisposableEffect`.
-- **Protocol responses** (`EdgesListResponse`, `PanelsStatesResponse`) extend `Message` just like commands — `MockConnector` uses them to send properly-formed, CRC-correct packets back through the pipeline.
+- **Protocol responses** (`EdgesListResponse`, `PanelsStatesResponse`) extend `Message` just like commands — `DemoConnector` uses them to send properly-formed, CRC-correct packets back through the pipeline.
 - **`PanelsListService.load()`** cancels any in-flight load and resets `_panels` to empty before starting — always safe to call on reconnect.
 - **Icons**: use only `Icons.Default.*` and `Icons.AutoMirrored.Filled.*` from the core Material icon set.

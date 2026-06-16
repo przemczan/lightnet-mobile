@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Brush
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
@@ -73,7 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.PaletteJson
 import androidx.compose.material.icons.filled.Router
@@ -110,10 +112,11 @@ fun DeviceControllerScreen(
     activeDevice: SavedDevice,
     devices: List<SavedDevice>,
     devicePool: Map<String, LightnetDevice>,
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     onBack: () -> Unit,
     onSwitchDevice: (SavedDevice) -> Unit,
     onManageDevices: () -> Unit,
+    onRegenerateLayout: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     // Null guard before any composable calls — device is null for a brief window
@@ -281,12 +284,13 @@ fun DeviceControllerScreen(
             )
         },
         bottomBar = {
-            BottomAppBar {
+            BottomAppBar(contentPadding = PaddingValues(0.dp)) {
                 Box(Modifier.fillMaxWidth()) {
                     Row(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // Left of power button — 2 buttons, SpaceEvenly.
                         Row(
                             Modifier.weight(1f),
                             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -298,6 +302,7 @@ fun DeviceControllerScreen(
                                 Icon(Icons.Default.Tune, contentDescription = "Adjust brightness, palette and speed", modifier = Modifier.size(28.dp))
                             }
                         }
+                        // Right of power button — each real button is spaced evenly in its own half.
                         Row(
                             Modifier.weight(1f),
                             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -463,6 +468,15 @@ fun DeviceControllerScreen(
                                     modifier = Modifier.size(28.dp),
                                 )
                             }
+                            if (onRegenerateLayout != null) {
+                                IconButton(onClick = onRegenerateLayout) {
+                                    Icon(
+                                        Icons.Default.Shuffle,
+                                        contentDescription = "New random layout",
+                                        modifier = Modifier.size(28.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -542,7 +556,7 @@ private fun AdjustSheet(
     palettesLoading: Boolean,
     currentPalette: String?,
     onSelectPalette: suspend (String) -> Unit,
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -702,7 +716,7 @@ private sealed class ScenesSheetItem {
 @Composable
 private fun ScenesSheet(
     device: LightnetDevice,
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     appState: AppStateBody?,
     onDismiss: () -> Unit,
     onScenePlayed: () -> Unit,
@@ -732,7 +746,8 @@ private fun ScenesSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp)
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState()),
         ) {
             Text(
                 "Scenes",
@@ -781,7 +796,7 @@ private fun ScenesSheet(
                             .fillMaxWidth()
                             .clickable(
                                 enabled = !isPlayingItem && !stopping && playing == null && loadingEdit == null,
-                                onClick = playAction,
+                                onClick = { playAction(); onDismiss() },
                             )
                             .padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -843,9 +858,9 @@ private fun ScenesSheet(
                     HorizontalDivider()
                 }
             }
-        }
 
-        SnackbarHost(snackbar)
+            SnackbarHost(snackbar)
+        }
     }
 }
 

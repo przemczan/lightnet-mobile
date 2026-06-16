@@ -73,7 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.device.LightnetDevice
@@ -95,7 +95,7 @@ import kotlin.math.roundToInt
 fun DeviceSettingsScreen(
     savedDevice: SavedDevice,
     device: LightnetDevice?,
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     onBack: () -> Unit,
     onOpenDebug: () -> Unit = {},
 ) {
@@ -221,7 +221,7 @@ private fun SettingsMenuItem(icon: ImageVector, label: String, onClick: () -> Un
 private fun DeviceInfoScreen(
     savedDevice: SavedDevice,
     device: LightnetDevice?,
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     onBack: () -> Unit,
 ) {
     BackHandlerCompat(onBack = onBack)
@@ -607,7 +607,7 @@ private fun RotateSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PalettesSettingsScreen(
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     onBack: () -> Unit,
 ) {
     BackHandlerCompat(onBack = onBack)

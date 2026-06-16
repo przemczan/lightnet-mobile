@@ -55,7 +55,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.LightnetApiException
-import com.lightnet.api.http.LightnetHttpClient
+import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.ui.BackHandlerCompat
@@ -71,7 +71,7 @@ private const val MAX_POSITION = 255
 @Composable
 fun PaletteEditorScreen(
     initial: PaletteJson?,
-    httpClient: LightnetHttpClient?,
+    httpClient: DeviceHttpApi?,
     onBack: () -> Unit,
 ) {
     BackHandlerCompat(onBack = onBack)

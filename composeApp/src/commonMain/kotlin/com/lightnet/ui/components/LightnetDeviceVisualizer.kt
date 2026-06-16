@@ -136,9 +136,9 @@ fun LightnetDeviceVisualizer(
         }
         val entrancePlan = rememberEntrancePlan(panels, config, viewW, viewH, screenXCenters)
         val animOffsets = panels.indices.map { i ->
-            entrancePlan.startOffsets[i] * entrancePlan.animatables[i].value
+            entrancePlan.startOffsets[i] * entrancePlan.displacementFactor(i)
         }
-        val animScales = panels.indices.map { i -> entrancePlan.scaleAnimatables[i].value }
+        val animScales = panels.indices.map { i -> entrancePlan.scaleFactor(i) }
 
         // Per-panel screen-space centers, used as scale pivots for the PopUp animation.
         val panelScreenCenters = remember(polygons, scale, offsetX, offsetY) {
@@ -295,7 +295,7 @@ fun LightnetDeviceVisualizer(
                     scale(animScales[r.index], pivot = panelScreenCenters[r.index]) {
                         drawPanelBackground(r.path, config)
 
-                        if (powerOn) {
+                        if (powerOn && state.on) {
                             val brightnessScale = (brightness / 255f).coerceIn(0f, 1f).pow(0.45f)
                             drawPanelActiveColor(
                                 r.path,
