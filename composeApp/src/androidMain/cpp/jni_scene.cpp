@@ -116,6 +116,25 @@ Java_com_lightnet_animation_NativeSceneBridge_setSpeed(JNIEnv *, jclass, jlong h
     scene_set_speed(handle(h), (float)speed);
 }
 
+JNIEXPORT void JNICALL
+Java_com_lightnet_animation_NativeSceneBridge_reresolvePalettes(JNIEnv *env, jclass, jlong h,
+        jstring palette, jbyteArray baseColors)
+{
+    const char *pal = palette ? env->GetStringUTFChars(palette, nullptr) : nullptr;
+    const uint8_t *cols = nullptr;
+    jbyte *bc = nullptr;
+
+    if (baseColors) {
+        bc = env->GetByteArrayElements(baseColors, nullptr);
+        cols = reinterpret_cast<const uint8_t *>(bc);
+    }
+
+    scene_reresolve_palettes(handle(h), pal, cols);
+
+    if (bc) env->ReleaseByteArrayElements(baseColors, bc, JNI_ABORT);
+    if (pal) env->ReleaseStringUTFChars(palette, pal);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_lightnet_animation_NativeSceneBridge_isPlaying(JNIEnv *, jclass, jlong h)
 {

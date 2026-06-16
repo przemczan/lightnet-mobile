@@ -7,6 +7,7 @@ import androidx.compose.runtime.toMutableStateList
 import com.lightnet.api.http.model.AnimateTarget
 import com.lightnet.api.http.model.ColorRef
 import com.lightnet.api.http.model.PanelTarget
+import com.lightnet.api.http.model.SceneColors
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.SceneLayer
 import com.lightnet.api.http.model.SceneStep
@@ -219,6 +220,7 @@ class EditableScene(
     loop: Boolean = true,
     speed: Float = 1f,
     palette: String? = null,
+    sceneColors: SceneColors? = null,
     background: String? = null,
     layers: List<EditableLayer> = listOf(EditableLayer(name = "layer1")),
 ) {
@@ -226,6 +228,7 @@ class EditableScene(
     var loop by mutableStateOf(loop)
     var speed by mutableStateOf(speed)
     var palette by mutableStateOf(palette)
+    var sceneColors by mutableStateOf(sceneColors)
     var background by mutableStateOf(background)  // compositor base #RRGGBB; null = black
     val layers = layers.toMutableStateList()
 
@@ -280,12 +283,13 @@ private fun EditableStep.clone(): EditableStep = EditableStep(
 
 /** Deep copy of the whole scene, with fresh ids for every layer and step — backs the scene "Clone" action. */
 fun EditableScene.clone(name: String): EditableScene = EditableScene(
-    name       = name,
-    loop       = loop,
-    speed      = speed,
-    palette    = palette,
-    background = background,
-    layers     = layers.map { it.clone(it.name) },
+    name        = name,
+    loop        = loop,
+    speed       = speed,
+    palette     = palette,
+    sceneColors = sceneColors,
+    background  = background,
+    layers      = layers.map { it.clone(it.name) },
 )
 
 /** Deep copy with a fresh id (and fresh ids for its steps) — backs the layer-row "Clone" action. */
@@ -410,7 +414,11 @@ private fun EditableLayer.toPanelTarget(panels: List<LightnetDevicePanel>): Pane
         TargetKind.Advanced -> rawTarget ?: PanelTarget.All
     }
 
-fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>, devicePalette: String? = null): SceneJson {
+fun EditableScene.toSceneJson(
+    panels: List<LightnetDevicePanel>,
+    devicePalette: String? = null,
+    deviceBaseColors: List<String>? = null,
+): SceneJson {
     val usesCompositing = background != null ||
         layers.any { l -> l.blend != null || l.steps.any { it.animates != Animates.Color } }
     val usesGeometric = layers.any { l -> l.steps.any { it.geometric } }
@@ -437,6 +445,13 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>, devicePalette: 
         speed      = speed,
         background = background,
         palette    = palette ?: devicePalette,
+        colors     = sceneColors ?: deviceBaseColors?.let { bc ->
+            SceneColors(
+                primary   = bc.getOrNull(0),
+                secondary = bc.getOrNull(1),
+                tertiary  = bc.getOrNull(2),
+            )
+        },
         layers     = layers.map { l ->
             SceneLayer(
                 group      = l.name.trim(),
@@ -458,8 +473,12 @@ fun EditableScene.toSceneJson(panels: List<LightnetDevicePanel>, devicePalette: 
  * live preview. The controller also skips disabled layers during playback, but filtering
  * them here avoids sending them at all for the preview.
  */
-fun EditableScene.toPreviewSceneJson(panels: List<LightnetDevicePanel>, devicePalette: String? = null): SceneJson {
-    val full = toSceneJson(panels, devicePalette)
+fun EditableScene.toPreviewSceneJson(
+    panels: List<LightnetDevicePanel>,
+    devicePalette: String? = null,
+    deviceBaseColors: List<String>? = null,
+): SceneJson {
+    val full = toSceneJson(panels, devicePalette, deviceBaseColors)
     if (layers.all { it.enabled }) return full
     val keep = layers.indices.filter { layers[it].enabled }.toSet()
     return full.copy(layers = full.layers.filterIndexed { i, _ -> i in keep })
@@ -529,11 +548,12 @@ private fun layerFromTarget(target: PanelTarget, panels: List<LightnetDevicePane
 }
 
 fun sceneFromJson(json: SceneJson, panels: List<LightnetDevicePanel>): EditableScene = EditableScene(
-    name       = json.name ?: "",
-    loop       = json.loop ?: true,
-    speed      = json.speed ?: 1f,
-    palette    = json.palette,
-    background = json.background,
+    name        = json.name ?: "",
+    loop        = json.loop ?: true,
+    speed       = json.speed ?: 1f,
+    palette     = json.palette,
+    sceneColors = json.colors,
+    background  = json.background,
     layers     = json.layers.mapIndexed { idx, layer ->
         EditableLayer(
             name       = layer.group.ifBlank { "layer${idx + 1}" },

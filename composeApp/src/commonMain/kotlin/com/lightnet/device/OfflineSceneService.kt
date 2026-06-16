@@ -4,7 +4,9 @@ import com.lightnet.animation.NativeSceneCore
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.websocket.model.PanelInfo
 import com.lightnet.api.websocket.model.PanelState
+import com.lightnet.api.websocket.protocol.IicPacketBuilder
 import com.lightnet.api.websocket.protocol.message.MirrorBatch
+import com.lightnet.api.websocket.protocol.message.MirrorRecord
 import com.lightnet.api.websocket.protocol.message.decodeMirrorBatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -120,6 +122,42 @@ class OfflineSceneService(private val scope: CoroutineScope) {
         scope.launch(work) { core.setSpeed(speed) }
     }
 
+    /**
+     * Mirror firmware appearance change while a scene plays: push palette/base colors to panel
+     * renderers and re-resolve the scene engine's default palette for layers that inherit it.
+     */
+    fun onAppearanceChanged(
+        palette: String,
+        baseColors: List<String>,
+        resolvePaletteStops: (String) -> List<PaletteStop>?,
+        reresolvePalette: Boolean,
+        reresolveColors: Boolean,
+        pushPalette: Boolean,
+        pushBaseColors: Boolean,
+    ) {
+        scope.launch(work) {
+            if (!_playing.value) return@launch
+
+            val now = nowMs().toLong()
+            if (pushBaseColors) {
+                broadcastPacket(IicPacketBuilder.buildSetBaseColors(baseColors), now)
+            }
+            if (pushPalette) {
+                val stops = resolveAppearancePaletteStops(palette, baseColors, resolvePaletteStops)
+                if (stops.isNotEmpty()) {
+                    broadcastPacket(IicPacketBuilder.buildSetPalette(stops), now)
+                }
+            }
+
+            core.reresolvePalettes(
+                palette = if (reresolvePalette) palette else null,
+                baseColors = if (reresolveColors) baseColors else null,
+            )
+            renderer.tickAll(now)
+            _states.value = renderer.snapshot()
+        }
+    }
+
     fun close() {
         scope.launch(work) {
             tickJob?.cancel()
@@ -134,6 +172,25 @@ class OfflineSceneService(private val scope: CoroutineScope) {
         renderer.applyBatch(batch, now)
         renderer.tickAll(now)
         _states.value = renderer.snapshot()
+    }
+
+    private fun broadcastPacket(payload: ByteArray, now: Long) {
+        renderer.applyBatch(
+            MirrorBatch(
+                controllerMillis = now,
+                records = listOf(MirrorRecord(address = 0, type = payload[0].toInt() and 0xFF, payload = payload)),
+            ),
+            now,
+        )
+    }
+
+    private fun resolveAppearancePaletteStops(
+        palette: String,
+        baseColors: List<String>,
+        resolvePaletteStops: (String) -> List<PaletteStop>?,
+    ): List<PaletteStop> = when {
+        palette == "userColors" -> IicPacketBuilder.buildUserColorStops(baseColors)
+        else -> resolvePaletteStops(palette) ?: IicPacketBuilder.buildUserColorStops(baseColors)
     }
 
     private class Topology(

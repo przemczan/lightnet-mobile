@@ -5,6 +5,7 @@ import com.lightnet.api.http.model.AnimationPlayRequest
 import com.lightnet.api.http.model.AppStateBody
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
+import com.lightnet.api.http.model.withAppearanceDefaults
 import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.api.http.model.ConfigurationResponse
 import com.lightnet.api.http.model.FirmwareFlashResponse
@@ -50,6 +51,19 @@ class DemoHttpClient(
             palette    = request.palette    ?: appearance.palette,
         )
         settings.putString(KEY_APPEARANCE, json.encodeToString(AppearanceResponse.serializer(), appearance))
+
+        if (!sceneService.playing.value) return
+
+        sceneService.onAppearanceChanged(
+            palette            = appearance.palette,
+            baseColors           = appearance.baseColors,
+            resolvePaletteStops  = { palettes[it]?.stops },
+            reresolvePalette     = !playingSceneHadOwnPalette,
+            reresolveColors      = !playingSceneHadOwnColors,
+            pushPalette          = request.palette != null ||
+                (request.baseColors != null && appearance.palette == "userColors"),
+            pushBaseColors       = request.baseColors != null,
+        )
     }
 
     // ── Palettes ──────────────────────────────────────────────────────────────
@@ -137,16 +151,24 @@ class DemoHttpClient(
     }
 
     private var playingSceneName: String? = null
+    private var playingSceneHadOwnPalette = false
+    private var playingSceneHadOwnColors = false
+
+    private fun sceneForPlay(scene: SceneJson): SceneJson {
+        playingSceneHadOwnPalette = scene.palette != null
+        playingSceneHadOwnColors = scene.colors != null
+        return scene.withAppearanceDefaults(appearance.palette, appearance.baseColors)
+    }
 
     override suspend fun playSceneByName(name: String) {
         val scene = scenes[name] ?: return
-        val sceneJson = json.encodeToString(SceneJson.serializer(), scene)
+        val sceneJson = json.encodeToString(SceneJson.serializer(), sceneForPlay(scene))
         sceneService.play(sceneJson)
         playingSceneName = name
     }
 
     override suspend fun playSceneInline(scene: SceneJson) {
-        val sceneJson = json.encodeToString(SceneJson.serializer(), scene)
+        val sceneJson = json.encodeToString(SceneJson.serializer(), sceneForPlay(scene))
         sceneService.play(sceneJson)
         playingSceneName = scene.name
     }
@@ -159,6 +181,8 @@ class DemoHttpClient(
     override suspend fun stopScene() {
         sceneService.stop()
         playingSceneName = null
+        playingSceneHadOwnPalette = false
+        playingSceneHadOwnColors = false
     }
 
     override suspend fun setSceneSpeed(speed: Float) = sceneService.setSpeed(speed)

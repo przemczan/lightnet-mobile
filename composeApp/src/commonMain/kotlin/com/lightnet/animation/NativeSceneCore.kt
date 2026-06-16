@@ -34,6 +34,8 @@ expect class NativeSceneCore() {
     fun stop(now: Int): ByteArray
 
     fun setSpeed(speed: Float)
+    /** Update default palette/base colors on a playing scene (null = leave unchanged). */
+    fun reresolvePalettes(palette: String?, baseColors: List<String>?)
     fun isPlaying(): Boolean
     fun lastError(): String
 

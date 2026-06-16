@@ -19,6 +19,9 @@ if(NOT EXISTS "${ANIM_CORE_C_DIR}/CMakeLists.txt")
 endif()
 
 set(ANIM_CORE_BUILD_TESTS OFF CACHE BOOL "" FORCE)  # host smoke exes are not for Android
+# Force engine paths so a stale CMake cache cannot keep the pre-rename Core/Scene location.
+set(LIGHTNET_CORE_DIR "${LIGHTNET_FIRMWARE_DIR}/lib/Lightnet/Core" CACHE PATH "" FORCE)
+set(LIGHTNET_SCENE_DIR "${LIGHTNET_FIRMWARE_DIR}/lib/Lightnet/Core/Controller" CACHE PATH "" FORCE)
 add_subdirectory("${ANIM_CORE_C_DIR}" panel_core_build)  # defines panel_core + controller_core
 
 add_library(lightnet_anim SHARED jni_anim.cpp jni_scene.cpp)

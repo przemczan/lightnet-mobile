@@ -17,6 +17,7 @@ private object NativeSceneBridge {
     external fun tick(h: Long, now: Int): ByteArray
     external fun stop(h: Long, now: Int): ByteArray
     external fun setSpeed(h: Long, speed: Float)
+    external fun reresolvePalettes(h: Long, palette: String?, baseColors: ByteArray?)
     external fun isPlaying(h: Long): Boolean
     external fun lastError(h: Long): String
 }
@@ -37,6 +38,21 @@ actual class NativeSceneCore actual constructor() {
     actual fun stop(now: Int): ByteArray = NativeSceneBridge.stop(handle, now)
 
     actual fun setSpeed(speed: Float) = NativeSceneBridge.setSpeed(handle, speed)
+
+    actual fun reresolvePalettes(palette: String?, baseColors: List<String>?) {
+        val bytes = baseColors?.let { colors ->
+            ByteArray(9).also { out ->
+                repeat(3) { slot ->
+                    val rgb = colors.getOrNull(slot)?.removePrefix("#")?.toIntOrNull(16) ?: 0
+                    out[slot * 3] = ((rgb shr 16) and 0xFF).toByte()
+                    out[slot * 3 + 1] = ((rgb shr 8) and 0xFF).toByte()
+                    out[slot * 3 + 2] = (rgb and 0xFF).toByte()
+                }
+            }
+        }
+        NativeSceneBridge.reresolvePalettes(handle, palette, bytes)
+    }
+
     actual fun isPlaying(): Boolean = NativeSceneBridge.isPlaying(handle)
     actual fun lastError(): String = NativeSceneBridge.lastError(handle)
 

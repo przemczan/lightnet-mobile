@@ -450,7 +450,10 @@ fun TimelineSceneEditorScreen(
                         onClick = {
                             val err = activeScene.validationError()
                             if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@IconButton }
-                            val json = previewJson.encodeToString(SceneJson.serializer(), activeScene.toPreviewSceneJson(panels, devicePalette))
+                            val json = previewJson.encodeToString(
+                                SceneJson.serializer(),
+                                activeScene.toPreviewSceneJson(panels, devicePalette, baseColors),
+                            )
                             offlineService.play(json)
                             showPreviewModal = true
                         },

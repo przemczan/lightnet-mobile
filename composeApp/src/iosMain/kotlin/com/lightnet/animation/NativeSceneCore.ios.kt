@@ -8,6 +8,7 @@ import animcore.scene_drain
 import animcore.scene_is_playing
 import animcore.scene_last_error
 import animcore.scene_load_and_play
+import animcore.scene_reresolve_palettes
 import animcore.scene_set_palette
 import animcore.scene_set_speed
 import animcore.scene_set_tag
@@ -88,6 +89,28 @@ actual class NativeSceneCore actual constructor() {
     }
 
     actual fun setSpeed(speed: Float) { scene_set_speed(handle, speed) }
+
+    actual fun reresolvePalettes(palette: String?, baseColors: List<String>?) {
+        memScoped {
+            val palPtr = palette?.cstr?.ptr
+            if (baseColors == null) {
+                scene_reresolve_palettes(handle, palPtr, null)
+            } else {
+                val bytes = ByteArray(9).also { out ->
+                    repeat(3) { slot ->
+                        val rgb = baseColors.getOrNull(slot)?.removePrefix("#")?.toIntOrNull(16) ?: 0
+                        out[slot * 3] = ((rgb shr 16) and 0xFF).toByte()
+                        out[slot * 3 + 1] = ((rgb shr 8) and 0xFF).toByte()
+                        out[slot * 3 + 2] = (rgb and 0xFF).toByte()
+                    }
+                }
+                bytes.usePinned {
+                    scene_reresolve_palettes(handle, palPtr, it.addressOf(0).reinterpret())
+                }
+            }
+        }
+    }
+
     actual fun isPlaying(): Boolean = scene_is_playing(handle) != 0
     actual fun lastError(): String = scene_last_error(handle)?.toKString() ?: ""
 

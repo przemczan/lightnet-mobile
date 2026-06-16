@@ -194,3 +194,16 @@ data class SceneInfo(
     val name: String,
     val size: Int? = null,
 )
+
+/** Apply device appearance defaults when a scene left palette/colors unset (matches firmware startPlay). */
+fun SceneJson.withAppearanceDefaults(devicePalette: String, baseColors: List<String>): SceneJson {
+    val withPalette = palette?.let { this } ?: copy(palette = devicePalette)
+    if (withPalette.colors != null) return withPalette
+    return withPalette.copy(
+        colors = SceneColors(
+            primary   = baseColors.getOrNull(0),
+            secondary = baseColors.getOrNull(1),
+            tertiary  = baseColors.getOrNull(2),
+        ),
+    )
+}
