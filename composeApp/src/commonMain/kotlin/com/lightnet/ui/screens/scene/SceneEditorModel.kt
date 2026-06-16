@@ -125,7 +125,7 @@ class EditableStep(
     amount: Int = 128,
     valueFrom: Int = 255,
     valueTo: Int = 64,
-    density: Int = 0,
+    count: Int = 1,
     repeatCount: Int = 1,
     lines: Int = 1,
     thickness: Int = 18,
@@ -151,9 +151,8 @@ class EditableStep(
     var amount by mutableStateOf(amount)        // runner-only: peak intensity for non-Color targets, 0-255
     var valueFrom by mutableStateOf(valueFrom)  // panel-local non-Color: scalar ramp start, 0-255
     var valueTo by mutableStateOf(valueTo)      // panel-local non-Color: scalar ramp end, 0-255
-    // WAVE/RIPPLE/CHASE: spawn density (0-255) of the continuous sweep train; 0 = one sweep in
-    // flight at a time, gapless; 255 = max concurrent sweeps.
-    var density by mutableStateOf(density)
+    // WAVE/RIPPLE/CHASE: sweeps per step window (1-30). Spawn at duration/count * spawnIndex.
+    var count by mutableStateOf(count)
     var repeatCount by mutableStateOf(repeatCount) // RAIN/SPARKLE/MATRIX: drops/flashes per second
     // WHEEL-only: number of rotating blades (1-6) and blade thickness in degrees.
     var lines by mutableStateOf(lines)
@@ -273,7 +272,7 @@ private fun EditableStep.clone(): EditableStep = EditableStep(
     amount      = amount,
     valueFrom   = valueFrom,
     valueTo     = valueTo,
-    density     = density,
+    count       = count,
     repeatCount = repeatCount,
     lines       = lines,
     thickness   = thickness,
@@ -381,7 +380,7 @@ private fun EditableStep.toSceneStepBody(): SceneStep {
             waveWidth      = if (a == AnimId.WAVE && a.hasWidth) width else null,
             rippleWidth    = if (a == AnimId.RIPPLE && a.hasWidth) width else null,
             width          = if ((a == AnimId.BOUNCE || isSpawner) && a.hasWidth) width else null,
-            density        = if (!isSpawner && a != AnimId.BOUNCE && density > 0) density else null,
+            count          = if (!isSpawner && a != AnimId.BOUNCE && count > 1) count else null,
             waves          = if (isSpawner && repeatCount > 1) repeatCount else null,
             speed          = if ((a == AnimId.RAIN || isMatrix) && speedMs > 0) speedMs else null, // SPARKLE has no fall-time
             animates       = animates.toToken(),
@@ -520,7 +519,7 @@ private fun stepFrom(step: SceneStep): EditableStep {
         amount      = step.amount ?: 128,
         valueFrom   = step.from ?: 255,
         valueTo     = step.to ?: 64,
-        density     = (step.density ?: 0).coerceIn(0, 255),
+        count       = (step.count ?: 1).coerceIn(1, 30),
         repeatCount = (step.waves ?: 1).coerceAtLeast(1),
         lines       = step.lines ?: 1,
         thickness   = step.thickness ?: 18,

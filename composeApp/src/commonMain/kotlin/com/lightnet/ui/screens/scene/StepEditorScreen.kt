@@ -536,11 +536,11 @@ private fun RunnerAnimatesEditor(
                 }
                 else -> {
                     Column {
-                        Text("Density  ${step.density}", style = MaterialTheme.typography.bodyLarge)
+                        Text("Count  ${step.count}", style = MaterialTheme.typography.bodyLarge)
                         Slider(
-                            value         = step.density.toFloat(),
-                            onValueChange = { step.density = it.roundToInt().coerceIn(0, 255) },
-                            valueRange    = 0f..255f,
+                            value         = step.count.toFloat(),
+                            onValueChange = { step.count = it.roundToInt().coerceIn(1, 30) },
+                            valueRange    = 1f..30f,
                         )
                     }
                 }

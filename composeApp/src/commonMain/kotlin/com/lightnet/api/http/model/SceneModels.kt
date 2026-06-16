@@ -146,9 +146,8 @@ data class SceneStep(
     val rippleWidth: Int? = null,
     // BOUNCE/RAIN/SPARKLE: generic band/tail/fade width (waveWidth/rippleWidth's equivalent).
     val width: Int? = null,
-    // WAVE/RIPPLE/CHASE: spawn density (0-255) of the continuous sweep train. 0 = one sweep in
-    // flight at a time, gapless; 255 = up to MAX_CONCURRENT_SWEEPS sweeps in flight.
-    val density: Int? = null,
+    // WAVE/RIPPLE/CHASE: sweeps per step window (1-30). Spawn at duration/count * spawnIndex.
+    val count: Int? = null,
     // RAIN/SPARKLE/MATRIX: spawn rate — drops/flashes per second.
     val waves: Int? = null,
     // RAIN/SPARKLE: drop-fall / flash period in ms (constant). When set, `duration` is the play
