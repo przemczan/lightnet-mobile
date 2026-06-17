@@ -1350,18 +1350,14 @@ private fun LayerTrackRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).alpha(if (layer.enabled) 1f else 0.5f),
             )
-            if (layer.asyncMode != AsyncMode.Off) {
-                Text(
-                    layer.asyncMode.name.lowercase(),
-                    style    = MaterialTheme.typography.labelSmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.alpha(if (layer.enabled) 1f else 0.5f),
-                )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+                modifier              = Modifier.alpha(if (layer.enabled) 1f else 0.5f),
+            ) {
+                LayerAsyncChip(layer = layer)
+                LayerBlendChip(layer = layer)
             }
-            LayerBlendChip(
-                layer    = layer,
-                modifier = Modifier.alpha(if (layer.enabled) 1f else 0.5f),
-            )
             IconButton(onClick = onMoveUp, enabled = canMoveUp) {
                 Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move layer up")
             }

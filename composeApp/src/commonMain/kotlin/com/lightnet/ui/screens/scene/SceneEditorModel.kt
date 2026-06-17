@@ -253,6 +253,19 @@ class EditableScene(
     }
 }
 
+/** Cycles async Off → Loop → Free. Layers with `startAfter` stay off (matches layer editor). */
+fun EditableLayer.cycleAsyncMode() {
+    if (!startAfter.isNullOrBlank()) {
+        asyncMode = AsyncMode.Off
+        return
+    }
+    asyncMode = when (asyncMode) {
+        AsyncMode.Off  -> AsyncMode.Loop
+        AsyncMode.Loop -> AsyncMode.Free
+        AsyncMode.Free -> AsyncMode.Off
+    }
+}
+
 /** Deep copy with fresh ids for the step itself — used when cloning a layer. */
 private fun EditableStep.clone(): EditableStep = EditableStep(
     anim        = anim,

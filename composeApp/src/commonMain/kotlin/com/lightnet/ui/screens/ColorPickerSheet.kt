@@ -73,10 +73,8 @@ fun ColorPickerSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Color", style = MaterialTheme.typography.titleMedium)
-
             if (showBaseColors && localBaseColors.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                     localBaseColors.take(3).forEachIndexed { i, hex ->
@@ -120,9 +118,7 @@ fun ColorPickerSheet(
                 onHueChange        = { hue = it; onPick(hsvToColor(it, saturation, brightness)) },
                 onSaturationChange = { saturation = it; onPick(hsvToColor(hue, it, brightness)) },
                 onBrightnessChange = { brightness = it; onPick(hsvToColor(hue, saturation, it)) },
-                modifier           = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 32.dp),
+                modifier           = Modifier.fillMaxWidth(),
             )
 
             Row(

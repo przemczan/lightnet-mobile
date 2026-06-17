@@ -31,6 +31,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,7 +67,37 @@ import com.lightnet.ui.screens.ColorPickerSheet
 
 internal const val BLEND_DEFAULT = "default"
 
-/** Compact blend-mode label on a timeline layer row — always visible, opens a picker on tap. */
+private val layerOptionChipColors
+    @Composable get() = FilterChipDefaults.filterChipColors()
+
+@Composable
+private fun LayerOptionChipLabel(text: String, muted: Boolean = false) {
+    Text(
+        text  = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurface,
+    )
+}
+
+/** Compact async-mode chip on a timeline layer row — tap cycles Off → Loop → Free. */
+@Composable
+internal fun LayerAsyncChip(
+    layer: EditableLayer,
+    modifier: Modifier = Modifier,
+) {
+    val asyncLocked = !layer.startAfter.isNullOrBlank()
+    FilterChip(
+        selected = false,
+        onClick  = { layer.cycleAsyncMode() },
+        enabled  = !asyncLocked,
+        label    = { LayerOptionChipLabel(layer.asyncMode.name.lowercase(), muted = asyncLocked) },
+        colors   = layerOptionChipColors,
+        modifier = modifier,
+    )
+}
+
+/** Compact blend-mode chip on a timeline layer row — tap opens a picker. */
 @Composable
 internal fun LayerBlendChip(
     layer: EditableLayer,
@@ -76,14 +108,11 @@ internal fun LayerBlendChip(
     val options = remember { listOf(BLEND_DEFAULT) + BlendMode.all }
 
     Box(modifier) {
-        Text(
-            text     = display,
-            style    = MaterialTheme.typography.labelSmall,
-            color    = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .clip(MaterialTheme.shapes.small)
-                .clickable { expanded = true }
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+        FilterChip(
+            selected = false,
+            onClick  = { expanded = true },
+            label    = { LayerOptionChipLabel(display) },
+            colors   = layerOptionChipColors,
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { mode ->

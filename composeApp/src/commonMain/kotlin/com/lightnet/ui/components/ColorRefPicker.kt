@@ -143,7 +143,7 @@ fun ColorRefPickerSheet(
                     onHueChange        = { hue = it; emitCustom() },
                     onSaturationChange = { saturation = it; emitCustom() },
                     onBrightnessChange = { brightness = it; emitCustom() },
-                    modifier           = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
+                    modifier           = Modifier.fillMaxWidth(),
                 )
 
                 RefMode.Palette -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
