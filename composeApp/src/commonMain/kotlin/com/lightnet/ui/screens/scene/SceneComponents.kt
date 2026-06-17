@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -52,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import com.lightnet.api.http.model.ColorRef
+import com.lightnet.api.http.model.BlendMode
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.device.LightnetDevicePanel
 import com.lightnet.ui.colorToHex
@@ -62,6 +64,40 @@ import com.lightnet.ui.components.colorRefToColor
 import com.lightnet.ui.screens.ColorPickerSheet
 
 internal const val BLEND_DEFAULT = "default"
+
+/** Compact blend-mode label on a timeline layer row — always visible, opens a picker on tap. */
+@Composable
+internal fun LayerBlendChip(
+    layer: EditableLayer,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val display = (layer.blend ?: BLEND_DEFAULT).lowercase()
+    val options = remember { listOf(BLEND_DEFAULT) + BlendMode.all }
+
+    Box(modifier) {
+        Text(
+            text     = display,
+            style    = MaterialTheme.typography.labelSmall,
+            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .clip(MaterialTheme.shapes.small)
+                .clickable { expanded = true }
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(mode) },
+                    onClick = {
+                        layer.blend = if (mode == BLEND_DEFAULT) null else mode
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
 
 internal fun <T> MutableList<T>.move(from: Int, to: Int) {
     if (from == to || from !in indices || to !in indices) return

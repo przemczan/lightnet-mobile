@@ -51,7 +51,7 @@ object AnimateTarget {
     val all = listOf(COLOR, DIM, BRIGHTEN, DESATURATE, SATURATE, HUE, INVERT)
 }
 
-/** Layer blend modes (firmware ComposeMode). Runner layers default to `max`, others to `opaque`. */
+/** Layer blend modes (firmware ComposeMode). Absent `blend` uses firmware default: opaque for normal layers, max for runners. */
 object BlendMode {
     const val OPAQUE = "opaque"
     const val ADD = "add"

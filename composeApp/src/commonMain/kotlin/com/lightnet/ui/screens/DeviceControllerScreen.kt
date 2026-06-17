@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
@@ -176,6 +177,7 @@ fun DeviceControllerScreen(
     val palettesLoading     by device.palettesLoading.collectAsState()
     var baseColors          by remember(device) { mutableStateOf(device.cachedAppearance?.baseColors ?: emptyList()) }
     var paintColor          by remember { mutableStateOf<Color?>(null) }
+    var paintModeEnabled    by remember(device) { mutableStateOf(true) }
     var showColorSheet      by remember { mutableStateOf(false) }
     var showAdjustSheet     by remember { mutableStateOf(false) }
     var showScenesSheet     by remember { mutableStateOf(false) }
@@ -189,6 +191,12 @@ fun DeviceControllerScreen(
     val isScenePlaying       = appState?.playing == true
     val lastPlayedScene      = appState?.lastPlayedScene ?: ""
     val playToolbarSceneName = lastPlayedScene
+    val canPaint             = paintModeEnabled && !isScenePlaying
+
+    LaunchedEffect(device, isScenePlaying) {
+        device.setScenePlaying(isScenePlaying)
+        paintModeEnabled = !isScenePlaying
+    }
 
     // Refresh scene playback status + last-played-scene name on screen open and after a play/stop action.
     LaunchedEffect(device, connectionState, httpClient, sceneStatusRefresh) {
@@ -291,7 +299,7 @@ fun DeviceControllerScreen(
                 ) {
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         IconButton(onClick = { showColorSheet = true }, enabled = isConnected) {
-                            Icon(Icons.Default.Brush, contentDescription = "Pick color", modifier = Modifier.size(28.dp))
+                            Icon(Icons.Default.Colorize, contentDescription = "Pick color", modifier = Modifier.size(28.dp))
                         }
                     }
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -375,7 +383,7 @@ fun DeviceControllerScreen(
                             brightness    = brightness,
                             paintMode     = PaintMode.Paint,
                             paintColor    = paintColor ?: Color(0xFFCF5B3C),
-                            interactive   = !isReconnecting,
+                            interactive   = canPaint && !isReconnecting,
                             showPanelIds  = debugMode,
                             onTapWhileOff = { showOffMessage = true },
                             rotationDegrees = rotationAngle,
@@ -458,6 +466,17 @@ fun DeviceControllerScreen(
                                 Icon(
                                     if (isScenePlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
                                     contentDescription = if (isScenePlaying) "Stop scene" else "Play \"$lastPlayedScene\"",
+                                    modifier = Modifier.size(28.dp),
+                                )
+                            }
+                            FilledIconToggleButton(
+                                checked         = canPaint,
+                                onCheckedChange = { paintModeEnabled = it },
+                                enabled         = isConnected && !isScenePlaying,
+                            ) {
+                                Icon(
+                                    Icons.Default.Brush,
+                                    contentDescription = if (canPaint) "Paint mode on" else "Paint mode off",
                                     modifier = Modifier.size(28.dp),
                                 )
                             }

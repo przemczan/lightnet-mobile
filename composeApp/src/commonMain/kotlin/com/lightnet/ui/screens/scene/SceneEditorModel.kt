@@ -206,7 +206,7 @@ class EditableLayer(
     var palette by mutableStateOf(palette)
     var asyncMode by mutableStateOf(asyncMode)
     var startAfter by mutableStateOf(startAfter)
-    var blend by mutableStateOf(blend)        // null = default (opaque; runners use max)
+    var blend by mutableStateOf(blend)        // null = firmware default (opaque; runners use max)
     var fallback by mutableStateOf(fallback)  // round-trip passthrough (no UI yet)
     val steps = steps.toMutableStateList()
 
@@ -569,18 +569,54 @@ fun sceneFromJson(json: SceneJson, panels: List<LightnetDevicePanel>): EditableS
 // ── Validation ──────────────────────────────────────────────────────────────────
 
 const val GROUP_NAME_MAX_LEN = 15
+const val SCENE_NAME_MAX_LEN = 18
 
-private val sceneNameRegex = Regex("^[A-Za-z0-9_-]{1,18}$")
+private val sceneNameRegex = Regex("^[A-Za-z0-9_-]{1,$SCENE_NAME_MAX_LEN}$")
+private val sceneNameCharRegex = Regex("[A-Za-z0-9_-]")
 private val groupNameRegex = Regex("^[A-Za-z0-9_-]{1,$GROUP_NAME_MAX_LEN}$")
 private val groupNameCharRegex = Regex("[A-Za-z0-9_-]")
 private val stepIdRegex = Regex("^[A-Za-z0-9_-]+$")
+
+/** Strips characters not allowed in a scene name and enforces the max length — for use in input fields. */
+fun sanitizeSceneName(input: String): String =
+    input.filter { sceneNameCharRegex.matches(it.toString()) }.take(SCENE_NAME_MAX_LEN)
+
+fun sceneNameValidationError(name: String): String? {
+    val trimmed = name.trim()
+    if (trimmed.isEmpty()) return "Name must be 1–18 chars (letters, digits, - or _)."
+    if (trimmed.startsWith('@')) return "Name cannot start with @."
+    if (!sceneNameRegex.matches(trimmed)) return "Name must be 1–18 chars (letters, digits, - or _)."
+    return null
+}
+
+/** Format + uniqueness check for naming a cloned scene. */
+fun sceneCloneNameValidationError(name: String, taken: Set<String>): String? {
+    sceneNameValidationError(name)?.let { return it }
+    if (name.trim() in taken) return "A scene with this name already exists."
+    return null
+}
+
+/**
+ * A valid, unused name for a scene clone — `<base>_copy`, then `<base>_copy2`, …
+ * [base] is sanitized to API-allowed characters and trimmed to fit within 18 chars.
+ */
+fun suggestCloneSceneName(sourceName: String, taken: Set<String>): String {
+    val base = sanitizeSceneName(sourceName.trim()).ifBlank { "Scene" }
+    var n = 1
+    while (n < 10_000) {
+        val suffix = if (n == 1) "_copy" else "_copy$n"
+        val candidate = base.take((SCENE_NAME_MAX_LEN - suffix.length).coerceAtLeast(1)) + suffix
+        if (candidate !in taken && sceneNameValidationError(candidate) == null) return candidate
+        n++
+    }
+    return sanitizeSceneName("${base}_copy").ifBlank { "Scene_copy" }
+}
 
 /** Strips characters not allowed in a layer name and enforces the max length — for use in input fields. */
 fun sanitizeLayerName(input: String): String =
     input.filter { groupNameCharRegex.matches(it.toString()) }.take(GROUP_NAME_MAX_LEN)
 
-fun EditableScene.nameValidationError(): String? =
-    if (!sceneNameRegex.matches(name.trim())) "Name must be 1–18 chars (letters, digits, - or _)." else null
+fun EditableScene.nameValidationError(): String? = sceneNameValidationError(name)
 
 /** Returns the first validation error message, or null when the scene is valid to save/preview. */
 fun EditableScene.validationError(): String? {

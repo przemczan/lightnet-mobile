@@ -285,12 +285,20 @@ fun TimelineSceneEditorScreen(
     val tags = remember(topology) { topology?.tags?.values?.flatten()?.distinct()?.sorted() ?: emptyList() }
     LaunchedEffect(device) {
         device?.loadPalettes()
+        device?.loadScenes()
     }
     LaunchedEffect(device) {
         val appearance = device?.loadAppearance() ?: device?.cachedAppearance
         baseColors = appearance?.baseColors ?: emptyList()
         devicePalette = appearance?.palette
         topology = device?.getTopology()
+    }
+    val deviceScenes by remember(device) { device?.scenes ?: MutableStateFlow(null) }.collectAsState()
+    val takenSceneNames = remember(deviceScenes) {
+        buildSet {
+            AppPreferences.scenes.getAll().forEach { s -> s.name?.trim()?.takeIf { it.isNotBlank() }?.let(::add) }
+            deviceScenes?.forEach { add(it.name) }
+        }
     }
     val paletteNames = remember(palettesMap) { palettesMap.keys.sorted() }
 
@@ -350,6 +358,8 @@ fun TimelineSceneEditorScreen(
 
     var showPreviewModal by remember { mutableStateOf(false) }
     var showOptionsSheet by remember { mutableStateOf(false) }
+    var showCloneDialog by remember { mutableStateOf(false) }
+    var cloneNameDraft by remember { mutableStateOf("") }
     var snapMode by remember { mutableStateOf(true) }
     var pxPerMs by remember { mutableFloatStateOf(DEFAULT_PX_PER_MS) }
     var hasAutoFitted by remember { mutableStateOf(false) }
@@ -510,8 +520,11 @@ fun TimelineSceneEditorScreen(
                 },
                 actions = {
                     TextButton(onClick = {
-                        scene = activeScene.clone("${activeScene.name.ifBlank { "Scene" }} copy")
-                        isDirty = true
+                        cloneNameDraft = suggestCloneSceneName(
+                            activeScene.name.ifBlank { "Scene" },
+                            takenSceneNames,
+                        )
+                        showCloneDialog = true
                     }) { Text("Clone") }
                 },
             )
@@ -611,6 +624,19 @@ fun TimelineSceneEditorScreen(
         }
     }
 
+    if (showCloneDialog) {
+        CloneSceneNameDialog(
+            initialName = cloneNameDraft,
+            takenNames  = takenSceneNames,
+            onConfirm   = { name ->
+                showCloneDialog = false
+                scene = activeScene.clone(name)
+                isDirty = true
+            },
+            onDismiss = { showCloneDialog = false },
+        )
+    }
+
     if (showExitConfirm) {
         AlertDialog(
             onDismissRequest = { showExitConfirm = false },
@@ -705,6 +731,44 @@ fun TimelineSceneEditorScreen(
 private sealed interface Editing {
     data class Step(val layer: EditableLayer, val step: EditableStep) : Editing
     data class Layer(val layer: EditableLayer) : Editing
+}
+
+@Composable
+private fun CloneSceneNameDialog(
+    initialName: String,
+    takenNames: Set<String>,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember(initialName) { mutableStateOf(initialName) }
+    val trimmed = name.trim()
+    val error = sceneCloneNameValidationError(trimmed, takenNames)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title            = { Text("Clone scene") },
+        text             = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Choose a name for the copy.")
+                TextField(
+                    value          = name,
+                    onValueChange  = { name = it },
+                    label          = { Text("Name") },
+                    singleLine     = true,
+                    isError        = error != null,
+                    supportingText = error?.let { err -> { Text(err) } },
+                    modifier       = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick  = { onConfirm(trimmed) },
+                enabled  = error == null,
+            ) { Text("Clone") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Scene-wide options: name, loop, speed, default palette, background. */
@@ -1286,20 +1350,18 @@ private fun LayerTrackRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).alpha(if (layer.enabled) 1f else 0.5f),
             )
-            val blendLabel = layer.blend?.lowercase()
-            if (layer.asyncMode != AsyncMode.Off || blendLabel != null) {
+            if (layer.asyncMode != AsyncMode.Off) {
                 Text(
-                    buildString {
-                        if (layer.asyncMode != AsyncMode.Off) append(layer.asyncMode.name.lowercase())
-                        if (blendLabel != null) {
-                            if (isNotEmpty()) append(" ")
-                            append(blendLabel)
-                        }
-                    }.trim(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    layer.asyncMode.name.lowercase(),
+                    style    = MaterialTheme.typography.labelSmall,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.alpha(if (layer.enabled) 1f else 0.5f),
                 )
             }
+            LayerBlendChip(
+                layer    = layer,
+                modifier = Modifier.alpha(if (layer.enabled) 1f else 0.5f),
+            )
             IconButton(onClick = onMoveUp, enabled = canMoveUp) {
                 Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move layer up")
             }

@@ -62,6 +62,16 @@ class LightnetDevice(
     // back on. Avoids both the stale-polled-state flicker and a "fast forward" jump from re-polling.
     private val _frozenStates = MutableStateFlow<List<PanelState>?>(null)
 
+    /** True while the controller is playing a scene — mirror rendering is only used then. */
+    private val _scenePlaying = MutableStateFlow(false)
+
+    /**
+     * Paint mode: panel colours are owned locally (user taps/drags). Mirror and polled controller
+     * state are ignored so live preview cannot overwrite paints.
+     */
+    private val _paintMode = MutableStateFlow(true)
+    val paintMode: StateFlow<Boolean> = _paintMode
+
     /**
      * Drives the visualizer when a scene is played offline (demo device or future local preview).
      * Topology and palettes are kept in sync automatically as the device loads them.
@@ -74,15 +84,21 @@ class LightnetDevice(
             if (playing) states else null
         }
 
-    // Source of panel render state: frozen > offline animation (live only) > mirror (live only) > polled.
-    // Offline animation is gated on livePreview so turning off preview freezes demo scenes the same
-    // way it freezes mirror-based animation on real devices.
+    // Source of panel render state while a scene is playing: frozen > offline (demo) > mirror > polled.
+    // In paint mode, [LightnetDevicePanel] ignores this flow entirely — colours are local only.
     private val renderStates: Flow<List<PanelState>> =
-        combine(_livePreview, panelsStatesService.states, panelMirrorService.states, _frozenStates, offlineActiveStates) { live, polled, mirror, frozen, offline ->
+        combine(
+            combine(_livePreview, _scenePlaying, panelsStatesService.states) { live, scenePlaying, polled ->
+                Triple(live, scenePlaying, polled)
+            },
+            panelMirrorService.states,
+            _frozenStates,
+            offlineActiveStates,
+        ) { (live, scenePlaying, polled), mirror, frozen, offline ->
             when {
                 frozen != null -> frozen
                 offline != null && live -> offline
-                live -> mirror.ifEmpty { polled }
+                scenePlaying -> if (live) mirror.ifEmpty { polled } else polled
                 else -> polled
             }
         }
@@ -149,8 +165,7 @@ class LightnetDevice(
                         // snapshot records (SET_PALETTE/SET_BASE_COLORS/START) need panelIds populated,
                         // otherwise they're dropped and animations run with no palette → black output.
                         withTimeoutOrNull(5_000) { panelsListService.panels.first { it != null } }
-                        panelMirrorService.reset()
-                        messageApiService.send(SetMirrorMessage(true))
+                        resyncLiveMirror()
                     }
                 }
                 // Invalidate the palette cache on (re)connect so the next loadPalettes() call
@@ -199,6 +214,34 @@ class LightnetDevice(
         if (connectionState.value == ConnectionState.CONNECTED) panelsStatesService.refresh()
     }
 
+    /** Switches between scene playback (mirror-driven) and paint mode (local panel state). */
+    fun setScenePlaying(playing: Boolean) {
+        if (playing == _scenePlaying.value) return
+        val wasPlaying = _scenePlaying.value
+        _scenePlaying.value = playing
+        _paintMode.value = !playing
+        _frozenStates.value = null
+        if (playing) {
+            // Live preview may already be on (UI toggle unchanged) — still need a fresh renderer
+            // and a controller snapshot replay; reset alone leaves an empty mirror with no re-sync.
+            if (_livePreview.value) resyncLiveMirror()
+        } else if (wasPlaying) {
+            resetPanelsForPaint()
+        }
+    }
+
+    private fun resetPanelsForPaint() {
+        _snapshot.value?.panels?.forEach { it.resetForPaint() }
+    }
+
+    /** Clears the mirror renderer and asks the controller to replay its animation snapshot. */
+    private fun resyncLiveMirror() {
+        panelMirrorService.reset()
+        if (connectionState.value == ConnectionState.CONNECTED) {
+            messageApiService.send(SetMirrorMessage(true))
+        }
+    }
+
     /** Toggles live animation preview. Freezes the last animated frame when turning off. */
     fun setLivePreview(on: Boolean) {
         if (on == _livePreview.value) return
@@ -206,7 +249,6 @@ class LightnetDevice(
             // A stale player can retain animation/seq state from a previous preview session,
             // which would blend leftover frames with the controller's fresh snapshot replay.
             panelMirrorService.reset()
-            // Drop the freeze from the previous "off" so the live mirror feed shows through.
             _frozenStates.value = null
         } else {
             // Freeze on the last rendered frame (mirror for real devices, offline for demo).
@@ -316,6 +358,7 @@ class LightnetDevice(
                 info              = info,
                 layout            = layouts.first { it.panelId == info.id },
                 panelsStates      = renderStates,
+                paintMode         = _paintMode,
                 scope             = scope,
                 initialState      = cachedStates.find { it.panelId == info.id },
             )

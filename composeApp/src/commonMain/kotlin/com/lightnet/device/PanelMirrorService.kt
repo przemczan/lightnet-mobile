@@ -89,7 +89,10 @@ class PanelMirrorService(
      * (re)send its mirror snapshot, so playback starts from fresh native state.
      */
     fun reset() {
-        scope.launch(work) { renderer.release() }
+        scope.launch(work) {
+            renderer.release()
+            _states.value = emptyList()
+        }
     }
 
     companion object {
