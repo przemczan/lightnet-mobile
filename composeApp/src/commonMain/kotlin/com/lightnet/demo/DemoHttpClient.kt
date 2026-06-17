@@ -151,6 +151,7 @@ class DemoHttpClient(
     }
 
     private var playingSceneName: String? = null
+    private var playingSceneIsStored = true
     private var playingSceneHadOwnPalette = false
     private var playingSceneHadOwnColors = false
 
@@ -165,12 +166,14 @@ class DemoHttpClient(
         val sceneJson = json.encodeToString(SceneJson.serializer(), sceneForPlay(scene))
         sceneService.play(sceneJson)
         playingSceneName = name
+        playingSceneIsStored = true
     }
 
     override suspend fun playSceneInline(scene: SceneJson) {
         val sceneJson = json.encodeToString(SceneJson.serializer(), sceneForPlay(scene))
         sceneService.play(sceneJson)
         playingSceneName = scene.name
+        playingSceneIsStored = false
     }
 
     override suspend fun playLastScene() {
@@ -181,6 +184,7 @@ class DemoHttpClient(
     override suspend fun stopScene() {
         sceneService.stop()
         playingSceneName = null
+        playingSceneIsStored = true
         playingSceneHadOwnPalette = false
         playingSceneHadOwnColors = false
     }
@@ -210,7 +214,7 @@ class DemoHttpClient(
             controllerFirmware    = "Demo",
             playing               = playing,
             lastPlayedScene       = playingSceneName ?: "",
-            lastPlayedSceneIsStored = true,
+            lastPlayedSceneIsStored = playingSceneIsStored,
         )
     }
 

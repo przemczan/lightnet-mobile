@@ -761,8 +761,9 @@ private fun ScenesSheet(
                         appState.lastPlayedScene == name &&
                         appState.lastPlayedSceneIsStored == (item is ScenesSheetItem.Device)
 
-                    val playAction: () -> Unit = {
+                    val launchPlay: (dismissOnSuccess: Boolean) -> Unit = { dismissOnSuccess ->
                         scope.launch {
+                            if (stopping || loadingEdit != null) return@launch
                             if (httpClient == null && item is ScenesSheetItem.Device) {
                                 snackbar.showSnackbar("Connect a device to play device scenes.")
                                 return@launch
@@ -772,15 +773,21 @@ private fun ScenesSheet(
                                 is ScenesSheetItem.Global -> {
                                     if (httpClient == null) {
                                         snackbar.showSnackbar("Connect a device to play scenes.")
-                                        playing = null; return@launch
+                                        playing = null
+                                        return@launch
                                     }
                                     runCatching { httpClient.playSceneInline(item.scene) }.isSuccess
                                 }
                                 is ScenesSheetItem.Device ->
                                     runCatching { httpClient!!.playSceneByName(item.info.name) }.isSuccess
                             }
-                            if (ok) onScenePlayed() else snackbar.showSnackbar("Failed to play \"$name\".")
                             playing = null
+                            if (ok) {
+                                onScenePlayed()
+                                if (dismissOnSuccess) onDismiss()
+                            } else {
+                                snackbar.showSnackbar("Failed to play \"$name\".")
+                            }
                         }
                     }
 
@@ -788,8 +795,8 @@ private fun ScenesSheet(
                         Modifier
                             .fillMaxWidth()
                             .clickable(
-                                enabled = !isPlayingItem && !stopping && playing == null && loadingEdit == null,
-                                onClick = { playAction(); onDismiss() },
+                                enabled = !stopping && playing == null && loadingEdit == null,
+                                onClick = { launchPlay(true) },
                             )
                             .padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -817,7 +824,7 @@ private fun ScenesSheet(
                                             if (ok) onSceneStopped() else snackbar.showSnackbar("Failed to stop \"$name\".")
                                         }
                                     } else {
-                                        playAction()
+                                        launchPlay(false)
                                     }
                                 },
                             ) {
