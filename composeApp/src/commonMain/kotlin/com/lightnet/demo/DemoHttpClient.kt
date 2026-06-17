@@ -15,7 +15,9 @@ import com.lightnet.api.http.model.PanelEdgeResponse
 import com.lightnet.api.http.model.PanelStateResponse
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
+import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.TopologyResponse
+import com.lightnet.api.websocket.protocol.IicPacketBuilder
 import com.lightnet.device.OfflineSceneService
 import com.russhwolf.settings.Settings
 import kotlinx.serialization.builtins.ListSerializer
@@ -57,11 +59,11 @@ class DemoHttpClient(
         sceneService.onAppearanceChanged(
             palette            = appearance.palette,
             baseColors           = appearance.baseColors,
-            resolvePaletteStops  = { palettes[it]?.stops },
+            resolvePaletteStops  = ::resolvePaletteStops,
             reresolvePalette     = !playingSceneHadOwnPalette,
             reresolveColors      = !playingSceneHadOwnColors,
             pushPalette          = request.palette != null ||
-                (request.baseColors != null && appearance.palette == "userColors"),
+                (request.baseColors != null && appearance.palette == USER_COLORS_PALETTE),
             pushBaseColors       = request.baseColors != null,
         )
     }
@@ -73,7 +75,11 @@ class DemoHttpClient(
     private fun loadPalettes(): MutableMap<String, PaletteJson> {
         val stored = settings.getStringOrNull(KEY_PALETTES)
         val loaded = stored?.let { runCatching { json.decodeFromString(paletteMapSerializer, it) }.getOrNull() }
-        if (!loaded.isNullOrEmpty()) return loaded.toMutableMap()
+        if (!loaded.isNullOrEmpty()) {
+            val filtered = loaded.filterKeys { it != USER_COLORS_PALETTE }.toMutableMap()
+            if (filtered.size != loaded.size) savePalettes(filtered)
+            return filtered
+        }
         // First use: seed with default palettes
         val defaults = DemoDataInitializer.defaultPalettes.associateBy { it.name }
         savePalettes(defaults)
@@ -81,20 +87,34 @@ class DemoHttpClient(
     }
 
     private fun savePalettes(map: Map<String, PaletteJson>) {
-        settings.putString(KEY_PALETTES, json.encodeToString(paletteMapSerializer, map))
+        val stored = map.filterKeys { it != USER_COLORS_PALETTE }
+        settings.putString(KEY_PALETTES, json.encodeToString(paletteMapSerializer, stored))
     }
 
-    override suspend fun getPalettes(): Map<String, PaletteJson> = palettes.toMap()
+    private fun userColorsPalette(): PaletteJson =
+        PaletteJson(name = USER_COLORS_PALETTE, stops = IicPacketBuilder.buildUserColorStops(appearance.baseColors))
 
-    override suspend fun getPalette(name: String): PaletteJson =
-        palettes[name] ?: throw NoSuchElementException("Palette not found: $name")
+    private fun resolvePaletteStops(name: String): List<PaletteStop>? = when (name) {
+        USER_COLORS_PALETTE -> IicPacketBuilder.buildUserColorStops(appearance.baseColors)
+        else -> palettes[name]?.stops
+    }
+
+    override suspend fun getPalettes(): Map<String, PaletteJson> =
+        palettes.toMap() + (USER_COLORS_PALETTE to userColorsPalette())
+
+    override suspend fun getPalette(name: String): PaletteJson = when (name) {
+        USER_COLORS_PALETTE -> userColorsPalette()
+        else -> palettes[name] ?: throw NoSuchElementException("Palette not found: $name")
+    }
 
     override suspend fun savePalette(palette: PaletteJson) {
+        if (palette.name == USER_COLORS_PALETTE) throw IllegalArgumentException("cannot_overwrite_builtin")
         palettes[palette.name] = palette
         savePalettes(palettes)
     }
 
     override suspend fun deletePalette(name: String) {
+        if (name == USER_COLORS_PALETTE) throw IllegalArgumentException("cannot_delete_builtin")
         palettes.remove(name)
         savePalettes(palettes)
     }
@@ -250,6 +270,7 @@ class DemoHttpClient(
     override fun close() = Unit
 
     companion object {
+        private const val USER_COLORS_PALETTE = "userColors"
         private const val KEY_APPEARANCE = "demo_http_appearance"
         private const val KEY_PALETTES   = "demo_http_palettes"
         private const val KEY_SCENES     = "demo_http_scenes"

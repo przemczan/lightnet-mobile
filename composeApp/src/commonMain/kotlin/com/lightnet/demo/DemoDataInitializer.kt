@@ -17,15 +17,6 @@ import com.lightnet.api.http.model.SceneStep
 internal object DemoDataInitializer {
     val defaultPalettes: List<PaletteJson> = listOf(
         PaletteJson(
-            name = "userColors",
-            stops = listOf(
-                PaletteStop(0, "#FF0000"),
-                PaletteStop(85, "#00FF00"),
-                PaletteStop(170, "#0000FF"),
-                PaletteStop(255, "#FF0000"),
-            ),
-        ),
-        PaletteJson(
             name = "Warm Sunset",
             stops = listOf(
                 PaletteStop(0, "#FF2200"),
