@@ -179,6 +179,7 @@ data class SceneLayer(
 @Serializable
 data class SceneJson(
     @EncodeDefault(EncodeDefault.Mode.ALWAYS) val schemaVersion: Int = 2,
+    val id: String? = null,
     val name: String? = null,
     val loop: Boolean? = null,
     val speed: Float? = null,
@@ -188,10 +189,14 @@ data class SceneJson(
     val layers: List<SceneLayer>,
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class SceneInfo(
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS) val schemaVersion: Int = 1,
+    val id: String,
     val name: String,
-    val size: Int? = null,
+    val layersNum: Int = 0,
+    val duration: Int = 0,
 )
 
 /** Apply device appearance defaults when a scene left palette/colors unset (matches firmware startPlay). */

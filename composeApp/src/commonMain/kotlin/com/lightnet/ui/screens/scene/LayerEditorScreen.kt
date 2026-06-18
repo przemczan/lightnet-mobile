@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.lightnet.api.http.model.PaletteOption
 import com.lightnet.api.http.model.BlendMode
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.device.LightnetDevicePanel
@@ -59,7 +60,7 @@ internal fun LayerEditorScreen(
     layer: EditableLayer,
     index: Int,
     panels: List<LightnetDevicePanel>,
-    paletteNames: List<String>,
+    paletteOptions: List<PaletteOption>,
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
     tags: List<String>,
@@ -138,13 +139,13 @@ internal fun LayerEditorScreen(
                 }
             }
 
-            if (paletteNames.isNotEmpty()) {
+            if (paletteOptions.isNotEmpty()) {
                 item {
                     Card(Modifier.fillMaxWidth()) {
                         PaletteDropdown(
                             label    = "Palette override (optional)",
                             value    = layer.palette,
-                            options  = paletteNames,
+                            options  = paletteOptions,
                             onSelect = { layer.palette = it },
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         )

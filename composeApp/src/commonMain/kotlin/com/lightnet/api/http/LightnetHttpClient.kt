@@ -10,9 +10,11 @@ import com.lightnet.api.http.model.ConfigurationResponse
 import com.lightnet.api.http.model.FirmwareFlashResponse
 import com.lightnet.api.http.model.FirmwareStatusResponse
 import com.lightnet.api.http.model.PaletteJson
+import com.lightnet.api.http.model.PaletteMeta
 import com.lightnet.api.http.model.PanelEdgeResponse
 import com.lightnet.api.http.model.PanelStateResponse
 import com.lightnet.api.http.model.LogicalRootRequest
+import com.lightnet.api.http.model.SaveIdResponse
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.TopologyResponse
@@ -83,17 +85,17 @@ class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
 
     // region Palettes
 
-    override suspend fun getPalettes(): Map<String, PaletteJson> =
+    override suspend fun getPaletteMetas(): List<PaletteMeta> =
         client.get("$baseUrl/api/palettes").bodyOrThrow()
 
-    override suspend fun getPalette(name: String): PaletteJson =
-        client.get("$baseUrl/api/palettes/$name").bodyOrThrow()
+    override suspend fun getPalette(id: String): PaletteJson =
+        client.get("$baseUrl/api/palettes/$id").bodyOrThrow()
 
-    override suspend fun savePalette(palette: PaletteJson) =
-        client.post("$baseUrl/api/palettes") { jsonBody(palette) }.voidOrThrow()
+    override suspend fun savePalette(palette: PaletteJson): String =
+        client.post("$baseUrl/api/palettes") { jsonBody(palette) }.bodyOrThrow<SaveIdResponse>().id
 
-    override suspend fun deletePalette(name: String) =
-        client.delete("$baseUrl/api/palettes/$name").voidOrThrow()
+    override suspend fun deletePalette(id: String) =
+        client.delete("$baseUrl/api/palettes/$id").voidOrThrow()
 
     // endregion
 
@@ -102,17 +104,17 @@ class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
     override suspend fun getScenes(): List<SceneInfo> =
         client.get("$baseUrl/api/scenes").bodyOrThrow()
 
-    override suspend fun getScene(name: String): SceneJson =
-        client.get("$baseUrl/api/scenes/$name").bodyOrThrow()
+    override suspend fun getScene(id: String): SceneJson =
+        client.get("$baseUrl/api/scenes/$id").bodyOrThrow()
 
-    override suspend fun saveScene(scene: SceneJson) =
-        client.post("$baseUrl/api/scenes") { jsonBody(scene) }.voidOrThrow()
+    override suspend fun saveScene(scene: SceneJson): String =
+        client.post("$baseUrl/api/scenes") { jsonBody(scene) }.bodyOrThrow<SaveIdResponse>().id
 
-    override suspend fun deleteScene(name: String) =
-        client.delete("$baseUrl/api/scenes/$name").voidOrThrow()
+    override suspend fun deleteScene(id: String) =
+        client.delete("$baseUrl/api/scenes/$id").voidOrThrow()
 
-    override suspend fun playSceneByName(name: String) =
-        client.post("$baseUrl/api/scenes/$name/play").voidOrThrow()
+    override suspend fun playSceneById(id: String) =
+        client.post("$baseUrl/api/scenes/$id/play").voidOrThrow()
 
     override suspend fun playSceneInline(scene: SceneJson) =
         client.post("$baseUrl/api/scenes/play/one-shot") { jsonBody(scene) }.voidOrThrow()

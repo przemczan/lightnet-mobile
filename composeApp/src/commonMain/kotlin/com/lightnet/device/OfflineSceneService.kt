@@ -1,6 +1,7 @@
 package com.lightnet.device
 
 import com.lightnet.animation.NativeSceneCore
+import com.lightnet.api.http.model.EntryIds
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.websocket.model.PanelInfo
 import com.lightnet.api.websocket.model.PanelState
@@ -189,7 +190,7 @@ class OfflineSceneService(private val scope: CoroutineScope) {
         baseColors: List<String>,
         resolvePaletteStops: (String) -> List<PaletteStop>?,
     ): List<PaletteStop> = when {
-        palette == "userColors" -> IicPacketBuilder.buildUserColorStops(baseColors)
+        EntryIds.isUserColors(palette) -> IicPacketBuilder.buildUserColorStops(baseColors)
         else -> resolvePaletteStops(palette) ?: IicPacketBuilder.buildUserColorStops(baseColors)
     }
 

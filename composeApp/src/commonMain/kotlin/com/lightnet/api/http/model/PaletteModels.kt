@@ -38,8 +38,21 @@ internal object PaletteStopSerializer : KSerializer<PaletteStop> {
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
+data class PaletteMeta(
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS) val schemaVersion: Int = 1,
+    val id: String,
+    val name: String,
+    val builtin: Boolean? = null,
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
 data class PaletteJson(
     @EncodeDefault(EncodeDefault.Mode.ALWAYS) val schemaVersion: Int = 1,
+    val id: String? = null,
     val name: String,
     val stops: List<PaletteStop>,
 )
+
+/** Display label for palette pickers (userColors shows as "Base colors"). */
+data class PaletteOption(val id: String, val name: String)

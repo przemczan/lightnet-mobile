@@ -130,7 +130,7 @@ fun PaletteEditorScreen(
                             }
                             scope.launch {
                                 val result = httpClient?.runCatching {
-                                    savePalette(PaletteJson(name = name, stops = sortedStops))
+                                    savePalette(PaletteJson(id = initial?.id, name = name, stops = sortedStops))
                                 }
                                 if (result?.isSuccess == true) {
                                     onBack()

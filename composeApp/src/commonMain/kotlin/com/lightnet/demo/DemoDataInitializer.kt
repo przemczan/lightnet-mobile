@@ -1,5 +1,6 @@
 package com.lightnet.demo
 
+import com.lightnet.api.http.model.EntryIds
 import com.lightnet.api.http.model.AnimateTarget
 import com.lightnet.api.http.model.AnimationType
 import com.lightnet.api.http.model.BlendMode
@@ -15,37 +16,43 @@ import com.lightnet.api.http.model.SceneLayer
 import com.lightnet.api.http.model.SceneStep
 
 internal object DemoDataInitializer {
+    private fun demoPalette(name: String, stops: List<PaletteStop>) = PaletteJson(
+        id = EntryIds.demoPaletteId(name),
+        name = name,
+        stops = stops,
+    )
+
     val defaultPalettes: List<PaletteJson> = listOf(
-        PaletteJson(
-            name = "Warm Sunset",
-            stops = listOf(
+        demoPalette(
+            "Warm Sunset",
+            listOf(
                 PaletteStop(0, "#FF2200"),
                 PaletteStop(100, "#FF6600"),
                 PaletteStop(200, "#FFAA00"),
                 PaletteStop(255, "#FFDD00"),
             ),
         ),
-        PaletteJson(
-            name = "Ocean Blue",
-            stops = listOf(
+        demoPalette(
+            "Ocean Blue",
+            listOf(
                 PaletteStop(0, "#001040"),
                 PaletteStop(100, "#0044AA"),
                 PaletteStop(200, "#0088FF"),
                 PaletteStop(255, "#44CCFF"),
             ),
         ),
-        PaletteJson(
-            name = "Forest",
-            stops = listOf(
+        demoPalette(
+            "Forest",
+            listOf(
                 PaletteStop(0, "#001400"),
                 PaletteStop(100, "#004400"),
                 PaletteStop(200, "#008800"),
                 PaletteStop(255, "#44CC44"),
             ),
         ),
-        PaletteJson(
-            name = "Aurora",
-            stops = listOf(
+        demoPalette(
+            "Aurora",
+            listOf(
                 PaletteStop(0, "#00FFAA"),
                 PaletteStop(85, "#0044FF"),
                 PaletteStop(170, "#AA00FF"),
@@ -74,7 +81,7 @@ internal object DemoDataInitializer {
         schemaVersion = 8,
         name = "AuroraStorm",
         loop = true,
-        palette = "Aurora",
+        palette = EntryIds.demoPaletteId("Aurora"),
         colors = SceneColors(
             primary   = "#00FFC8",
             secondary = "#9900FF",
@@ -218,7 +225,7 @@ internal object DemoDataInitializer {
         schemaVersion = 8,
         name = "HeartPulse",
         loop = true,
-        palette = "Warm Sunset",
+        palette = EntryIds.demoPaletteId("Warm Sunset"),
         colors = SceneColors(
             primary   = "#FF1A3A",
             secondary = "#4A0018",
@@ -277,7 +284,7 @@ internal object DemoDataInitializer {
         schemaVersion = 8,
         name = "DigitalRain",
         loop = true,
-        palette = "Forest",
+        palette = EntryIds.demoPaletteId("Forest"),
         colors = SceneColors(
             primary   = "#00FF44",
             secondary = "#001400",
@@ -347,7 +354,7 @@ internal object DemoDataInitializer {
         schemaVersion = 8,
         name = "WheelOfFire",
         loop = true,
-        palette = "Warm Sunset",
+        palette = EntryIds.demoPaletteId("Warm Sunset"),
         colors = SceneColors(
             primary   = "#FF4400",
             secondary = "#FF8800",
@@ -417,7 +424,7 @@ internal object DemoDataInitializer {
         schemaVersion = 8,
         name = "OceanSwell",
         loop = true,
-        palette = "Ocean Blue",
+        palette = EntryIds.demoPaletteId("Ocean Blue"),
         colors = SceneColors(
             primary   = "#0066AA",
             secondary = "#001040",
@@ -555,7 +562,7 @@ internal object DemoDataInitializer {
         schemaVersion = 8,
         name = "CometCross",
         loop = true,
-        palette = "Aurora",
+        palette = EntryIds.demoPaletteId("Aurora"),
         colors = SceneColors(
             primary   = "#00CCFF",
             secondary = "#FF6600",
@@ -627,7 +634,7 @@ internal object DemoDataInitializer {
         schemaVersion = 8,
         name = "Thunderbolt",
         loop = true,
-        palette = "Ocean Blue",
+        palette = EntryIds.demoPaletteId("Ocean Blue"),
         colors = SceneColors(
             primary   = "#FFFFFF",
             secondary = "#0033AA",
@@ -730,7 +737,7 @@ internal object DemoDataInitializer {
         schemaVersion = 8,
         name = "CandleFlicker",
         loop = true,
-        palette = "Warm Sunset",
+        palette = EntryIds.demoPaletteId("Warm Sunset"),
         colors = SceneColors(
             primary   = "#FF8800",
             secondary = "#FF3300",
@@ -864,5 +871,7 @@ internal object DemoDataInitializer {
         thunderbolt,
         candleFlicker,
         strobeParty,
-    )
+    ).map { scene ->
+        scene.copy(id = EntryIds.demoSceneId(scene.name!!))
+    }
 }

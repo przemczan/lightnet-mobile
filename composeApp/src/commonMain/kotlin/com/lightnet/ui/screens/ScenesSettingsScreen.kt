@@ -231,19 +231,19 @@ fun ScenesSettingsScreen(
                         contentPadding      = listPadding,
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        itemsIndexed(deviceScenes!!, key = { _, it -> it.name }) { index, info ->
+                        itemsIndexed(deviceScenes!!, key = { _, it -> it.id }) { index, info ->
                             SceneSettingsItem(
                                 name     = info.name,
                                 shape    = groupedListItemShape(index, deviceScenes!!.size),
                                 onPlay   = {
                                     scope.launch {
-                                        val r = runCatching { httpClient.playSceneByName(info.name) }
+                                        val r = runCatching { httpClient.playSceneById(info.id) }
                                         if (r.isFailure) snackbar.showSnackbar("Failed to play \"${info.name}\".")
                                     }
                                 },
                                 onEdit   = {
                                     scope.launch {
-                                        val full = httpClient.runCatching { getScene(info.name) }.getOrNull()
+                                        val full = httpClient.runCatching { getScene(info.id) }.getOrNull()
                                         if (full != null) openEditor(full, SceneOrigin.DEVICE)
                                         else snackbar.showSnackbar("Failed to load \"${info.name}\".")
                                     }
@@ -282,7 +282,7 @@ fun ScenesSettingsScreen(
                 TextButton(onClick = {
                     deleteDeviceTarget = null
                     scope.launch {
-                        httpClient?.runCatching { deleteScene(target.name) }
+                        httpClient?.runCatching { deleteScene(target.id) }
                         device?.refreshPalettes()
                         reloadDevice()
                     }

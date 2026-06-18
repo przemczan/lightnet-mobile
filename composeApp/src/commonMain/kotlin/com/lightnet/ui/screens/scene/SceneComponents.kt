@@ -31,6 +31,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import com.lightnet.api.http.model.PaletteOption
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -304,14 +305,15 @@ internal fun ColorSlotRow(
 internal fun PaletteDropdown(
     label: String,
     value: String?,
-    options: List<String>,
+    options: List<PaletteOption>,
     onSelect: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val displayValue = value?.let { id -> options.find { it.id == id }?.name } ?: "Device default"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         TextField(
-            value         = value ?: "Device default",
+            value         = displayValue,
             onValueChange = {},
             readOnly      = true,
             label         = { Text(label) },
@@ -320,8 +322,11 @@ internal fun PaletteDropdown(
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("Device default") }, onClick = { onSelect(null); expanded = false })
-            options.forEach { name ->
-                DropdownMenuItem(text = { Text(name) }, onClick = { onSelect(name); expanded = false })
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.name) },
+                    onClick = { onSelect(option.id); expanded = false },
+                )
             }
         }
     }

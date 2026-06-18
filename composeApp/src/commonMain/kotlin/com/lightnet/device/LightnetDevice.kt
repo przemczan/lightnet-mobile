@@ -1,6 +1,7 @@
 package com.lightnet.device
 
 import com.lightnet.api.http.DeviceHttpApi
+import com.lightnet.api.http.loadAllPalettes
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
 import com.lightnet.api.http.model.ConfigurationRequest
@@ -293,18 +294,21 @@ class LightnetDevice(
         httpClient?.runCatching { setPowerState(on) }
     }
 
-    suspend fun getPalettes(): List<String> =
-        httpClient?.runCatching { getPalettes().keys.toList() }?.getOrNull() ?: emptyList()
+    suspend fun getPaletteIds(): List<String> =
+        httpClient?.runCatching { getPaletteMetas().map { it.id } }?.getOrNull() ?: emptyList()
 
     /** Loads device palettes once and caches them; pass `force = true` to reload. */
     suspend fun loadPalettes(force: Boolean = false) {
         if (!force && _palettes.value != null) return
         _palettesLoading.value = true
         try {
-            val palettes = httpClient?.runCatching { getPalettes().values.toList() }?.getOrNull() ?: emptyList()
+            val palettes = httpClient?.runCatching { loadAllPalettes() }?.getOrNull() ?: emptyList()
             _palettes.value = palettes
             offlineSceneService.clearPalettes()
-            palettes.forEach { offlineSceneService.registerPalette(it.name, it.stops) }
+            palettes.forEach { pal ->
+                val id = pal.id ?: return@forEach
+                offlineSceneService.registerPalette(id, pal.stops)
+            }
         } finally {
             _palettesLoading.value = false
         }

@@ -101,6 +101,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.lightnet.api.http.DeviceHttpApi
+import com.lightnet.api.http.model.PaletteOption
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.SceneJson
 import com.lightnet.api.http.model.TopologyResponse
@@ -278,7 +279,9 @@ fun TimelineSceneEditorScreen(
     val panels = snapshot?.panels ?: emptyList()
 
     val devicePalettes by remember(device) { device?.palettes ?: MutableStateFlow(null) }.collectAsState()
-    val palettesMap = remember(devicePalettes) { devicePalettes?.associateBy { it.name } ?: emptyMap() }
+    val palettesMap = remember(devicePalettes) {
+        devicePalettes?.mapNotNull { pal -> pal.id?.let { it to pal } }?.toMap() ?: emptyMap()
+    }
     var baseColors  by remember { mutableStateOf<List<String>>(emptyList()) }
     var devicePalette by remember { mutableStateOf<String?>(null) }
     var topology    by remember { mutableStateOf<TopologyResponse?>(null) }
@@ -300,9 +303,14 @@ fun TimelineSceneEditorScreen(
             deviceScenes?.forEach { add(it.name) }
         }
     }
-    val paletteNames = remember(palettesMap) { palettesMap.keys.sorted() }
+    val paletteOptions = remember(palettesMap) {
+        palettesMap.values.map { PaletteOption(it.id!!, it.name) }.sortedBy { it.name }
+    }
 
     val originalName = remember(initial) { initial?.name?.trim()?.takeIf { it.isNotBlank() } }
+    val originalId = remember(initial, origin) {
+        if (origin == SceneOrigin.DEVICE) initial?.id else null
+    }
     var scene by remember { mutableStateOf<EditableScene?>(null) }
     LaunchedEffect(initial, panels.size) {
         if (scene != null) return@LaunchedEffect
@@ -349,7 +357,7 @@ fun TimelineSceneEditorScreen(
     }
     LaunchedEffect(palettesMap) {
         offlineService.clearPalettes()
-        palettesMap.forEach { (name, palette) -> offlineService.registerPalette(name, palette.stops) }
+        palettesMap.forEach { (id, palette) -> offlineService.registerPalette(id, palette.stops) }
     }
 
     fun stopPreview() {
@@ -413,7 +421,7 @@ fun TimelineSceneEditorScreen(
                     layer        = e.layer,
                     index        = activeScene.layers.indexOf(e.layer),
                     panels       = panels,
-                    paletteNames = paletteNames,
+                    paletteOptions = paletteOptions,
                     paletteStops = stopsFor(e.layer),
                     baseColors   = baseColors,
                     tags         = tags,
@@ -454,10 +462,14 @@ fun TimelineSceneEditorScreen(
                 isDirty = false
                 if (alsoSaveToOther && httpClient != null) {
                     scope.launch {
-                        if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess)
+                        val saved = httpClient.runCatching {
+                            val body = if (originalId != null && !renamed) sceneJson.copy(id = originalId) else sceneJson
+                            saveScene(body)
+                        }
+                        if (saved.isFailure) {
                             snackbar.showSnackbar("Saved locally but failed to save to device.")
-                        else {
-                            if (renamed) runCatching { httpClient.deleteScene(originalName!!) }
+                        } else {
+                            if (renamed && originalId != null) runCatching { httpClient.deleteScene(originalId) }
                             device?.refreshPalettes()
                             device?.refreshScenes()
                         }
@@ -473,11 +485,13 @@ fun TimelineSceneEditorScreen(
                     return
                 }
                 scope.launch {
-                    if (!httpClient.runCatching { saveScene(sceneJson) }.isSuccess) {
+                    val body = if (originalId != null && !renamed) sceneJson.copy(id = originalId) else sceneJson
+                    val saved = httpClient.runCatching { saveScene(body) }
+                    if (saved.isFailure) {
                         snackbar.showSnackbar("Failed to save scene to device.")
                         return@launch
                     }
-                    if (renamed) runCatching { httpClient.deleteScene(originalName!!) }
+                    if (renamed && originalId != null) runCatching { httpClient.deleteScene(originalId) }
                     isDirty = false
                     device?.refreshPalettes()
                     device?.refreshScenes()
@@ -699,7 +713,7 @@ fun TimelineSceneEditorScreen(
         ModalBottomSheet(onDismissRequest = { showOptionsSheet = false }) {
             SceneOptionsContent(
                 scene                   = activeScene,
-                paletteNames            = paletteNames,
+                paletteOptions          = paletteOptions,
                 requestNameFocus        = focusNameOnSettingsOpen,
                 onNameFocusHandled      = { focusNameOnSettingsOpen = false },
             )
@@ -775,7 +789,7 @@ private fun CloneSceneNameDialog(
 @Composable
 private fun SceneOptionsContent(
     scene: EditableScene,
-    paletteNames: List<String>,
+    paletteOptions: List<PaletteOption>,
     requestNameFocus: Boolean,
     onNameFocusHandled: () -> Unit,
 ) {
@@ -821,7 +835,7 @@ private fun SceneOptionsContent(
         PaletteDropdown(
             label    = "Default palette",
             value    = scene.palette,
-            options  = paletteNames,
+            options  = paletteOptions,
             onSelect = { scene.palette = it },
             modifier = Modifier.padding(vertical = 8.dp),
         )

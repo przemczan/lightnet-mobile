@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.DeviceHttpApi
+import com.lightnet.api.http.loadAllPalettes
 import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.device.LightnetDevice
@@ -609,7 +610,7 @@ private fun PalettesSettingsScreen(
     suspend fun reload() {
         if (httpClient == null) return
         isLoading = true
-        palettes  = httpClient.runCatching { getPalettes().values.toList() }.getOrNull() ?: emptyList()
+        palettes  = httpClient.runCatching { loadAllPalettes() }.getOrNull() ?: emptyList()
         isLoading = false
     }
 
@@ -680,7 +681,7 @@ private fun PalettesSettingsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                itemsIndexed(palettes, key = { _, it -> it.name }) { index, palette ->
+                itemsIndexed(palettes, key = { _, it -> it.id ?: it.name }) { index, palette ->
                     PaletteSettingsItem(
                         palette  = palette,
                         shape    = groupedListItemShape(index, palettes.size),
@@ -701,7 +702,7 @@ private fun PalettesSettingsScreen(
                 TextButton(onClick = {
                     deleteTarget = null
                     scope.launch {
-                        httpClient?.runCatching { deletePalette(target.name) }
+                        httpClient?.runCatching { deletePalette(target.id!!) }
                         reload()
                     }
                 }) { Text("Delete") }

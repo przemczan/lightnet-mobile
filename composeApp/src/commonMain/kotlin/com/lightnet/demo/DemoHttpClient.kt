@@ -5,18 +5,20 @@ import com.lightnet.api.http.model.AnimationPlayRequest
 import com.lightnet.api.http.model.AppStateBody
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
+import com.lightnet.api.http.model.EntryIds
+import com.lightnet.api.http.model.PaletteJson
+import com.lightnet.api.http.model.PaletteMeta
+import com.lightnet.api.http.model.PaletteStop
+import com.lightnet.api.http.model.SceneInfo
+import com.lightnet.api.http.model.SceneJson
+import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.api.http.model.withAppearanceDefaults
 import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.api.http.model.ConfigurationResponse
 import com.lightnet.api.http.model.FirmwareFlashResponse
 import com.lightnet.api.http.model.FirmwareStatusResponse
-import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PanelEdgeResponse
 import com.lightnet.api.http.model.PanelStateResponse
-import com.lightnet.api.http.model.SceneInfo
-import com.lightnet.api.http.model.SceneJson
-import com.lightnet.api.http.model.PaletteStop
-import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.api.websocket.protocol.IicPacketBuilder
 import com.lightnet.device.OfflineSceneService
 import com.russhwolf.settings.Settings
@@ -40,9 +42,17 @@ class DemoHttpClient(
 
     private fun loadAppearance(): AppearanceResponse {
         val stored = settings.getStringOrNull(KEY_APPEARANCE)
-        return stored?.let { runCatching { json.decodeFromString(AppearanceResponse.serializer(), it) }.getOrNull() }
-            ?: AppearanceResponse(brightness = 200, baseColors = listOf("#FF0000", "#00FF00", "#0000FF"), palette = "userColors")
+        val loaded = stored?.let { runCatching { json.decodeFromString(AppearanceResponse.serializer(), it) }.getOrNull() }
+        return loaded?.let { migrateAppearance(it) }
+            ?: AppearanceResponse(
+                brightness = 200,
+                baseColors = listOf("#FF0000", "#00FF00", "#0000FF"),
+                palette = EntryIds.USER_COLORS,
+            )
     }
+
+    private fun migrateAppearance(app: AppearanceResponse): AppearanceResponse =
+        if (app.palette == LEGACY_USER_COLORS) app.copy(palette = EntryIds.USER_COLORS) else app
 
     override suspend fun getAppearance(): AppearanceResponse = appearance
 
@@ -63,7 +73,7 @@ class DemoHttpClient(
             reresolvePalette     = !playingSceneHadOwnPalette,
             reresolveColors      = !playingSceneHadOwnColors,
             pushPalette          = request.palette != null ||
-                (request.baseColors != null && appearance.palette == USER_COLORS_PALETTE),
+                (request.baseColors != null && EntryIds.isUserColors(appearance.palette)),
             pushBaseColors       = request.baseColors != null,
         )
     }
@@ -76,46 +86,69 @@ class DemoHttpClient(
         val stored = settings.getStringOrNull(KEY_PALETTES)
         val loaded = stored?.let { runCatching { json.decodeFromString(paletteMapSerializer, it) }.getOrNull() }
         if (!loaded.isNullOrEmpty()) {
-            val filtered = loaded.filterKeys { it != USER_COLORS_PALETTE }.toMutableMap()
-            if (filtered.size != loaded.size) savePalettes(filtered)
-            return filtered
+            val migrated = migratePaletteMap(loaded)
+            if (migrated != loaded) savePalettes(migrated)
+            return migrated.toMutableMap()
         }
-        // First use: seed with default palettes
-        val defaults = DemoDataInitializer.defaultPalettes.associateBy { it.name }
+        val defaults = DemoDataInitializer.defaultPalettes.associateBy { it.id!! }
         savePalettes(defaults)
         return defaults.toMutableMap()
     }
 
+    private fun migratePaletteMap(loaded: Map<String, PaletteJson>): Map<String, PaletteJson> {
+        val looksLikeIds = loaded.keys.all { it.length in 8..10 && it.all { c -> c in 'a'..'z' || c in '0'..'9' } }
+        return if (looksLikeIds) {
+            loaded.filterKeys { !EntryIds.isUserColors(it) && it != LEGACY_USER_COLORS }
+        } else {
+            loaded
+                .filterKeys { it != LEGACY_USER_COLORS && !EntryIds.isUserColors(it) }
+                .map { (name, pal) ->
+                    val id = pal.id ?: EntryIds.demoPaletteId(pal.name.ifBlank { name })
+                    id to pal.copy(id = id, name = pal.name.ifBlank { name })
+                }
+                .toMap()
+        }
+    }
+
     private fun savePalettes(map: Map<String, PaletteJson>) {
-        val stored = map.filterKeys { it != USER_COLORS_PALETTE }
+        val stored = map.filterKeys { !EntryIds.isUserColors(it) }
         settings.putString(KEY_PALETTES, json.encodeToString(paletteMapSerializer, stored))
     }
 
     private fun userColorsPalette(): PaletteJson =
-        PaletteJson(name = USER_COLORS_PALETTE, stops = IicPacketBuilder.buildUserColorStops(appearance.baseColors))
+        PaletteJson(
+            id = EntryIds.USER_COLORS,
+            name = "Base colors",
+            stops = IicPacketBuilder.buildUserColorStops(appearance.baseColors),
+        )
 
-    private fun resolvePaletteStops(name: String): List<PaletteStop>? = when (name) {
-        USER_COLORS_PALETTE -> IicPacketBuilder.buildUserColorStops(appearance.baseColors)
-        else -> palettes[name]?.stops
+    private fun resolvePaletteStops(id: String): List<PaletteStop>? = when {
+        EntryIds.isUserColors(id) -> IicPacketBuilder.buildUserColorStops(appearance.baseColors)
+        else -> palettes[id]?.stops
     }
 
-    override suspend fun getPalettes(): Map<String, PaletteJson> =
-        palettes.toMap() + (USER_COLORS_PALETTE to userColorsPalette())
+    override suspend fun getPaletteMetas(): List<PaletteMeta> =
+        palettes.values.map { PaletteMeta(id = it.id!!, name = it.name) } +
+            PaletteMeta(id = EntryIds.USER_COLORS, name = "Base colors", builtin = true)
 
-    override suspend fun getPalette(name: String): PaletteJson = when (name) {
-        USER_COLORS_PALETTE -> userColorsPalette()
-        else -> palettes[name] ?: throw NoSuchElementException("Palette not found: $name")
+    override suspend fun getPalette(id: String): PaletteJson = when {
+        EntryIds.isUserColors(id) -> userColorsPalette()
+        else -> palettes[id] ?: throw NoSuchElementException("Palette not found: $id")
     }
 
-    override suspend fun savePalette(palette: PaletteJson) {
-        if (palette.name == USER_COLORS_PALETTE) throw IllegalArgumentException("cannot_overwrite_builtin")
-        palettes[palette.name] = palette
+    override suspend fun savePalette(palette: PaletteJson): String {
+        if (palette.id != null && EntryIds.isUserColors(palette.id)) {
+            throw IllegalArgumentException("cannot_overwrite_builtin")
+        }
+        val id = palette.id ?: EntryIds.demoPaletteId(palette.name)
+        palettes[id] = palette.copy(id = id)
         savePalettes(palettes)
+        return id
     }
 
-    override suspend fun deletePalette(name: String) {
-        if (name == USER_COLORS_PALETTE) throw IllegalArgumentException("cannot_delete_builtin")
-        palettes.remove(name)
+    override suspend fun deletePalette(id: String) {
+        if (EntryIds.isUserColors(id)) throw IllegalArgumentException("cannot_delete_builtin")
+        palettes.remove(id)
         savePalettes(palettes)
     }
 
@@ -127,50 +160,76 @@ class DemoHttpClient(
         val stored = settings.getStringOrNull(KEY_SCENES)
         val loaded = stored?.let {
             runCatching { json.decodeFromString(sceneListSerializer, it) }.getOrNull()
-                ?.mapNotNull { s -> s.name?.let { name -> name to s } }
-                ?.toMap()?.toMutableMap()
         }
         if (!loaded.isNullOrEmpty()) {
-            // Seed: add missing defaults and update existing defaults to their latest version.
-            val defaults = DemoDataInitializer.defaultScenes.mapNotNull { s -> s.name?.let { it to s } }.toMap()
-            val toUpdate = defaults.filter { (k, v) -> loaded[k] != v }
+            val map = migrateScenes(loaded)
+            val defaults = DemoDataInitializer.defaultScenes.mapNotNull { s ->
+                s.id?.let { it to s }
+            }.toMap()
+            val toUpdate = defaults.filter { (k, v) -> map[k] != v }
             if (toUpdate.isNotEmpty()) {
-                loaded.putAll(toUpdate)
-                settings.putString(KEY_SCENES, json.encodeToString(sceneListSerializer, loaded.values.toList()))
+                map.putAll(toUpdate)
+                saveScenes(map)
             }
-            return loaded
+            return map
         }
-        // First use: seed with default scenes.
         val defaults = DemoDataInitializer.defaultScenes
-            .mapNotNull { s -> s.name?.let { it to s } }
+            .mapNotNull { s -> s.id?.let { it to s } }
             .toMap()
             .toMutableMap()
-        settings.putString(KEY_SCENES, json.encodeToString(sceneListSerializer, defaults.values.toList()))
+        saveScenes(defaults)
         return defaults
     }
 
-    private fun saveScenes() {
-        settings.putString(KEY_SCENES, json.encodeToString(sceneListSerializer, scenes.values.toList()))
+    private fun migrateScenes(loaded: List<SceneJson>): MutableMap<String, SceneJson> {
+        val byId = loaded.mapNotNull { scene ->
+            val name = scene.name ?: return@mapNotNull null
+            val id = scene.id ?: EntryIds.demoSceneId(name)
+            id to scene.copy(
+                id = id,
+                palette = scene.palette?.let { migratePaletteRef(it) },
+            )
+        }.toMap().toMutableMap()
+        return byId
+    }
+
+    private fun migratePaletteRef(ref: String): String =
+        if (ref == LEGACY_USER_COLORS || EntryIds.isUserColors(ref)) EntryIds.USER_COLORS
+        else palettes.values.find { it.name == ref }?.id
+            ?: palettes[ref]?.id
+            ?: EntryIds.demoPaletteId(ref)
+
+    private fun saveScenes(map: Map<String, SceneJson> = scenes) {
+        settings.putString(KEY_SCENES, json.encodeToString(sceneListSerializer, map.values.toList()))
     }
 
     override suspend fun getScenes(): List<SceneInfo> =
-        scenes.values.map { SceneInfo(it.name ?: "", json.encodeToString(SceneJson.serializer(), it).length) }
+        scenes.values.map { scene ->
+            SceneInfo(
+                id = scene.id!!,
+                name = scene.name ?: "",
+                layersNum = scene.layers.size,
+                duration = 0,
+            )
+        }
 
-    override suspend fun getScene(name: String): SceneJson =
-        scenes[name] ?: throw NoSuchElementException("Scene not found: $name")
+    override suspend fun getScene(id: String): SceneJson =
+        scenes[id] ?: throw NoSuchElementException("Scene not found: $id")
 
-    override suspend fun saveScene(scene: SceneJson) {
-        val name = scene.name ?: return
-        scenes[name] = scene
+    override suspend fun saveScene(scene: SceneJson): String {
+        val name = scene.name ?: throw IllegalArgumentException("scene_name_required")
+        val id = scene.id ?: EntryIds.demoSceneId(name)
+        scenes[id] = scene.copy(id = id)
+        saveScenes()
+        return id
+    }
+
+    override suspend fun deleteScene(id: String) {
+        scenes.remove(id)
         saveScenes()
     }
 
-    override suspend fun deleteScene(name: String) {
-        scenes.remove(name)
-        saveScenes()
-    }
-
-    private var playingSceneName: String? = null
+    private var playingSceneId: String? = null
     private var playingSceneIsStored = true
     private var playingSceneHadOwnPalette = false
     private var playingSceneHadOwnColors = false
@@ -181,29 +240,29 @@ class DemoHttpClient(
         return scene.withAppearanceDefaults(appearance.palette, appearance.baseColors)
     }
 
-    override suspend fun playSceneByName(name: String) {
-        val scene = scenes[name] ?: return
+    override suspend fun playSceneById(id: String) {
+        val scene = scenes[id] ?: return
         val sceneJson = json.encodeToString(SceneJson.serializer(), sceneForPlay(scene))
         sceneService.play(sceneJson)
-        playingSceneName = name
+        playingSceneId = id
         playingSceneIsStored = true
     }
 
     override suspend fun playSceneInline(scene: SceneJson) {
         val sceneJson = json.encodeToString(SceneJson.serializer(), sceneForPlay(scene))
         sceneService.play(sceneJson)
-        playingSceneName = scene.name
+        playingSceneId = scene.id
         playingSceneIsStored = false
     }
 
     override suspend fun playLastScene() {
-        val name = playingSceneName ?: return
-        playSceneByName(name)
+        val id = playingSceneId ?: return
+        playSceneById(id)
     }
 
     override suspend fun stopScene() {
         sceneService.stop()
-        playingSceneName = null
+        playingSceneId = null
         playingSceneIsStored = true
         playingSceneHadOwnPalette = false
         playingSceneHadOwnColors = false
@@ -230,10 +289,10 @@ class DemoHttpClient(
     override suspend fun getAppState(): AppStateBody {
         val playing = sceneService.playing.value
         return AppStateBody(
-            isOn                  = powerState,
-            controllerFirmware    = "Demo",
-            playing               = playing,
-            lastPlayedScene       = playingSceneName ?: "",
+            isOn                    = powerState,
+            controllerFirmware      = "Demo",
+            playing                 = playing,
+            lastPlayedSceneId       = playingSceneId ?: "",
             lastPlayedSceneIsStored = playingSceneIsStored,
         )
     }
@@ -270,7 +329,7 @@ class DemoHttpClient(
     override fun close() = Unit
 
     companion object {
-        private const val USER_COLORS_PALETTE = "userColors"
+        private const val LEGACY_USER_COLORS = "userColors"
         private const val KEY_APPEARANCE = "demo_http_appearance"
         private const val KEY_PALETTES   = "demo_http_palettes"
         private const val KEY_SCENES     = "demo_http_scenes"

@@ -189,8 +189,11 @@ fun DeviceControllerScreen(
     var appState             by remember(device) { mutableStateOf<AppStateBody?>(null) }
     var sceneStatusRefresh   by remember(device) { mutableStateOf(0) }
     val isScenePlaying       = appState?.playing == true
-    val lastPlayedScene      = appState?.lastPlayedScene ?: ""
-    val playToolbarSceneName = lastPlayedScene
+    val lastPlayedSceneId    = appState?.lastPlayedSceneId ?: ""
+    val deviceScenes by device.scenes.collectAsState()
+    val playToolbarSceneName = remember(lastPlayedSceneId, deviceScenes) {
+        deviceScenes?.find { it.id == lastPlayedSceneId }?.name ?: lastPlayedSceneId
+    }
     val canPaint             = paintModeEnabled && !isScenePlaying
 
     LaunchedEffect(device, isScenePlaying) {
@@ -219,6 +222,7 @@ fun DeviceControllerScreen(
                 baseColors = app.baseColors
             }
             device.loadPalettes()
+            device.loadScenes()
         }
     }
 
@@ -461,11 +465,11 @@ fun DeviceControllerScreen(
                                         sceneStatusRefresh++
                                     }
                                 },
-                                enabled = isConnected && (isScenePlaying || lastPlayedScene.isNotBlank()),
+                                enabled = isConnected && (isScenePlaying || lastPlayedSceneId.isNotBlank()),
                             ) {
                                 Icon(
                                     if (isScenePlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                    contentDescription = if (isScenePlaying) "Stop scene" else "Play \"$lastPlayedScene\"",
+                                    contentDescription = if (isScenePlaying) "Stop scene" else "Play \"$playToolbarSceneName\"",
                                     modifier = Modifier.size(28.dp),
                                 )
                             }
@@ -523,9 +527,9 @@ fun DeviceControllerScreen(
             palettes           = palettes ?: emptyList(),
             palettesLoading    = palettesLoading || palettes == null,
             currentPalette     = palette,
-            onSelectPalette    = { name ->
-                palette = name
-                device.setAppearance(AppearanceRequest(palette = name))
+            onSelectPalette    = { id ->
+                palette = id
+                device.setAppearance(AppearanceRequest(palette = id))
             },
             httpClient         = httpClient,
             onDismiss          = { showAdjustSheet = false },
@@ -658,6 +662,7 @@ private fun AdjustSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     else -> palettes.forEach { pal ->
+                        val palId = pal.id ?: return@forEach
                         val gradientStops = remember(pal.stops) {
                             pal.stops.sortedBy { it.position }.map { stop ->
                                 (stop.position / 255f) to (parseHexColor(stop.color) ?: Color.White)
@@ -668,8 +673,8 @@ private fun AdjustSheet(
                                 .fillMaxWidth()
                                 .clickable(enabled = applyingPalette == null) {
                                     scope.launch {
-                                        applyingPalette = pal.name
-                                        onSelectPalette(pal.name)
+                                        applyingPalette = palId
+                                        onSelectPalette(palId)
                                         applyingPalette = null
                                     }
                                 }
@@ -692,8 +697,8 @@ private fun AdjustSheet(
                             ) {
                                 Text(pal.name, style = MaterialTheme.typography.bodyMedium)
                                 when {
-                                    applyingPalette == pal.name -> CircularProgressIndicator(Modifier.size(20.dp))
-                                    pal.name == currentPalette  -> Icon(
+                                    applyingPalette == palId -> CircularProgressIndicator(Modifier.size(20.dp))
+                                    palId == currentPalette  -> Icon(
                                         Icons.Default.Check,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
@@ -777,7 +782,7 @@ private fun ScenesSheet(
                 else -> items.forEach { item ->
                     val name = item.name
                     val isPlayingItem = appState?.playing == true &&
-                        appState.lastPlayedScene == name &&
+                        appState.lastPlayedSceneId == (item as? ScenesSheetItem.Device)?.info?.id &&
                         appState.lastPlayedSceneIsStored == (item is ScenesSheetItem.Device)
 
                     val launchPlay: (dismissOnSuccess: Boolean) -> Unit = { dismissOnSuccess ->
@@ -798,7 +803,7 @@ private fun ScenesSheet(
                                     runCatching { httpClient.playSceneInline(item.scene) }.isSuccess
                                 }
                                 is ScenesSheetItem.Device ->
-                                    runCatching { httpClient!!.playSceneByName(item.info.name) }.isSuccess
+                                    runCatching { httpClient!!.playSceneById(item.info.id) }.isSuccess
                             }
                             playing = null
                             if (ok) {
@@ -861,7 +866,7 @@ private fun ScenesSheet(
                                         is ScenesSheetItem.Device -> scope.launch {
                                             if (httpClient == null) return@launch
                                             loadingEdit = name
-                                            val full = httpClient.runCatching { getScene(item.info.name) }.getOrNull()
+                                            val full = httpClient.runCatching { getScene(item.info.id) }.getOrNull()
                                             loadingEdit = null
                                             if (full != null) onEdit(full, SceneOrigin.DEVICE)
                                             else snackbar.showSnackbar("Failed to load \"$name\".")
