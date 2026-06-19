@@ -548,7 +548,7 @@ fun TimelineSceneEditorScreen(
                 actions = {
                     IconButton(
                         onClick = {
-                            val err = activeScene.validationError()
+                            val err = activeScene.validationError(requireName = false)
                             if (err != null) { scope.launch { snackbar.showSnackbar(err) }; return@IconButton }
                             val json = previewJson.encodeToString(
                                 SceneJson.serializer(),
@@ -766,7 +766,7 @@ private fun CloneSceneNameDialog(
                 Text("Choose a name for the copy.")
                 TextField(
                     value          = name,
-                    onValueChange  = { name = it },
+                    onValueChange  = { name = sanitizeSceneName(it) },
                     label          = { Text("Name") },
                     singleLine     = true,
                     isError        = error != null,
@@ -811,7 +811,7 @@ private fun SceneOptionsContent(
         )
         TextField(
             value         = scene.name,
-            onValueChange = { scene.name = it },
+            onValueChange = { scene.name = sanitizeSceneName(it) },
             label         = { Text("Name") },
             singleLine    = true,
             isError       = nameError != null,

@@ -582,23 +582,19 @@ fun sceneFromJson(json: SceneJson, panels: List<LightnetDevicePanel>): EditableS
 // ── Validation ──────────────────────────────────────────────────────────────────
 
 const val GROUP_NAME_MAX_LEN = 15
-const val SCENE_NAME_MAX_LEN = 18
+const val SCENE_NAME_MAX_LEN = 30
 
-private val sceneNameRegex = Regex("^[A-Za-z0-9_-]{1,$SCENE_NAME_MAX_LEN}$")
-private val sceneNameCharRegex = Regex("[A-Za-z0-9_-]")
 private val groupNameRegex = Regex("^[A-Za-z0-9_-]{1,$GROUP_NAME_MAX_LEN}$")
 private val groupNameCharRegex = Regex("[A-Za-z0-9_-]")
 private val stepIdRegex = Regex("^[A-Za-z0-9_-]+$")
 
-/** Strips characters not allowed in a scene name and enforces the max length — for use in input fields. */
-fun sanitizeSceneName(input: String): String =
-    input.filter { sceneNameCharRegex.matches(it.toString()) }.take(SCENE_NAME_MAX_LEN)
+/** Truncates scene name input to the firmware max length. */
+fun sanitizeSceneName(input: String): String = input.take(SCENE_NAME_MAX_LEN)
 
 fun sceneNameValidationError(name: String): String? {
     val trimmed = name.trim()
-    if (trimmed.isEmpty()) return "Name must be 1–18 chars (letters, digits, - or _)."
-    if (trimmed.startsWith('@')) return "Name cannot start with @."
-    if (!sceneNameRegex.matches(trimmed)) return "Name must be 1–18 chars (letters, digits, - or _)."
+    if (trimmed.isEmpty()) return "Name is required."
+    if (trimmed.length > SCENE_NAME_MAX_LEN) return "Name must be at most $SCENE_NAME_MAX_LEN characters."
     return null
 }
 
@@ -611,7 +607,7 @@ fun sceneCloneNameValidationError(name: String, taken: Set<String>): String? {
 
 /**
  * A valid, unused name for a scene clone — `<base>_copy`, then `<base>_copy2`, …
- * [base] is sanitized to API-allowed characters and trimmed to fit within 18 chars.
+ * [base] is trimmed to fit within [SCENE_NAME_MAX_LEN] characters.
  */
 fun suggestCloneSceneName(sourceName: String, taken: Set<String>): String {
     val base = sanitizeSceneName(sourceName.trim()).ifBlank { "Scene" }
@@ -632,8 +628,8 @@ fun sanitizeLayerName(input: String): String =
 fun EditableScene.nameValidationError(): String? = sceneNameValidationError(name)
 
 /** Returns the first validation error message, or null when the scene is valid to save/preview. */
-fun EditableScene.validationError(): String? {
-    nameValidationError()?.let { return it }
+fun EditableScene.validationError(requireName: Boolean = true): String? {
+    if (requireName) nameValidationError()?.let { return it }
     if (layers.isEmpty()) return "Add at least one layer."
     val names = layers.map { it.name.trim() }
     if (names.toSet().size != names.size) return "Layer names must be unique."

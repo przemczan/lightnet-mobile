@@ -89,6 +89,7 @@ import com.lightnet.ui.screens.scene.TimelineSceneEditorScreen
 import com.lightnet.ui.screens.scene.SceneOrigin
 import com.lightnet.device.ConnectionState
 import com.lightnet.settings.AppPreferences
+import com.lightnet.settings.DevicePreferences
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.debug.DebugLog
@@ -191,9 +192,20 @@ fun DeviceControllerScreen(
     var sceneStatusRefresh   by remember(device) { mutableStateOf(0) }
     val isScenePlaying       = appState?.playing == true
     val lastPlayedSceneId    = appState?.lastPlayedSceneId ?: ""
+    val lastPlayedSceneIsStored = appState?.lastPlayedSceneIsStored != false
+    val lastInlineSceneName by devicePrefs.lastInlineSceneName.collectAsState()
     val deviceScenes by device.scenes.collectAsState()
-    val playToolbarSceneName = remember(lastPlayedSceneId, deviceScenes) {
-        deviceScenes?.find { it.id == lastPlayedSceneId }?.name ?: lastPlayedSceneId
+    val playToolbarSceneName = remember(
+        lastPlayedSceneId,
+        lastPlayedSceneIsStored,
+        lastInlineSceneName,
+        deviceScenes,
+    ) {
+        if (!lastPlayedSceneIsStored) {
+            lastInlineSceneName.orEmpty()
+        } else {
+            deviceScenes?.find { it.id == lastPlayedSceneId }?.name ?: lastPlayedSceneId
+        }
     }
     val canPaint             = paintModeEnabled && !isScenePlaying
 
@@ -546,6 +558,7 @@ fun DeviceControllerScreen(
             device        = device,
             httpClient    = httpClient,
             appState      = appState,
+            devicePrefs   = devicePrefs,
             onDismiss     = { showScenesSheet = false },
             onScenePlayed = { sceneStatusRefresh++ },
             onSceneStopped = { sceneStatusRefresh++ },
@@ -740,6 +753,7 @@ private fun ScenesSheet(
     device: LightnetDevice,
     httpClient: DeviceHttpApi?,
     appState: AppStateBody?,
+    devicePrefs: DevicePreferences,
     onDismiss: () -> Unit,
     onScenePlayed: () -> Unit,
     onSceneStopped: () -> Unit,
@@ -749,6 +763,7 @@ private fun ScenesSheet(
     val snackbar    = remember { SnackbarHostState() }
     val globalScenes = remember { AppPreferences.scenes.getAll() }
     val deviceScenes by device.scenes.collectAsState()
+    val lastInlineSceneName by devicePrefs.lastInlineSceneName.collectAsState()
     var playing     by remember { mutableStateOf<String?>(null) }
     var stopping    by remember { mutableStateOf(false) }
     var loadingEdit by remember { mutableStateOf<String?>(null) }
@@ -786,9 +801,15 @@ private fun ScenesSheet(
                 )
                 else -> items.forEach { item ->
                     val name = item.name
-                    val isPlayingItem = appState?.playing == true &&
-                        appState.lastPlayedSceneId == (item as? ScenesSheetItem.Device)?.info?.id &&
-                        appState.lastPlayedSceneIsStored == (item is ScenesSheetItem.Device)
+                    val isPlayingItem = appState?.playing == true && when (item) {
+                        is ScenesSheetItem.Device ->
+                            appState.lastPlayedSceneIsStored &&
+                                appState.lastPlayedSceneId == item.info.id
+                        is ScenesSheetItem.Global ->
+                            !appState.lastPlayedSceneIsStored &&
+                                lastInlineSceneName != null &&
+                                item.name == lastInlineSceneName
+                    }
 
                     val launchPlay: (dismissOnSuccess: Boolean) -> Unit = { dismissOnSuccess ->
                         scope.launch {
@@ -812,6 +833,12 @@ private fun ScenesSheet(
                             }
                             playing = null
                             if (ok) {
+                                when (item) {
+                                    is ScenesSheetItem.Global ->
+                                        devicePrefs.setLastInlineSceneName(item.scene.name?.trim()?.takeIf { it.isNotBlank() })
+                                    is ScenesSheetItem.Device ->
+                                        devicePrefs.setLastInlineSceneName(null)
+                                }
                                 onScenePlayed()
                                 if (dismissOnSuccess) onDismiss()
                             } else {

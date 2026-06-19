@@ -171,7 +171,7 @@ class DemoHttpClient(
             SceneInfo(
                 id = scene.id!!,
                 name = scene.name ?: "",
-                layersNum = scene.layers.size,
+                layerCount = scene.layers.size,
                 duration = 0,
             )
         }

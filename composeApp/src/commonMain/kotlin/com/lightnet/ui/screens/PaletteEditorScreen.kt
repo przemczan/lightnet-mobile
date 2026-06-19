@@ -59,6 +59,8 @@ import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.isBuiltin
+import com.lightnet.api.http.model.paletteNameValidationError
+import com.lightnet.api.http.model.sanitizePaletteName
 import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
@@ -104,6 +106,7 @@ fun PaletteEditorScreen(
     val hasLast      = sortedStops.lastOrNull()?.position == 255
     val isIncreasing = sortedStops.zipWithNext().all { (a, b) -> a.position < b.position }
     val isValid      = hasFirst && hasLast && isIncreasing
+    val nameError    = if (readOnly) null else paletteNameValidationError(name)
 
     val gradientStops = remember(stops) {
         sortedStops.map { stop ->
@@ -127,14 +130,19 @@ fun PaletteEditorScreen(
             BottomAppBar {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Button(
-                        enabled = !readOnly && isValid && name.isNotBlank(),
+                        enabled = !readOnly && isValid && nameError == null,
                         onClick = {
-                            if (!isValid || name.isBlank()) {
-                                scope.launch { snackbar.showSnackbar("Enter a name and valid stops (0 and 255 required).") }
+                            nameError?.let {
+                                scope.launch { snackbar.showSnackbar(it) }
+                                return@Button
+                            }
+                            if (!isValid) {
+                                scope.launch { snackbar.showSnackbar("Valid stops required (0 and 255 required).") }
                                 return@Button
                             }
                             scope.launch {
-                                val body = PaletteJson(name = if (isEdit) editName!! else name, stops = sortedStops)
+                                val paletteName = if (isEdit) editName!! else name.trim()
+                                val body = PaletteJson(name = paletteName, stops = sortedStops)
                                 val result = httpClient?.runCatching {
                                     if (isEdit) {
                                         updatePalette(editName!!, sortedStops)
@@ -186,10 +194,12 @@ fun PaletteEditorScreen(
             item {
                 TextField(
                     value         = name,
-                    onValueChange = { if (!isEdit) name = it },
+                    onValueChange = { if (!isEdit) name = sanitizePaletteName(it) },
                     readOnly      = isEdit,
                     label         = { Text("NAME") },
                     singleLine    = true,
+                    isError       = nameError != null,
+                    supportingText = nameError?.let { err -> { Text(err) } },
                     modifier      = Modifier.fillMaxWidth(),
                 )
             }

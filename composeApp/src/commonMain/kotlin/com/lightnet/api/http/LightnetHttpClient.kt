@@ -115,8 +115,16 @@ class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
     override suspend fun getScene(id: String): SceneJson =
         client.get("$baseUrl/api/scenes/$id").bodyOrThrow()
 
-    override suspend fun saveScene(scene: SceneJson): String =
-        client.post("$baseUrl/api/scenes") { jsonBody(scene) }.bodyOrThrow<SaveIdResponse>().id
+    override suspend fun saveScene(scene: SceneJson): String {
+        val id = scene.id?.trim()?.takeIf { it.isNotEmpty() }
+        return if (id != null) {
+            client.patch("$baseUrl/api/scenes") { jsonBody(scene.copy(id = id)) }
+                .bodyOrThrow<SaveIdResponse>().id
+        } else {
+            client.post("$baseUrl/api/scenes") { jsonBody(scene.copy(id = null)) }
+                .bodyOrThrow<SaveIdResponse>().id
+        }
+    }
 
     override suspend fun deleteScene(id: String) =
         client.delete("$baseUrl/api/scenes/$id").voidOrThrow()

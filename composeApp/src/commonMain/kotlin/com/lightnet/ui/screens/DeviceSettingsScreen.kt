@@ -138,9 +138,10 @@ fun DeviceSettingsScreen(
 
     if (showScenes) {
         ScenesSettingsScreen(
-            device     = device,
-            httpClient = httpClient,
-            onBack     = { showScenes = false },
+            device      = device,
+            httpClient  = httpClient,
+            devicePrefs = devicePrefs,
+            onBack      = { showScenes = false },
         )
         return
     }

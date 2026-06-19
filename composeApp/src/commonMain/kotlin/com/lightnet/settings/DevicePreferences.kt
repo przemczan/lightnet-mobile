@@ -16,6 +16,10 @@ class DevicePreferences(private val settings: Settings, deviceKey: String) {
     val visualizerRotation = MutableStateFlow(
         settings.getFloat("${prefix}_viz_rotation", 0f)
     )
+    /** Name of the last phone-side (one-shot) scene played on this device. */
+    val lastInlineSceneName = MutableStateFlow(
+        settings.getStringOrNull("${prefix}_last_inline_scene")
+    )
 
     fun setVisualizerRotation(degrees: Float) {
         visualizerRotation.value = degrees
@@ -30,5 +34,12 @@ class DevicePreferences(private val settings: Settings, deviceKey: String) {
     fun setVisualizerBgColor(hex: String) {
         visualizerBgColor.value = hex
         settings.putString("${prefix}_viz_bg_color", hex)
+    }
+
+    fun setLastInlineSceneName(name: String?) {
+        lastInlineSceneName.value = name
+        val key = "${prefix}_last_inline_scene"
+        if (name != null) settings.putString(key, name)
+        else settings.remove(key)
     }
 }

@@ -50,6 +50,18 @@ data class PaletteOption(val name: String)
 
 fun paletteNamesEqual(a: String, b: String): Boolean = a.equals(b, ignoreCase = true)
 
+const val PALETTE_NAME_MAX_LEN = 30
+
+/** Truncates palette name input to the firmware max length. */
+fun sanitizePaletteName(input: String): String = input.take(PALETTE_NAME_MAX_LEN)
+
+fun paletteNameValidationError(name: String): String? {
+    val trimmed = name.trim()
+    if (trimmed.isEmpty()) return "Name is required."
+    if (trimmed.length > PALETTE_NAME_MAX_LEN) return "Name must be at most $PALETTE_NAME_MAX_LEN characters."
+    return null
+}
+
 fun PaletteJson.isBuiltin(): Boolean =
     builtin == true || EntryIds.isUserColors(name)
 

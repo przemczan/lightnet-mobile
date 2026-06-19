@@ -195,7 +195,7 @@ data class SceneInfo(
     @EncodeDefault(EncodeDefault.Mode.ALWAYS) val schemaVersion: Int = 1,
     val id: String,
     val name: String,
-    val layersNum: Int = 0,
+    val layerCount: Int = 0,
     val duration: Int = 0,
 )
 

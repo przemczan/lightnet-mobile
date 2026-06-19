@@ -53,6 +53,7 @@ import com.lightnet.api.http.model.SceneJson
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.settings.AppPreferences
+import com.lightnet.settings.DevicePreferences
 import com.lightnet.ui.components.groupedListItemShape
 import com.lightnet.ui.screens.scene.SceneOrigin
 import com.lightnet.ui.screens.scene.TimelineSceneEditorScreen
@@ -65,6 +66,7 @@ import kotlinx.coroutines.launch
 fun ScenesSettingsScreen(
     device: LightnetDevice?,
     httpClient: DeviceHttpApi?,
+    devicePrefs: DevicePreferences? = null,
     onBack: () -> Unit,
 ) {
     BackHandlerCompat(onBack = onBack)
@@ -189,7 +191,13 @@ fun ScenesSettingsScreen(
                                             return@launch
                                         }
                                         val r = runCatching { httpClient.playSceneInline(scene) }
-                                        if (r.isFailure) snackbar.showSnackbar("Failed to play \"${scene.name}\".")
+                                        if (r.isSuccess) {
+                                            devicePrefs?.setLastInlineSceneName(
+                                                scene.name?.trim()?.takeIf { it.isNotBlank() },
+                                            )
+                                        } else {
+                                            snackbar.showSnackbar("Failed to play \"${scene.name}\".")
+                                        }
                                     }
                                 },
                                 onEdit   = { openEditor(scene, SceneOrigin.GLOBAL) },
@@ -238,7 +246,11 @@ fun ScenesSettingsScreen(
                                 onPlay   = {
                                     scope.launch {
                                         val r = runCatching { httpClient.playSceneById(info.id) }
-                                        if (r.isFailure) snackbar.showSnackbar("Failed to play \"${info.name}\".")
+                                        if (r.isSuccess) {
+                                            devicePrefs?.setLastInlineSceneName(null)
+                                        } else {
+                                            snackbar.showSnackbar("Failed to play \"${info.name}\".")
+                                        }
                                     }
                                 },
                                 onEdit   = {
