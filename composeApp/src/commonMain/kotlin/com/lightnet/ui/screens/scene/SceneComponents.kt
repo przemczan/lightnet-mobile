@@ -32,6 +32,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import com.lightnet.api.http.model.PaletteOption
+import com.lightnet.api.http.model.paletteNamesEqual
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -310,7 +311,9 @@ internal fun PaletteDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val displayValue = value?.let { id -> options.find { it.id == id }?.name } ?: "Device default"
+    val displayValue = value?.let { name ->
+        options.find { paletteNamesEqual(it.name, name) }?.name
+    } ?: "Device default"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         TextField(
             value         = displayValue,
@@ -325,7 +328,7 @@ internal fun PaletteDropdown(
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option.name) },
-                    onClick = { onSelect(option.id); expanded = false },
+                    onClick = { onSelect(option.name); expanded = false },
                 )
             }
         }

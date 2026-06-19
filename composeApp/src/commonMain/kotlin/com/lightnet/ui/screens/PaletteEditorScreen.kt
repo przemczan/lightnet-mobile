@@ -58,6 +58,7 @@ import com.lightnet.api.http.LightnetApiException
 import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PaletteStop
+import com.lightnet.api.http.model.isBuiltin
 import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
@@ -78,9 +79,12 @@ fun PaletteEditorScreen(
 
     val scope       = rememberCoroutineScope()
     val snackbar    = remember { SnackbarHostState() }
+    val editName    = initial?.name?.takeIf { it.isNotBlank() }
+    val isEdit      = editName != null
+    val readOnly    = initial?.isBuiltin() == true
 
     var name by remember {
-        mutableStateOf(initial?.name ?: "")
+        mutableStateOf(editName ?: "")
     }
     var stops by remember {
         mutableStateOf(
@@ -123,14 +127,20 @@ fun PaletteEditorScreen(
             BottomAppBar {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Button(
+                        enabled = !readOnly && isValid && name.isNotBlank(),
                         onClick = {
                             if (!isValid || name.isBlank()) {
                                 scope.launch { snackbar.showSnackbar("Enter a name and valid stops (0 and 255 required).") }
                                 return@Button
                             }
                             scope.launch {
+                                val body = PaletteJson(name = if (isEdit) editName!! else name, stops = sortedStops)
                                 val result = httpClient?.runCatching {
-                                    savePalette(PaletteJson(id = initial?.id, name = name, stops = sortedStops))
+                                    if (isEdit) {
+                                        updatePalette(editName!!, sortedStops)
+                                    } else {
+                                        savePalette(body)
+                                    }
                                 }
                                 if (result?.isSuccess == true) {
                                     onBack()
@@ -162,10 +172,22 @@ fun PaletteEditorScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (readOnly) {
+                item {
+                    Text(
+                        "This built-in palette cannot be edited.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
             item {
                 TextField(
                     value         = name,
-                    onValueChange = { name = it },
+                    onValueChange = { if (!isEdit) name = it },
+                    readOnly      = isEdit,
                     label         = { Text("NAME") },
                     singleLine    = true,
                     modifier      = Modifier.fillMaxWidth(),
@@ -175,6 +197,7 @@ fun PaletteEditorScreen(
             item {
                 GradientBar(
                     stops    = sortedStops,
+                    readOnly = readOnly,
                     onMove   = { fromPos, toPos ->
                         val occupant = stops.find { it.position == toPos }
                         stops = stops
@@ -197,19 +220,18 @@ fun PaletteEditorScreen(
                         sortedStops.forEachIndexed { i, stop ->
                             if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp))
                             StopRow(
-                                stop        = stop,
-                                canRemove   = stop.position != 0 && stop.position != MAX_POSITION,
-                                onColorClick = {
-                                    colorPickerTarget = stops.indexOf(stop)
-                                },
-                                onRemove = {
+                                stop         = stop,
+                                editable     = !readOnly,
+                                canRemove    = !readOnly && stop.position != 0 && stop.position != MAX_POSITION,
+                                onColorClick = { colorPickerTarget = stops.indexOf(stop) },
+                                onRemove     = {
                                     stops = stops.toMutableList().also { it.remove(stop) }
                                 },
                             )
                         }
                         HorizontalDivider(Modifier.padding(horizontal = 12.dp))
                         TextButton(
-                            enabled  = stops.size < MAX_STOPS,
+                            enabled  = !readOnly && stops.size < MAX_STOPS,
                             onClick  = {
                                 val taken = stops.map { it.position }.toSet()
                                 val free = (1..254).firstOrNull { it !in taken } ?: return@TextButton
@@ -256,6 +278,7 @@ fun PaletteEditorScreen(
 @Composable
 private fun GradientBar(
     stops: List<PaletteStop>,
+    readOnly: Boolean = false,
     onMove: (fromPosition: Int, toPosition: Int) -> Unit,
 ) {
     val barHeight = 36.dp
@@ -293,7 +316,7 @@ private fun GradientBar(
             val xPx = stop.position / 255f * widthPx
             val xDp = with(density) { (xPx - handleWidthPx / 2f).coerceIn(0f, widthPx - handleWidthPx).toDp() }
 
-            val dragModifier = if (!isFixed) {
+            val dragModifier = if (!readOnly && !isFixed) {
                 Modifier.pointerInput(idx) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
@@ -347,6 +370,7 @@ private fun GradientBar(
 @Composable
 private fun StopRow(
     stop: PaletteStop,
+    editable: Boolean,
     canRemove: Boolean,
     onColorClick: () -> Unit,
     onRemove: () -> Unit,
@@ -369,7 +393,7 @@ private fun StopRow(
                     .size(36.dp)
                     .background(parseHexColor(stop.color) ?: Color.White, MaterialTheme.shapes.small)
                     .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
-                    .clickable { onColorClick() }
+                    .clickable(enabled = editable, onClick = onColorClick)
             )
             Text(
                 "−",

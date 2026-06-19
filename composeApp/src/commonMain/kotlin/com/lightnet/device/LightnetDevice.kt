@@ -1,7 +1,7 @@
 package com.lightnet.device
 
 import com.lightnet.api.http.DeviceHttpApi
-import com.lightnet.api.http.loadAllPalettes
+import com.lightnet.api.http.model.EntryIds
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
 import com.lightnet.api.http.model.ConfigurationRequest
@@ -205,8 +205,12 @@ class LightnetDevice(
     /** Called from App when the resolved HTTP base URL becomes available (after WS connects). */
     fun attachHttpClient(client: DeviceHttpApi?) {
         httpClient = client
-        if (connectionState.value == ConnectionState.CONNECTED) {
-            scope.launch { refreshCachedLogicalRoot() }
+        if (connectionState.value == ConnectionState.CONNECTED && client != null) {
+            scope.launch {
+                refreshCachedLogicalRoot()
+                loadPalettes(force = _palettes.value != null)
+                loadScenes(force = _scenes.value != null)
+            }
         }
     }
 
@@ -278,7 +282,15 @@ class LightnetDevice(
     // ── HTTP operations — single point of device API access ──────────────────
 
     suspend fun loadAppearance(): AppearanceResponse? =
-        httpClient?.runCatching { getAppearance() }?.getOrNull()?.also { cachedAppearance = it }
+        httpClient?.runCatching { getAppearance() }?.getOrNull()?.let { raw ->
+            val normalized = if (EntryIds.isUserColors(raw.palette)) {
+                raw.copy(palette = EntryIds.USER_COLORS_NAME)
+            } else {
+                raw
+            }
+            cachedAppearance = normalized
+            normalized
+        }
 
     suspend fun setAppearance(req: AppearanceRequest) {
         httpClient?.runCatching { setAppearance(req) }
@@ -294,20 +306,20 @@ class LightnetDevice(
         httpClient?.runCatching { setPowerState(on) }
     }
 
-    suspend fun getPaletteIds(): List<String> =
-        httpClient?.runCatching { getPaletteMetas().map { it.id } }?.getOrNull() ?: emptyList()
+    suspend fun getPaletteNames(): List<String> =
+        httpClient?.runCatching { getPalettes().map { it.name } }?.getOrNull() ?: emptyList()
 
     /** Loads device palettes once and caches them; pass `force = true` to reload. */
     suspend fun loadPalettes(force: Boolean = false) {
         if (!force && _palettes.value != null) return
+        val client = httpClient ?: return
         _palettesLoading.value = true
         try {
-            val palettes = httpClient?.runCatching { loadAllPalettes() }?.getOrNull() ?: emptyList()
+            val palettes = client.runCatching { getPalettes() }.getOrNull() ?: return
             _palettes.value = palettes
             offlineSceneService.clearPalettes()
             palettes.forEach { pal ->
-                val id = pal.id ?: return@forEach
-                offlineSceneService.registerPalette(id, pal.stops)
+                offlineSceneService.registerPalette(pal.name, pal.stops)
             }
         } finally {
             _palettesLoading.value = false
@@ -319,9 +331,10 @@ class LightnetDevice(
     /** Loads device scenes once and caches them; pass `force = true` to reload. */
     suspend fun loadScenes(force: Boolean = false) {
         if (!force && _scenes.value != null) return
+        val client = httpClient ?: return
         _scenesLoading.value = true
         try {
-            _scenes.value = httpClient?.runCatching { getScenes() }?.getOrNull() ?: emptyList()
+            _scenes.value = client.runCatching { getScenes() }.getOrNull() ?: return
         } finally {
             _scenesLoading.value = false
         }

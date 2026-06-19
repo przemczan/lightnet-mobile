@@ -280,7 +280,7 @@ fun TimelineSceneEditorScreen(
 
     val devicePalettes by remember(device) { device?.palettes ?: MutableStateFlow(null) }.collectAsState()
     val palettesMap = remember(devicePalettes) {
-        devicePalettes?.mapNotNull { pal -> pal.id?.let { it to pal } }?.toMap() ?: emptyMap()
+        devicePalettes?.associateBy { it.name } ?: emptyMap()
     }
     var baseColors  by remember { mutableStateOf<List<String>>(emptyList()) }
     var devicePalette by remember { mutableStateOf<String?>(null) }
@@ -304,7 +304,7 @@ fun TimelineSceneEditorScreen(
         }
     }
     val paletteOptions = remember(palettesMap) {
-        palettesMap.values.map { PaletteOption(it.id!!, it.name) }.sortedBy { it.name }
+        palettesMap.values.map { PaletteOption(it.name) }.sortedBy { it.name }
     }
 
     val originalName = remember(initial) { initial?.name?.trim()?.takeIf { it.isNotBlank() } }

@@ -79,6 +79,7 @@ import kotlinx.coroutines.delay
 import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.PaletteJson
+import com.lightnet.api.http.model.paletteNamesEqual
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Smartphone
 import com.lightnet.api.http.model.AppStateBody
@@ -224,6 +225,10 @@ fun DeviceControllerScreen(
             device.loadPalettes()
             device.loadScenes()
         }
+    }
+
+    LaunchedEffect(showAdjustSheet) {
+        if (showAdjustSheet) device.refreshPalettes()
     }
 
     var showSettings      by remember { mutableStateOf(false) }
@@ -527,9 +532,9 @@ fun DeviceControllerScreen(
             palettes           = palettes ?: emptyList(),
             palettesLoading    = palettesLoading || palettes == null,
             currentPalette     = palette,
-            onSelectPalette    = { id ->
-                palette = id
-                device.setAppearance(AppearanceRequest(palette = id))
+            onSelectPalette    = { paletteName ->
+                palette = paletteName
+                device.setAppearance(AppearanceRequest(palette = paletteName))
             },
             httpClient         = httpClient,
             onDismiss          = { showAdjustSheet = false },
@@ -662,7 +667,6 @@ private fun AdjustSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     else -> palettes.forEach { pal ->
-                        val palId = pal.id ?: return@forEach
                         val gradientStops = remember(pal.stops) {
                             pal.stops.sortedBy { it.position }.map { stop ->
                                 (stop.position / 255f) to (parseHexColor(stop.color) ?: Color.White)
@@ -673,8 +677,8 @@ private fun AdjustSheet(
                                 .fillMaxWidth()
                                 .clickable(enabled = applyingPalette == null) {
                                     scope.launch {
-                                        applyingPalette = palId
-                                        onSelectPalette(palId)
+                                        applyingPalette = pal.name
+                                        onSelectPalette(pal.name)
                                         applyingPalette = null
                                     }
                                 }
@@ -697,8 +701,9 @@ private fun AdjustSheet(
                             ) {
                                 Text(pal.name, style = MaterialTheme.typography.bodyMedium)
                                 when {
-                                    applyingPalette == palId -> CircularProgressIndicator(Modifier.size(20.dp))
-                                    palId == currentPalette  -> Icon(
+                                    applyingPalette != null && paletteNamesEqual(applyingPalette!!, pal.name) ->
+                                        CircularProgressIndicator(Modifier.size(20.dp))
+                                    currentPalette != null && paletteNamesEqual(pal.name, currentPalette) -> Icon(
                                         Icons.Default.Check,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,

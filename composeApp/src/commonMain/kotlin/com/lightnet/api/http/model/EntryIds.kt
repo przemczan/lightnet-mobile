@@ -2,7 +2,7 @@ package com.lightnet.api.http.model
 
 /** Matches firmware `EntryId.hpp` — FNV-1a → 8-char lowercase base36. */
 object EntryIds {
-    const val USER_COLORS: String = "00voc1rp"
+    const val USER_COLORS_NAME: String = "Base colors"
 
     fun deterministicId(seed: String): String {
         var h = 2166136261u
@@ -19,9 +19,7 @@ object EntryIds {
         }
     }
 
-    fun demoPaletteId(displayName: String) = deterministicId("demo:palette:$displayName")
-
     fun demoSceneId(displayName: String) = deterministicId("demo:scene:$displayName")
 
-    fun isUserColors(id: String) = id == USER_COLORS
+    fun isUserColors(name: String) = name.equals(USER_COLORS_NAME, ignoreCase = true)
 }

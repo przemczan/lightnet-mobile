@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -74,9 +75,9 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.lightnet.api.http.DeviceHttpApi
-import com.lightnet.api.http.loadAllPalettes
 import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.api.http.model.PaletteJson
+import com.lightnet.api.http.model.isBuiltin
 import com.lightnet.device.LightnetDevice
 import com.lightnet.discovery.SavedDevice
 import com.lightnet.discovery.effectiveHost
@@ -610,7 +611,7 @@ private fun PalettesSettingsScreen(
     suspend fun reload() {
         if (httpClient == null) return
         isLoading = true
-        palettes  = httpClient.runCatching { loadAllPalettes() }.getOrNull() ?: emptyList()
+        palettes  = httpClient.runCatching { getPalettes() }.getOrNull() ?: emptyList()
         isLoading = false
     }
 
@@ -681,7 +682,7 @@ private fun PalettesSettingsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                itemsIndexed(palettes, key = { _, it -> it.id ?: it.name }) { index, palette ->
+                itemsIndexed(palettes, key = { _, it -> it.name }) { index, palette ->
                     PaletteSettingsItem(
                         palette  = palette,
                         shape    = groupedListItemShape(index, palettes.size),
@@ -702,7 +703,7 @@ private fun PalettesSettingsScreen(
                 TextButton(onClick = {
                     deleteTarget = null
                     scope.launch {
-                        httpClient?.runCatching { deletePalette(target.id!!) }
+                        httpClient?.runCatching { deletePalette(target.name) }
                         reload()
                     }
                 }) { Text("Delete") }
@@ -727,6 +728,8 @@ private fun PaletteSettingsItem(
         }.toTypedArray()
     }
 
+    val isBuiltin = palette.isBuiltin()
+
     Card(
         shape    = shape,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit),
@@ -745,16 +748,30 @@ private fun PaletteSettingsItem(
                 )
             }
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text(palette.name, style = MaterialTheme.typography.labelMedium)
+                Row(
+                    Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    Text(palette.name, style = MaterialTheme.typography.labelMedium)
+                    if (isBuiltin) {
+                        AssistChip(
+                            onClick = onEdit,
+                            label   = { Text("Built-in") },
+                        )
+                    }
+                }
                 Box {
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More")
                     }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(
-                            text    = { Text("Delete") },
-                            onClick = { showMenu = false; onDelete() },
-                        )
+                        if (!isBuiltin) {
+                            DropdownMenuItem(
+                                text    = { Text("Delete") },
+                                onClick = { showMenu = false; onDelete() },
+                            )
+                        }
                     }
                 }
             }

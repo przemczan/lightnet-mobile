@@ -10,7 +10,9 @@ import com.lightnet.api.http.model.ConfigurationResponse
 import com.lightnet.api.http.model.FirmwareFlashResponse
 import com.lightnet.api.http.model.FirmwareStatusResponse
 import com.lightnet.api.http.model.PaletteJson
-import com.lightnet.api.http.model.PaletteMeta
+import com.lightnet.api.http.model.PaletteStop
+import com.lightnet.api.http.model.PaletteUpdateBody
+import com.lightnet.api.http.model.SaveNameResponse
 import com.lightnet.api.http.model.PanelEdgeResponse
 import com.lightnet.api.http.model.PanelStateResponse
 import com.lightnet.api.http.model.LogicalRootRequest
@@ -33,6 +35,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.encodeURLPath
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.util.AttributeKey
@@ -85,17 +88,22 @@ class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
 
     // region Palettes
 
-    override suspend fun getPaletteMetas(): List<PaletteMeta> =
+    override suspend fun getPalettes(): List<PaletteJson> =
         client.get("$baseUrl/api/palettes").bodyOrThrow()
 
-    override suspend fun getPalette(id: String): PaletteJson =
-        client.get("$baseUrl/api/palettes/$id").bodyOrThrow()
+    override suspend fun getPalette(name: String): PaletteJson =
+        client.get("$baseUrl/api/palettes/${name.encodeURLPath()}").bodyOrThrow()
 
     override suspend fun savePalette(palette: PaletteJson): String =
-        client.post("$baseUrl/api/palettes") { jsonBody(palette) }.bodyOrThrow<SaveIdResponse>().id
+        client.post("$baseUrl/api/palettes") { jsonBody(palette) }.bodyOrThrow<SaveNameResponse>().name
 
-    override suspend fun deletePalette(id: String) =
-        client.delete("$baseUrl/api/palettes/$id").voidOrThrow()
+    override suspend fun updatePalette(name: String, stops: List<PaletteStop>) =
+        client.put("$baseUrl/api/palettes/${name.encodeURLPath()}") {
+            jsonBody(PaletteUpdateBody(stops))
+        }.voidOrThrow()
+
+    override suspend fun deletePalette(name: String) =
+        client.delete("$baseUrl/api/palettes/${name.encodeURLPath()}").voidOrThrow()
 
     // endregion
 
