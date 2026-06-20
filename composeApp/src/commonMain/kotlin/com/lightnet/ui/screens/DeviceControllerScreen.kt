@@ -560,8 +560,28 @@ fun DeviceControllerScreen(
             appState      = appState,
             devicePrefs   = devicePrefs,
             onDismiss     = { showScenesSheet = false },
-            onScenePlayed = { sceneStatusRefresh++ },
-            onSceneStopped = { sceneStatusRefresh++ },
+            onScenePlayed = {
+                appState = appState?.copy(playing = true)
+                scope.launch {
+                    for (attempt in 1..15) {
+                        delay(300)
+                        val fetched = httpClient?.runCatching { getAppState() }?.getOrNull()
+                        if (fetched?.playing == true) { appState = fetched; break }
+                    }
+                    sceneStatusRefresh++
+                }
+            },
+            onSceneStopped = {
+                appState = appState?.copy(playing = false)
+                scope.launch {
+                    for (attempt in 1..15) {
+                        delay(300)
+                        val fetched = httpClient?.runCatching { getAppState() }?.getOrNull()
+                        if (fetched?.playing == false) { appState = fetched; break }
+                    }
+                    sceneStatusRefresh++
+                }
+            },
             onEdit        = { scene, origin -> showScenesSheet = false; editingSceneOrigin = origin; editingScene = scene },
         )
     }
