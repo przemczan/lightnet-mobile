@@ -14,7 +14,6 @@ import com.lightnet.api.http.model.PanelEdgeResponse
 import com.lightnet.api.http.model.PanelStateResponse
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
-import com.lightnet.api.http.model.TopologyResponse
 
 interface DeviceHttpApi {
     suspend fun getAppearance(): AppearanceResponse
@@ -46,9 +45,6 @@ interface DeviceHttpApi {
 
     suspend fun getAppState(): AppStateBody
     suspend fun setPowerState(on: Boolean)
-
-    suspend fun getTopology(): TopologyResponse
-    suspend fun setLogicalRoot(root: Int)
 
     suspend fun getConfiguration(): ConfigurationResponse
     suspend fun setConfiguration(request: ConfigurationRequest)

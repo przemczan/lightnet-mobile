@@ -104,7 +104,7 @@ import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.PaletteOption
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.SceneJson
-import com.lightnet.api.http.model.TopologyResponse
+import com.lightnet.api.http.model.ConfigurationResponse
 import com.lightnet.device.LightnetDevice
 import com.lightnet.device.LightnetDevicePanel
 import com.lightnet.device.OfflineSceneService
@@ -284,8 +284,8 @@ fun TimelineSceneEditorScreen(
     }
     var baseColors  by remember { mutableStateOf<List<String>>(emptyList()) }
     var devicePalette by remember { mutableStateOf<String?>(null) }
-    var topology    by remember { mutableStateOf<TopologyResponse?>(null) }
-    val tags = remember(topology) { topology?.tags?.values?.flatten()?.distinct()?.sorted() ?: emptyList() }
+    var configuration by remember { mutableStateOf<ConfigurationResponse?>(null) }
+    val tags = remember(configuration) { configuration?.tags?.values?.flatten()?.distinct()?.sorted() ?: emptyList() }
     LaunchedEffect(device) {
         device?.loadPalettes()
         device?.loadScenes()
@@ -294,7 +294,7 @@ fun TimelineSceneEditorScreen(
         val appearance = device?.loadAppearance() ?: device?.cachedAppearance
         baseColors = appearance?.baseColors ?: emptyList()
         devicePalette = appearance?.palette
-        topology = device?.getTopology()
+        configuration = device?.getConfiguration()
     }
     val deviceScenes by remember(device) { device?.scenes ?: MutableStateFlow(null) }.collectAsState()
     val takenSceneNames = remember(deviceScenes) {
@@ -345,11 +345,11 @@ fun TimelineSceneEditorScreen(
     val offlineStates by offlineService.states.collectAsState()
     val offlineError by offlineService.error.collectAsState()
 
-    LaunchedEffect(panels, topology) {
+    LaunchedEffect(panels, configuration) {
         if (panels.isEmpty()) return@LaunchedEffect
-        offlineService.setTopology(panels.map { it.info }, topology?.logicalRoot ?: 0)
+        offlineService.setTopology(panels.map { it.info }, configuration?.logicalRoot ?: 0)
         offlineService.clearTags()
-        topology?.tags?.entries?.fold(mutableMapOf<String, MutableList<Int>>()) { acc, (panelId, panelTags) ->
+        configuration?.tags?.entries?.fold(mutableMapOf<String, MutableList<Int>>()) { acc, (panelId, panelTags) ->
             val id = panelId.toIntOrNull()
             if (id != null) panelTags.forEach { acc.getOrPut(it) { mutableListOf() }.add(id) }
             acc

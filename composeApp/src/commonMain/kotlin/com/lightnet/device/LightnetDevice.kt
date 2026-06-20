@@ -8,7 +8,6 @@ import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.api.http.model.ConfigurationResponse
 import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.SceneInfo
-import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.api.websocket.Connector
 import com.lightnet.api.websocket.ConnectorState
 import com.lightnet.api.websocket.MessageApiService
@@ -347,20 +346,14 @@ class LightnetDevice(
 
     suspend fun setConfiguration(req: ConfigurationRequest) {
         httpClient?.runCatching { setConfiguration(req) }
-    }
-
-    suspend fun getTopology(): TopologyResponse? =
-        httpClient?.runCatching { getTopology() }?.getOrNull()?.also { cachedLogicalRoot = it.logicalRoot }
-
-    /** Set the logical root panel index (0 resets to the physical root). */
-    suspend fun setLogicalRoot(root: Int) {
-        httpClient?.runCatching { setLogicalRoot(root) }
-        cachedLogicalRoot = root
-        panelsListService.panels.value?.let { offlineSceneService.setTopology(it, root) }
+        req.logicalRoot?.let { root ->
+            cachedLogicalRoot = root
+            panelsListService.panels.value?.let { offlineSceneService.setTopology(it, root) }
+        }
     }
 
     private suspend fun refreshCachedLogicalRoot() {
-        cachedLogicalRoot = httpClient?.runCatching { getTopology() }?.getOrNull()?.logicalRoot ?: 0
+        cachedLogicalRoot = httpClient?.runCatching { getConfiguration() }?.getOrNull()?.logicalRoot ?: 0
         panelsListService.panels.value?.let { offlineSceneService.setTopology(it, cachedLogicalRoot) }
     }
 

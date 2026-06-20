@@ -10,7 +10,6 @@ import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
-import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.api.http.model.withAppearanceDefaults
 import com.lightnet.api.http.model.ConfigurationRequest
 import com.lightnet.api.http.model.ConfigurationResponse
@@ -265,21 +264,19 @@ class DemoHttpClient(
         settings.putBoolean(KEY_POWER, on)
     }
 
-    // ── Topology ──────────────────────────────────────────────────────────────
+    // ── Configuration ─────────────────────────────────────────────────────────
 
     private var logicalRoot: Int = settings.getIntOrNull(KEY_LOGICAL_ROOT) ?: 0
 
-    override suspend fun getTopology(): TopologyResponse = TopologyResponse(logicalRoot = logicalRoot)
+    override suspend fun getConfiguration(): ConfigurationResponse =
+        ConfigurationResponse(powerStateOnBoot = 1, logicalRoot = logicalRoot)
 
-    override suspend fun setLogicalRoot(root: Int) {
-        logicalRoot = root
-        settings.putInt(KEY_LOGICAL_ROOT, root)
+    override suspend fun setConfiguration(request: ConfigurationRequest) {
+        request.logicalRoot?.let {
+            logicalRoot = it
+            settings.putInt(KEY_LOGICAL_ROOT, it)
+        }
     }
-
-    // ── Configuration ─────────────────────────────────────────────────────────
-
-    override suspend fun getConfiguration(): ConfigurationResponse = ConfigurationResponse(powerStateOnBoot = 1)
-    override suspend fun setConfiguration(request: ConfigurationRequest) = Unit
 
     // ── Firmware (not applicable for demo) ───────────────────────────────────
 

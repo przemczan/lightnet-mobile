@@ -251,13 +251,11 @@ private fun DeviceInfoScreen(
     LaunchedEffect(device) {
         val config = device?.getConfiguration() ?: return@LaunchedEffect
         powerStateOnBoot = config.powerStateOnBoot
+        logicalRoot = config.logicalRoot
     }
     LaunchedEffect(device) {
         device?.getPowerState()
         controllerFirmware = device?.cachedControllerFirmware
-    }
-    LaunchedEffect(device) {
-        logicalRoot = device?.getTopology()?.logicalRoot
     }
 
     Scaffold(
@@ -338,11 +336,11 @@ private fun DeviceInfoScreen(
                                 defaultOptionLabel  = "Default (panel 1)",
                                 onPickDefault       = {
                                     logicalRoot = 0
-                                    scope.launch { device?.setLogicalRoot(0) }
+                                    scope.launch { device?.setConfiguration(ConfigurationRequest(logicalRoot = 0)) }
                                 },
                                 onPick              = { id ->
                                     logicalRoot = id
-                                    scope.launch { device?.setLogicalRoot(id) }
+                                    scope.launch { device?.setConfiguration(ConfigurationRequest(logicalRoot = id)) }
                                 },
                             )
                         } else {

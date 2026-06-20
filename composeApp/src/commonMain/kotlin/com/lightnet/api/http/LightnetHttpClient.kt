@@ -13,13 +13,11 @@ import com.lightnet.api.http.model.PaletteJson
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.PaletteUpdateBody
 import com.lightnet.api.http.model.SaveNameResponse
+import com.lightnet.api.http.model.SaveIdResponse
 import com.lightnet.api.http.model.PanelEdgeResponse
 import com.lightnet.api.http.model.PanelStateResponse
-import com.lightnet.api.http.model.LogicalRootRequest
-import com.lightnet.api.http.model.SaveIdResponse
 import com.lightnet.api.http.model.SceneInfo
 import com.lightnet.api.http.model.SceneJson
-import com.lightnet.api.http.model.TopologyResponse
 import com.lightnet.debug.DebugLog
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpSend
@@ -118,7 +116,7 @@ class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
     override suspend fun saveScene(scene: SceneJson): String {
         val id = scene.id?.trim()?.takeIf { it.isNotEmpty() }
         return if (id != null) {
-            client.patch("$baseUrl/api/scenes") { jsonBody(scene.copy(id = id)) }
+            client.patch("$baseUrl/api/scenes/${id.encodeURLPath()}") { jsonBody(scene.copy(id = null)) }
                 .bodyOrThrow<SaveIdResponse>().id
         } else {
             client.post("$baseUrl/api/scenes") { jsonBody(scene.copy(id = null)) }
@@ -185,16 +183,6 @@ class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
 
     override suspend fun setPowerState(on: Boolean) =
         client.post("$baseUrl/api/state/power") { jsonBody(PowerStateBody(on)) }.voidOrThrow()
-
-    // endregion
-
-    // region Topology
-
-    override suspend fun getTopology(): TopologyResponse =
-        client.get("$baseUrl/api/topology").bodyOrThrow()
-
-    override suspend fun setLogicalRoot(root: Int) =
-        client.put("$baseUrl/api/topology/root") { jsonBody(LogicalRootRequest(root)) }.voidOrThrow()
 
     // endregion
 
