@@ -391,10 +391,8 @@ fun DeviceControllerScreen(
                     )
 
                     hasEmptyTopology -> EmptyState(
-                        title              = "No panels discovered",
-                        body               = "Controller responded with 0 panels.",
-                        primaryActionLabel = "Retry",
-                        onPrimaryAction    = { device.load() },
+                        title = "No panels discovered",
+                        body  = "Controller responded with 0 panels.",
                     )
 
                     snapshot != null -> Box(Modifier.fillMaxSize()) {
