@@ -28,16 +28,22 @@ The main visualiser — tap, drag, or select panels to paint colors, and play sc
 
 ![Scene playing](assets/screenshots/04-scene-playing.png){ width="300" }
 
-A global scene running live, with the panel colors animated in real time.
+A scene running live from the scenes sheet, with the panel colors animated in real time.
+
+## Scene active
+
+![Scene active](assets/screenshots/05-scene-active.png){ width="300" }
+
+The same scene with the sheet dismissed — full-screen visualiser and toolbar controls.
 
 ## Device settings
 
-![Device settings](assets/screenshots/05-device-settings.png){ width="300" }
+![Device settings](assets/screenshots/06-device-settings.png){ width="300" }
 
 Per-device settings: device info, palettes, scenes, appearance, and a debug console.
 
 ## Scene editor
 
-![Scene editor](assets/screenshots/06-scene-editor.png){ width="300" }
+![Scene editor](assets/screenshots/07-scene-editor.png){ width="300" }
 
 Build scenes from layered animations — wave, ripple, sparkle — with adjustable blend modes and timing.

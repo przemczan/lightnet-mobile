@@ -22,8 +22,12 @@ adb shell am force-stop com.lightnet
 adb shell monkey -p com.lightnet -c android.intent.category.LAUNCHER 1
 sleep 2
 
-# Take a screenshot
+# Take a screenshot (bash / Git Bash)
 adb exec-out screencap -p > docs/assets/screenshots/NN-name.png
+
+# Take a screenshot (PowerShell — do NOT use `>`; it writes UTF-16 and corrupts PNGs)
+adb shell screencap -p //sdcard/lightnet_ss.png
+adb pull //sdcard/lightnet_ss.png docs/assets/screenshots/NN-name.png
 ```
 
 To find tap coordinates reliably, dump the UI hierarchy instead of guessing from
@@ -86,26 +90,36 @@ just the numbered showcase shots + this guide.
    adb exec-out screencap -p > docs/assets/screenshots/04-scene-playing.png
    ```
 
-5. **05-device-settings.png** — `KEYCODE_BACK` to close the scenes sheet, then tap
-   the gear icon top-right (~1006,237) to open the device's `Settings` menu
-   (Device / Palettes / Scenes / Appearance / Debug console).
+5. **05-scene-active.png** — `KEYCODE_BACK` to close the scenes sheet (scene keeps
+   running), wait ~1s, screenshot `DeviceControllerScreen` with animated panels
+   and no overlay.
    ```bash
    adb shell input keyevent KEYCODE_BACK
    sleep 1
-   adb shell input tap 1006 237
-   sleep 1
-   adb exec-out screencap -p > docs/assets/screenshots/05-device-settings.png
+   adb exec-out screencap -p > docs/assets/screenshots/05-scene-active.png
    ```
 
-6. **06-scene-editor.png** — Tap "Scenes" row (~540,717) to open `ScenesSettingsScreen`
-   (Global/Device tabs), then tap the first scene row (not its play button,
-   e.g. ~300,545) to open `SceneEditorScreen` for that scene.
+6. **06-device-settings.png** — Tap the gear icon top-right (~1006,237) to open
+   the device's `Settings` menu (Device / Palettes / Scenes / Appearance /
+   Debug console).
    ```bash
-   adb shell input tap 540 717
+   adb shell input tap 1006 237
    sleep 1
-   adb shell input tap 300 545
+   adb exec-out screencap -p > docs/assets/screenshots/06-device-settings.png
+   ```
+
+7. **07-scene-editor.png** — Tap "Scenes" row (~540,717) to open `ScenesSettingsScreen`
+   (Global/Device tabs), switch to the Device tab if needed (~810,383), then tap
+   the first scene row (not its play button, e.g. ~300,541) to open
+   `SceneEditorScreen` for that scene.
+   ```bash
+   adb shell input tap 540 714
    sleep 1
-   adb exec-out screencap -p > docs/assets/screenshots/06-scene-editor.png
+   adb shell input tap 810 383
+   sleep 1
+   adb shell input tap 300 541
+   sleep 1
+   adb exec-out screencap -p > docs/assets/screenshots/07-scene-editor.png
    ```
 
 ## Notes / gotchas
