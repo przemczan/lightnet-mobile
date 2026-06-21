@@ -69,23 +69,6 @@ Java_com_lightnet_animation_NativeSceneBridge_clearPalettes(JNIEnv *, jclass, jl
     scene_clear_palettes(handle(h));
 }
 
-JNIEXPORT void JNICALL
-Java_com_lightnet_animation_NativeSceneBridge_setTag(JNIEnv *env, jclass, jlong h,
-        jstring name, jbyteArray panels, jint count)
-{
-    const char *n = env->GetStringUTFChars(name, nullptr);
-    jbyte *p = env->GetByteArrayElements(panels, nullptr);
-    scene_set_tag(handle(h), n, reinterpret_cast<const uint8_t *>(p), (uint8_t)count);
-    env->ReleaseByteArrayElements(panels, p, JNI_ABORT);
-    env->ReleaseStringUTFChars(name, n);
-}
-
-JNIEXPORT void JNICALL
-Java_com_lightnet_animation_NativeSceneBridge_clearTags(JNIEnv *, jclass, jlong h)
-{
-    scene_clear_tags(handle(h));
-}
-
 JNIEXPORT jbyteArray JNICALL
 Java_com_lightnet_animation_NativeSceneBridge_loadAndPlay(JNIEnv *env, jclass, jlong h, jbyteArray json, jint now)
 {

@@ -22,14 +22,14 @@ import kotlinx.serialization.json.put
 
 /**
  * A scene layer's `panels` value. The firmware grammar (scene-portability §3) is large —
- * explicit indices, graph/tag selector strings, and `any`/`all`/`not` composition objects.
+ * explicit indices, graph selector strings, and `any`/`all`/`not` composition objects.
  * This models the parts the editor edits directly and **round-trips everything else
  * untouched** so hand-authored scenes never lose data:
  *
  * - [All]      — `"all"`
  * - [Include]  — explicit 1-based indices `[1,3,5]`
  * - [Exclude]  — `{ "exclude": [2] }`
- * - [Selector] — any other selector string token (`"leaves"`, `"depth:1-2"`, `"tag:accent"`, …)
+ * - [Selector] — any other selector string token (`"leaves"`, `"depth:1-2"`, …)
  * - [Raw]      — any composition object (`{ "any": … }` / `{ "all": … }` / `{ "not": … }`),
  *               preserved verbatim and shown read-only in the editor.
  */

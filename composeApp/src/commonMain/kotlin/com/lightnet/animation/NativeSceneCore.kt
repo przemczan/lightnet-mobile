@@ -22,10 +22,6 @@ expect class NativeSceneCore() {
     fun setPalette(name: String, stops: ByteArray, count: Int)
     fun clearPalettes()
 
-    /** Register a device tag → its 1-based panel indices. */
-    fun setTag(name: String, panels: ByteArray, count: Int)
-    fun clearTags()
-
     /** Parse scene JSON and start; returns the emitted packets (MIRROR_BATCH payload), or null if invalid. */
     fun loadAndPlay(json: ByteArray, now: Int): ByteArray?
     /** Advance one frame; returns any packets emitted this frame (MIRROR_BATCH payload). */

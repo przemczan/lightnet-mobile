@@ -95,7 +95,7 @@ enum class AnimId(
 
 // ── Panel targeting (editor representation) ──────────────────────────────────────
 // A flat, Compose-friendly view of a layer's `panels`. The visual picker drives
-// [Specific]; role/tag presets drive [Selector]; anything the UI can't model (an
+// [Specific]; role presets drive [Selector]; anything the UI can't model (an
 // `exclude`/`any`/`all`/`not` object) is preserved read-only as [Advanced].
 
 enum class TargetKind { All, Specific, Selector, Advanced }

@@ -1,7 +1,6 @@
 package com.lightnet.animation
 
 import animcore.scene_clear_palettes
-import animcore.scene_clear_tags
 import animcore.scene_create
 import animcore.scene_destroy
 import animcore.scene_drain
@@ -11,7 +10,6 @@ import animcore.scene_load_and_play
 import animcore.scene_reresolve_palettes
 import animcore.scene_set_palette
 import animcore.scene_set_speed
-import animcore.scene_set_tag
 import animcore.scene_set_topology
 import animcore.scene_stop
 import animcore.scene_tick
@@ -58,17 +56,6 @@ actual class NativeSceneCore actual constructor() {
     }
 
     actual fun clearPalettes() { scene_clear_palettes(handle) }
-
-    actual fun setTag(name: String, panels: ByteArray, count: Int) {
-        if (panels.isEmpty()) return
-        memScoped {
-            panels.usePinned { pp ->
-                scene_set_tag(handle, name.cstr.ptr, pp.addressOf(0).reinterpret(), count.toUByte())
-            }
-        }
-    }
-
-    actual fun clearTags() { scene_clear_tags(handle) }
 
     actual fun loadAndPlay(json: ByteArray, now: Int): ByteArray? {
         if (json.isEmpty()) return null

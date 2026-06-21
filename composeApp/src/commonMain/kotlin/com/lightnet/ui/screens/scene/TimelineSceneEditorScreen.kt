@@ -287,7 +287,6 @@ fun TimelineSceneEditorScreen(
     var baseColors  by remember { mutableStateOf<List<String>>(emptyList()) }
     var devicePalette by remember { mutableStateOf<String?>(null) }
     var configuration by remember { mutableStateOf<ConfigurationResponse?>(null) }
-    val tags = remember(configuration) { configuration?.tags?.values?.flatten()?.distinct()?.sorted() ?: emptyList() }
     LaunchedEffect(device) {
         device?.loadPalettes()
         device?.loadScenes()
@@ -363,12 +362,6 @@ fun TimelineSceneEditorScreen(
     LaunchedEffect(panels, configuration) {
         if (panels.isEmpty()) return@LaunchedEffect
         offlineService.setTopology(panels.map { it.info }, configuration?.logicalRoot ?: 0)
-        offlineService.clearTags()
-        configuration?.tags?.entries?.fold(mutableMapOf<String, MutableList<Int>>()) { acc, (panelId, panelTags) ->
-            val id = panelId.toIntOrNull()
-            if (id != null) panelTags.forEach { acc.getOrPut(it) { mutableListOf() }.add(id) }
-            acc
-        }?.forEach { (name, ids) -> offlineService.registerTag(name, ids) }
     }
     LaunchedEffect(palettesMap) {
         offlineService.clearPalettes()
@@ -439,7 +432,6 @@ fun TimelineSceneEditorScreen(
                     paletteOptions = paletteOptions,
                     paletteStops = stopsFor(e.layer),
                     baseColors   = baseColors,
-                    tags         = tags,
                     otherLayers  = activeScene.layers.filter { it !== e.layer },
                     onBack       = { editing = null },
                     onDelete     = {

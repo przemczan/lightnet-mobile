@@ -25,7 +25,7 @@ import kotlin.time.TimeSource
  * therefore byte-identical to live preview — same engine, same packets, same per-panel players.
  *
  * Flow: supply the panel tree (cached from a controller, or a user-authored virtual tree) + any
- * named palettes/tags the scene uses, then [play] a scene JSON. The engine returns the packets it
+ * named palettes the scene uses, then [play] a scene JSON. The engine returns the packets it
  * emits as a MIRROR_BATCH payload; we decode + render them and tick ~30fps.
  *
  * All engine/renderer access is confined to a single-threaded dispatcher.
@@ -77,13 +77,6 @@ class OfflineSceneService(private val scope: CoroutineScope) {
     }
 
     fun clearPalettes() = run { scope.launch(work) { core.clearPalettes() } }
-
-    /** Register a device tag → its 1-based panel indices. */
-    fun registerTag(name: String, panels: List<Int>) = run {
-        scope.launch(work) { core.setTag(name, ByteArray(panels.size) { panels[it].toByte() }, panels.size) }
-    }
-
-    fun clearTags() = run { scope.launch(work) { core.clearTags() } }
 
     /** Parse + play a scene JSON. On success, renders the scene; on failure, sets [error]. */
     fun play(sceneJson: String) {

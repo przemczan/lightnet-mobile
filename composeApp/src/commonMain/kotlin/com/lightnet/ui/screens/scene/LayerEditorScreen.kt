@@ -63,7 +63,6 @@ internal fun LayerEditorScreen(
     paletteOptions: List<PaletteOption>,
     paletteStops: List<PaletteStop>?,
     baseColors: List<String>,
-    tags: List<String>,
     otherLayers: List<EditableLayer>,
     onBack: () -> Unit,
     onDelete: (() -> Unit)? = null,
@@ -105,7 +104,7 @@ internal fun LayerEditorScreen(
             }
 
             item { SectionHeader("Panels") }
-            item { PanelTargetEditor(layer, panels, tags) }
+            item { PanelTargetEditor(layer, panels) }
 
             item { SectionHeader("Playback") }
             item {
@@ -234,7 +233,6 @@ private fun StepRow(
 private fun PanelTargetEditor(
     layer: EditableLayer,
     panels: List<LightnetDevicePanel>,
-    tags: List<String>,
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -265,7 +263,7 @@ private fun PanelTargetEditor(
                         paintMode         = PaintMode.Paint,
                     )
                 }
-                TargetKind.Selector  -> SelectorEditor(layer, panels, tags)
+                TargetKind.Selector  -> SelectorEditor(layer, panels)
                 TargetKind.Advanced  -> Text(
                     "This layer uses an advanced selector that can't be edited here. " +
                         "Pick All, Specific, or By role to replace it.",
@@ -278,7 +276,7 @@ private fun PanelTargetEditor(
 }
 
 private data class SelectorKind(val key: String, val label: String, val arg: ArgKind)
-private enum class ArgKind { None, DepthBand, Panel, Count, Fraction, Tag }
+private enum class ArgKind { None, DepthBand, Panel, Count, Fraction }
 
 private val SELECTOR_KINDS = listOf(
     SelectorKind("root",      "Root",                  ArgKind.None),
@@ -292,7 +290,6 @@ private val SELECTOR_KINDS = listOf(
     SelectorKind("first",     "First N",               ArgKind.Count),
     SelectorKind("last",      "Last N",                ArgKind.Count),
     SelectorKind("fraction",  "Fraction (front..back)", ArgKind.Fraction),
-    SelectorKind("tag",       "Tag",                   ArgKind.Tag),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -300,7 +297,6 @@ private val SELECTOR_KINDS = listOf(
 private fun SelectorEditor(
     layer: EditableLayer,
     panels: List<LightnetDevicePanel>,
-    tags: List<String>,
 ) {
     val token   = layer.selectorToken
     val kindKey = token.substringBefore(':').ifBlank { "leaves" }
@@ -313,7 +309,6 @@ private fun SelectorEditor(
         ArgKind.Panel     -> "${k.key}:${panels.firstOrNull()?.info?.id ?: 1}"
         ArgKind.Count     -> "${k.key}:1"
         ArgKind.Fraction  -> "${k.key}:0-0.5"
-        ArgKind.Tag       -> "${k.key}:${tags.firstOrNull() ?: "accent"}"
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -345,13 +340,6 @@ private fun SelectorEditor(
                 value         = arg,
                 onValueChange = { layer.selectorToken = "${kind.key}:$it" },
                 label         = { Text("Range 0-1 (e.g. 0-0.5)") },
-                singleLine    = true,
-                modifier      = Modifier.fillMaxWidth(),
-            )
-            ArgKind.Tag -> OutlinedTextField(
-                value         = arg,
-                onValueChange = { layer.selectorToken = "${kind.key}:$it" },
-                label         = { Text("Tag name") },
                 singleLine    = true,
                 modifier      = Modifier.fillMaxWidth(),
             )

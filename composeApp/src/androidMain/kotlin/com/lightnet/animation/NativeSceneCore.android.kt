@@ -11,8 +11,6 @@ private object NativeSceneBridge {
     external fun setTopology(h: Long, indices: ByteArray, count: Int, links: ByteArray, linkCount: Int, edgeCounts: ByteArray, root: Int)
     external fun setPalette(h: Long, name: String, stops: ByteArray, count: Int)
     external fun clearPalettes(h: Long)
-    external fun setTag(h: Long, name: String, panels: ByteArray, count: Int)
-    external fun clearTags(h: Long)
     external fun loadAndPlay(h: Long, json: ByteArray, now: Int): ByteArray?
     external fun tick(h: Long, now: Int): ByteArray
     external fun stop(h: Long, now: Int): ByteArray
@@ -30,8 +28,6 @@ actual class NativeSceneCore actual constructor() {
 
     actual fun setPalette(name: String, stops: ByteArray, count: Int) = NativeSceneBridge.setPalette(handle, name, stops, count)
     actual fun clearPalettes() = NativeSceneBridge.clearPalettes(handle)
-    actual fun setTag(name: String, panels: ByteArray, count: Int) = NativeSceneBridge.setTag(handle, name, panels, count)
-    actual fun clearTags() = NativeSceneBridge.clearTags(handle)
 
     actual fun loadAndPlay(json: ByteArray, now: Int): ByteArray? = NativeSceneBridge.loadAndPlay(handle, json, now)
     actual fun tick(now: Int): ByteArray = NativeSceneBridge.tick(handle, now)
