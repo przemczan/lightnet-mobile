@@ -239,10 +239,6 @@ fun DeviceControllerScreen(
         }
     }
 
-    LaunchedEffect(showAdjustSheet) {
-        if (showAdjustSheet) device.refreshPalettes()
-    }
-
     var showSettings      by remember { mutableStateOf(false) }
     var showDebug         by remember { mutableStateOf(false) }
     var showSwitcherSheet   by remember { mutableStateOf(false) }
@@ -264,6 +260,7 @@ fun DeviceControllerScreen(
     editingScene?.let { scene ->
         TimelineSceneEditorScreen(
             device     = device,
+            deviceId   = activeDevice.id,
             httpClient = httpClient,
             initial    = scene,
             origin     = editingSceneOrigin,

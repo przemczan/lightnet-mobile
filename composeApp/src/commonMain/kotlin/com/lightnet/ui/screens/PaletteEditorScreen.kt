@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -99,6 +100,7 @@ fun PaletteEditorScreen(
     }
 
     var colorPickerTarget by remember { mutableStateOf<Int?>(null) }  // index into stops
+    var isSaving by remember { mutableStateOf(false) }
 
     // Validation
     val sortedStops  = stops.sortedBy { it.position }
@@ -130,7 +132,7 @@ fun PaletteEditorScreen(
             BottomAppBar {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Button(
-                        enabled = !readOnly && isValid && nameError == null,
+                        enabled = !readOnly && isValid && nameError == null && !isSaving,
                         onClick = {
                             nameError?.let {
                                 scope.launch { snackbar.showSnackbar(it) }
@@ -140,6 +142,7 @@ fun PaletteEditorScreen(
                                 scope.launch { snackbar.showSnackbar("Valid stops required (0 and 255 required).") }
                                 return@Button
                             }
+                            isSaving = true
                             scope.launch {
                                 val paletteName = if (isEdit) editName!! else name.trim()
                                 val body = PaletteJson(name = paletteName, stops = sortedStops)
@@ -153,6 +156,7 @@ fun PaletteEditorScreen(
                                 if (result?.isSuccess == true) {
                                     onBack()
                                 } else {
+                                    isSaving = false
                                     val apiError = (result?.exceptionOrNull() as? LightnetApiException)?.error
                                     snackbar.showSnackbar(
                                         if (apiError != null) "Failed to save palette: $apiError"
@@ -162,7 +166,11 @@ fun PaletteEditorScreen(
                             }
                         },
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = null)
+                        if (isSaving) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Save, contentDescription = null)
+                        }
                         Spacer(Modifier.width(8.dp))
                         Text("Save")
                     }

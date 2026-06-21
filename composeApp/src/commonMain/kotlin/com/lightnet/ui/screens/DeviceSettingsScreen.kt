@@ -130,6 +130,7 @@ fun DeviceSettingsScreen(
 
     if (showPalettes) {
         PalettesSettingsScreen(
+            device     = device,
             httpClient = httpClient,
             onBack     = { showPalettes = false },
         )
@@ -139,8 +140,8 @@ fun DeviceSettingsScreen(
     if (showScenes) {
         ScenesSettingsScreen(
             device      = device,
+            deviceId    = savedDevice.id,
             httpClient  = httpClient,
-            devicePrefs = devicePrefs,
             onBack      = { showScenes = false },
         )
         return
@@ -594,6 +595,7 @@ private fun RotateSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PalettesSettingsScreen(
+    device: LightnetDevice?,
     httpClient: DeviceHttpApi?,
     onBack: () -> Unit,
 ) {
@@ -601,20 +603,17 @@ private fun PalettesSettingsScreen(
 
     val scope = rememberCoroutineScope()
 
-    var palettes       by remember { mutableStateOf<List<PaletteJson>>(emptyList()) }
-    var isLoading      by remember { mutableStateOf(false) }
+    val palettes by remember(device) {
+        device?.palettes ?: MutableStateFlow(null)
+    }.collectAsState()
+    val isLoading by remember(device) {
+        device?.palettesLoading ?: MutableStateFlow(false)
+    }.collectAsState()
     var deleteTarget   by remember { mutableStateOf<PaletteJson?>(null) }
     var editingPalette by remember { mutableStateOf<PaletteJson?>(null) }
     var showEditor     by remember { mutableStateOf(false) }
 
-    suspend fun reload() {
-        if (httpClient == null) return
-        isLoading = true
-        palettes  = httpClient.runCatching { getPalettes() }.getOrNull() ?: emptyList()
-        isLoading = false
-    }
-
-    LaunchedEffect(httpClient) { reload() }
+    LaunchedEffect(device) { device?.loadPalettes() }
 
     if (showEditor) {
         PaletteEditorScreen(
@@ -623,7 +622,7 @@ private fun PalettesSettingsScreen(
             onBack     = {
                 showEditor     = false
                 editingPalette = null
-                scope.launch { reload() }
+                scope.launch { device?.refreshPalettes() }
             },
         )
         return
@@ -657,13 +656,13 @@ private fun PalettesSettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            isLoading && palettes.isEmpty() -> Box(
+            isLoading && palettes.isNullOrEmpty() -> Box(
                 Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator()
             }
-            palettes.isEmpty() -> Box(
+            palettes.isNullOrEmpty() -> Box(
                 Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center,
             ) {
@@ -673,21 +672,24 @@ private fun PalettesSettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            else -> LazyColumn(
-                modifier            = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                contentPadding      = PaddingValues(
-                    top    = padding.calculateTopPadding() + 8.dp,
-                    bottom = padding.calculateBottomPadding() + 80.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                itemsIndexed(palettes, key = { _, it -> it.name }) { index, palette ->
-                    PaletteSettingsItem(
-                        palette  = palette,
-                        shape    = groupedListItemShape(index, palettes.size),
-                        onEdit   = { editingPalette = palette; showEditor = true },
-                        onDelete = { deleteTarget = palette },
-                    )
+            else -> {
+                val loadedPalettes = palettes.orEmpty()
+                LazyColumn(
+                    modifier            = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    contentPadding      = PaddingValues(
+                        top    = padding.calculateTopPadding() + 8.dp,
+                        bottom = padding.calculateBottomPadding() + 80.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    itemsIndexed(loadedPalettes, key = { _, it -> it.name }) { index, palette ->
+                        PaletteSettingsItem(
+                            palette  = palette,
+                            shape    = groupedListItemShape(index, loadedPalettes.size),
+                            onEdit   = { editingPalette = palette; showEditor = true },
+                            onDelete = { deleteTarget = palette },
+                        )
+                    }
                 }
             }
         }
@@ -703,7 +705,7 @@ private fun PalettesSettingsScreen(
                     deleteTarget = null
                     scope.launch {
                         httpClient?.runCatching { deletePalette(target.name) }
-                        reload()
+                        device?.refreshPalettes()
                     }
                 }) { Text("Delete") }
             },

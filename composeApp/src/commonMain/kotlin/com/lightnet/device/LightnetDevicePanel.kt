@@ -41,10 +41,9 @@ class LightnetDevicePanel(
         _state.value = PanelState(panelId = info.id, on = on, color = color)
     }
 
-    /** Clears the panel for paint mode — local state only until the user paints. */
+    /** Clears the panel for paint mode — local state only; the controller blacks panels itself on scene stop. */
     fun resetForPaint() {
         setLocalState(on = false)
-        messageApiService.send(ToggleMessage(info.id, false))
     }
 
     fun toggle(on: Boolean? = null) {

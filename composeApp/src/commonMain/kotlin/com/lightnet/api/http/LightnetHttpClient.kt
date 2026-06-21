@@ -21,6 +21,7 @@ import com.lightnet.api.http.model.SceneJson
 import com.lightnet.debug.DebugLog
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpSend
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.plugin
 import io.ktor.client.request.HttpRequestBuilder
@@ -55,6 +56,10 @@ class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
 
     private val client = HttpClient {
         install(ContentNegotiation) { json(json) }
+        // Chunked responses (e.g. /api/palettes) can stall mid-stream on the firmware under
+        // heap pressure (ESP8266) — without a timeout the request just hangs forever instead
+        // of failing so the caller can retry.
+        install(HttpTimeout) { requestTimeoutMillis = 10_000 }
         expectSuccess = false
     }.also { c ->
         c.plugin(HttpSend).intercept { request ->
@@ -115,11 +120,12 @@ class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
 
     override suspend fun saveScene(scene: SceneJson): String {
         val id = scene.id?.trim()?.takeIf { it.isNotEmpty() }
+        val wireScene = scene.copy(id = null, deviceLinks = emptyList())
         return if (id != null) {
-            client.patch("$baseUrl/api/scenes/${id.encodeURLPath()}") { jsonBody(scene.copy(id = null)) }
+            client.patch("$baseUrl/api/scenes/${id.encodeURLPath()}") { jsonBody(wireScene) }
                 .bodyOrThrow<SaveIdResponse>().id
         } else {
-            client.post("$baseUrl/api/scenes") { jsonBody(scene.copy(id = null)) }
+            client.post("$baseUrl/api/scenes") { jsonBody(wireScene) }
                 .bodyOrThrow<SaveIdResponse>().id
         }
     }
@@ -131,7 +137,7 @@ class LightnetHttpClient(private val baseUrl: String) : DeviceHttpApi {
         client.post("$baseUrl/api/scenes/$id/play").voidOrThrow()
 
     override suspend fun playSceneInline(scene: SceneJson) =
-        client.post("$baseUrl/api/scenes/play/one-shot") { jsonBody(scene) }.voidOrThrow()
+        client.post("$baseUrl/api/scenes/play/one-shot") { jsonBody(scene.copy(deviceLinks = emptyList())) }.voidOrThrow()
 
     override suspend fun playLastScene() =
         client.post("$baseUrl/api/scenes/play").voidOrThrow()

@@ -27,6 +27,16 @@ class SceneRepository(private val settings: Settings) {
         settings.putString(KEY, json.encodeToString(listSerializer, list))
     }
 
+    fun findByDeviceLink(deviceId: String, deviceSceneId: String): SceneJson? =
+        getAll().find { scene -> scene.deviceLinks.any { it.deviceId == deviceId && it.deviceSceneId == deviceSceneId } }
+
+    fun removeDeviceLinks(deviceId: String, deviceSceneId: String) {
+        val list = getAll().map { scene ->
+            scene.copy(deviceLinks = scene.deviceLinks.filterNot { it.deviceId == deviceId && it.deviceSceneId == deviceSceneId })
+        }
+        settings.putString(KEY, json.encodeToString(listSerializer, list))
+    }
+
     companion object {
         private const val KEY = "app_scenes"
     }

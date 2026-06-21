@@ -16,8 +16,10 @@ import com.lightnet.api.websocket.model.PanelLayout
 import com.lightnet.api.websocket.model.PanelState
 import com.lightnet.api.websocket.protocol.message.SetMirrorMessage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +27,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 
@@ -206,9 +210,17 @@ class LightnetDevice(
         httpClient = client
         if (connectionState.value == ConnectionState.CONNECTED && client != null) {
             scope.launch {
+                // The controller services HTTP and WebSocket on the same task, so firing
+                // these requests while the panel-list WS round trip is still in flight makes
+                // them queue behind it — wait for it to resolve first to avoid that contention.
+                withTimeoutOrNull(5_000) { panelsListService.panels.first { it != null } }
                 refreshCachedLogicalRoot()
-                loadPalettes(force = _palettes.value != null)
-                loadScenes(force = _scenes.value != null)
+                // The connector-state collector already nulls out the cache on every (re)connect,
+                // so a non-null value here means another call site (e.g. the controller screen's own
+                // load-on-connect effect) already fetched fresh data for this connection — no need
+                // to force a redundant reload.
+                loadPalettes()
+                loadScenes()
             }
         }
     }
@@ -308,9 +320,26 @@ class LightnetDevice(
     suspend fun getPaletteNames(): List<String> =
         httpClient?.runCatching { getPalettes().map { it.name } }?.getOrNull() ?: emptyList()
 
+    private val palettesLoadLock = Mutex()
+    private var palettesLoadJob: Deferred<Unit>? = null
+
     /** Loads device palettes once and caches them; pass `force = true` to reload. */
     suspend fun loadPalettes(force: Boolean = false) {
         if (!force && _palettes.value != null) return
+        // Multiple call sites (attachHttpClient, screen-level LaunchedEffects) can ask to
+        // load around the same time — share a single in-flight fetch instead of firing
+        // concurrent duplicate GETs the controller would have to serialize anyway.
+        val job = palettesLoadLock.withLock {
+            palettesLoadJob ?: scope.async { fetchPalettes() }.also { palettesLoadJob = it }
+        }
+        try {
+            job.await()
+        } finally {
+            palettesLoadLock.withLock { if (palettesLoadJob === job) palettesLoadJob = null }
+        }
+    }
+
+    private suspend fun fetchPalettes() {
         val client = httpClient ?: return
         _palettesLoading.value = true
         try {
@@ -327,9 +356,23 @@ class LightnetDevice(
 
     suspend fun refreshPalettes() = loadPalettes(force = true)
 
+    private val scenesLoadLock = Mutex()
+    private var scenesLoadJob: Deferred<Unit>? = null
+
     /** Loads device scenes once and caches them; pass `force = true` to reload. */
     suspend fun loadScenes(force: Boolean = false) {
         if (!force && _scenes.value != null) return
+        val job = scenesLoadLock.withLock {
+            scenesLoadJob ?: scope.async { fetchScenes() }.also { scenesLoadJob = it }
+        }
+        try {
+            job.await()
+        } finally {
+            scenesLoadLock.withLock { if (scenesLoadJob === job) scenesLoadJob = null }
+        }
+    }
+
+    private suspend fun fetchScenes() {
         val client = httpClient ?: return
         _scenesLoading.value = true
         try {

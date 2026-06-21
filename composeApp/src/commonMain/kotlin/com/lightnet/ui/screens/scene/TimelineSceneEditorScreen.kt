@@ -104,6 +104,7 @@ import com.lightnet.api.http.DeviceHttpApi
 import com.lightnet.api.http.model.PaletteOption
 import com.lightnet.api.http.model.PaletteStop
 import com.lightnet.api.http.model.SceneJson
+import com.lightnet.api.http.model.SceneDeviceLink
 import com.lightnet.api.http.model.ConfigurationResponse
 import com.lightnet.device.LightnetDevice
 import com.lightnet.device.LightnetDevicePanel
@@ -266,6 +267,7 @@ private fun minPxPerMsFor(layers: List<EditableLayer>, viewportWidthPx: Float): 
 @Composable
 fun TimelineSceneEditorScreen(
     device: LightnetDevice?,
+    deviceId: String,
     httpClient: DeviceHttpApi?,
     initial: SceneJson?,
     origin: SceneOrigin = SceneOrigin.GLOBAL,
@@ -307,9 +309,21 @@ fun TimelineSceneEditorScreen(
         palettesMap.values.map { PaletteOption(it.name) }.sortedBy { it.name }
     }
 
-    val originalName = remember(initial) { initial?.name?.trim()?.takeIf { it.isNotBlank() } }
-    val originalId = remember(initial, origin) {
-        if (origin == SceneOrigin.DEVICE) initial?.id else null
+    val linkedPhoneScene = remember(initial, origin, deviceId) {
+        if (origin == SceneOrigin.DEVICE) initial?.id?.let { AppPreferences.scenes.findByDeviceLink(deviceId, it) } else null
+    }
+    var originalName by remember(initial) { mutableStateOf(initial?.name?.trim()?.takeIf { it.isNotBlank() }) }
+    var originalId by remember(initial, origin) {
+        mutableStateOf(if (origin == SceneOrigin.DEVICE) initial?.id else null)
+    }
+    var originalDeviceLinks by remember(initial, origin, linkedPhoneScene) {
+        mutableStateOf(
+            if (origin == SceneOrigin.GLOBAL) initial?.deviceLinks ?: emptyList()
+            else linkedPhoneScene?.deviceLinks ?: emptyList(),
+        )
+    }
+    var originalPhoneSceneName by remember(initial, origin, linkedPhoneScene) {
+        mutableStateOf(if (origin == SceneOrigin.DEVICE) linkedPhoneScene?.name else originalName)
     }
     var scene by remember { mutableStateOf<EditableScene?>(null) }
     LaunchedEffect(initial, panels.size) {
@@ -322,6 +336,7 @@ fun TimelineSceneEditorScreen(
     }
 
     var isDirty by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
     var showSaveConfirm by remember { mutableStateOf(false) }
     var saveAlsoToOther by remember { mutableStateOf(false) }
@@ -453,29 +468,28 @@ fun TimelineSceneEditorScreen(
         val renamed = originalName != null && originalName != sceneJson.name
         when (origin) {
             SceneOrigin.GLOBAL -> {
-                val ok = runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess
-                if (!ok) {
-                    scope.launch { snackbar.showSnackbar("Failed to save scene.") }
-                    return
-                }
-                if (renamed) AppPreferences.scenes.delete(originalName!!)
-                isDirty = false
-                if (alsoSaveToOther && httpClient != null) {
-                    scope.launch {
-                        val saved = httpClient.runCatching {
-                            val body = if (originalId != null && !renamed) sceneJson.copy(id = originalId) else sceneJson
-                            saveScene(body)
-                        }
+                isSaving = true
+                scope.launch {
+                    var links = originalDeviceLinks
+                    if (alsoSaveToOther && httpClient != null) {
+                        val existingLink = links.find { it.deviceId == deviceId }
+                        val saved = httpClient.runCatching { saveScene(sceneJson.copy(id = existingLink?.deviceSceneId)) }
                         if (saved.isFailure) {
-                            snackbar.showSnackbar("Saved locally but failed to save to device.")
+                            snackbar.showSnackbar("Failed to save to device; saved locally only.")
                         } else {
-                            if (renamed && originalId != null) runCatching { httpClient.deleteScene(originalId) }
+                            links = links.filterNot { it.deviceId == deviceId } + SceneDeviceLink(deviceId, saved.getOrThrow())
                             device?.refreshPalettes()
                             device?.refreshScenes()
                         }
-                        onBack()
                     }
-                } else {
+                    val ok = runCatching { AppPreferences.scenes.save(sceneJson.copy(id = null, deviceLinks = links)) }.isSuccess
+                    if (!ok) {
+                        isSaving = false
+                        snackbar.showSnackbar("Failed to save scene.")
+                        return@launch
+                    }
+                    if (renamed) AppPreferences.scenes.delete(originalName!!)
+                    isDirty = false
                     onBack()
                 }
             }
@@ -484,22 +498,29 @@ fun TimelineSceneEditorScreen(
                     scope.launch { snackbar.showSnackbar("Connect a device to save.") }
                     return
                 }
+                isSaving = true
                 scope.launch {
-                    val body = if (originalId != null && !renamed) sceneJson.copy(id = originalId) else sceneJson
-                    val saved = httpClient.runCatching { saveScene(body) }
+                    val saved = httpClient.runCatching { saveScene(sceneJson.copy(id = originalId)) }
                     if (saved.isFailure) {
+                        isSaving = false
                         snackbar.showSnackbar("Failed to save scene to device.")
                         return@launch
                     }
-                    if (renamed && originalId != null) runCatching { httpClient.deleteScene(originalId) }
+                    val newDeviceSceneId = saved.getOrThrow()
                     isDirty = false
                     device?.refreshPalettes()
                     device?.refreshScenes()
                     if (alsoSaveToOther) {
-                        if (!runCatching { AppPreferences.scenes.save(sceneJson) }.isSuccess)
+                        val links = originalDeviceLinks.filterNot { it.deviceId == deviceId } +
+                            SceneDeviceLink(deviceId, newDeviceSceneId)
+                        val ok = runCatching {
+                            AppPreferences.scenes.save(sceneJson.copy(id = null, deviceLinks = links))
+                        }.isSuccess
+                        if (!ok) {
                             snackbar.showSnackbar("Saved to device but failed to save locally.")
-                        else if (renamed)
-                            AppPreferences.scenes.delete(originalName!!)
+                        } else if (originalPhoneSceneName != null && originalPhoneSceneName != sceneJson.name) {
+                            AppPreferences.scenes.delete(originalPhoneSceneName!!)
+                        }
                     }
                     onBack()
                 }
@@ -564,11 +585,15 @@ fun TimelineSceneEditorScreen(
                 },
                 floatingActionButton = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IconButton(onClick = { showOptionsSheet = true }) {
+                        IconButton(onClick = { showOptionsSheet = true }, enabled = !isSaving) {
                             Icon(Icons.Default.Tune, contentDescription = "Scene options")
                         }
-                        ExtendedFloatingActionButton(onClick = ::requestSave) {
-                            Icon(Icons.Default.Save, contentDescription = null)
+                        ExtendedFloatingActionButton(onClick = { if (!isSaving) requestSave() }) {
+                            if (isSaving) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Save, contentDescription = null)
+                            }
                             Spacer(Modifier.width(8.dp))
                             Text("Save")
                         }
@@ -645,6 +670,12 @@ fun TimelineSceneEditorScreen(
             onConfirm   = { name ->
                 showCloneDialog = false
                 scene = activeScene.clone(name)
+                // A clone is a brand-new scene with no identity of its own — without this reset
+                // it would inherit the original's device links and PATCH the original's device scene.
+                originalName = null
+                originalId = null
+                originalDeviceLinks = emptyList()
+                originalPhoneSceneName = null
                 isDirty = true
             },
             onDismiss = { showCloneDialog = false },

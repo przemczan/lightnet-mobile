@@ -9,13 +9,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,7 +53,6 @@ import com.lightnet.api.http.model.SceneJson
 import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.settings.AppPreferences
-import com.lightnet.settings.DevicePreferences
 import com.lightnet.ui.components.groupedListItemShape
 import com.lightnet.ui.screens.scene.SceneOrigin
 import com.lightnet.ui.screens.scene.TimelineSceneEditorScreen
@@ -65,8 +64,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun ScenesSettingsScreen(
     device: LightnetDevice?,
+    deviceId: String,
     httpClient: DeviceHttpApi?,
-    devicePrefs: DevicePreferences? = null,
     onBack: () -> Unit,
 ) {
     BackHandlerCompat(onBack = onBack)
@@ -92,6 +91,8 @@ fun ScenesSettingsScreen(
     }.collectAsState()
     var deleteGlobalTarget  by remember { mutableStateOf<SceneJson?>(null) }
     var deleteDeviceTarget  by remember { mutableStateOf<SceneInfo?>(null) }
+    var deletingGlobalName  by remember { mutableStateOf<String?>(null) }
+    var deletingDeviceId    by remember { mutableStateOf<String?>(null) }
     var showEditor          by remember { mutableStateOf(false) }
     var editingScene        by remember { mutableStateOf<SceneJson?>(null) }
     var editingOrigin       by remember { mutableStateOf(SceneOrigin.GLOBAL) }
@@ -113,6 +114,7 @@ fun ScenesSettingsScreen(
     if (showEditor) {
         TimelineSceneEditorScreen(
             device     = device,
+            deviceId   = deviceId,
             httpClient = httpClient,
             initial    = editingScene,
             origin     = editingOrigin,
@@ -183,23 +185,11 @@ fun ScenesSettingsScreen(
                         itemsIndexed(globalScenes, key = { _, it -> it.name ?: "" }) { index, scene ->
                             SceneSettingsItem(
                                 name     = scene.name ?: "Unnamed",
+                                subtitle = if (scene.deviceLinks.isNotEmpty()) {
+                                    "Linked to ${scene.deviceLinks.size} device${if (scene.deviceLinks.size == 1) "" else "s"}"
+                                } else null,
                                 shape    = groupedListItemShape(index, globalScenes.size),
-                                onPlay   = {
-                                    scope.launch {
-                                        if (httpClient == null) {
-                                            snackbar.showSnackbar("Connect a device to play scenes.")
-                                            return@launch
-                                        }
-                                        val r = runCatching { httpClient.playSceneInline(scene) }
-                                        if (r.isSuccess) {
-                                            devicePrefs?.setLastInlineSceneName(
-                                                scene.name?.trim()?.takeIf { it.isNotBlank() },
-                                            )
-                                        } else {
-                                            snackbar.showSnackbar("Failed to play \"${scene.name}\".")
-                                        }
-                                    }
-                                },
+                                deleting = deletingGlobalName == scene.name,
                                 onEdit   = { openEditor(scene, SceneOrigin.GLOBAL) },
                                 onDelete = { deleteGlobalTarget = scene },
                             )
@@ -243,16 +233,7 @@ fun ScenesSettingsScreen(
                             SceneSettingsItem(
                                 name     = info.name,
                                 shape    = groupedListItemShape(index, deviceScenes!!.size),
-                                onPlay   = {
-                                    scope.launch {
-                                        val r = runCatching { httpClient.playSceneById(info.id) }
-                                        if (r.isSuccess) {
-                                            devicePrefs?.setLastInlineSceneName(null)
-                                        } else {
-                                            snackbar.showSnackbar("Failed to play \"${info.name}\".")
-                                        }
-                                    }
-                                },
+                                deleting = deletingDeviceId == info.id,
                                 onEdit   = {
                                     scope.launch {
                                         val full = httpClient.runCatching { getScene(info.id) }.getOrNull()
@@ -277,8 +258,10 @@ fun ScenesSettingsScreen(
             confirmButton    = {
                 TextButton(onClick = {
                     deleteGlobalTarget = null
+                    deletingGlobalName = target.name
                     AppPreferences.scenes.delete(target.name ?: return@TextButton)
                     reloadGlobal()
+                    deletingGlobalName = null
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { deleteGlobalTarget = null }) { Text("Cancel") } },
@@ -293,10 +276,14 @@ fun ScenesSettingsScreen(
             confirmButton    = {
                 TextButton(onClick = {
                     deleteDeviceTarget = null
+                    deletingDeviceId = target.id
                     scope.launch {
                         httpClient?.runCatching { deleteScene(target.id) }
+                        AppPreferences.scenes.removeDeviceLinks(deviceId, target.id)
+                        reloadGlobal()
                         device?.refreshPalettes()
                         reloadDevice()
+                        deletingDeviceId = null
                     }
                 }) { Text("Delete") }
             },
@@ -309,21 +296,28 @@ fun ScenesSettingsScreen(
 private fun SceneSettingsItem(
     name: String,
     shape: Shape,
-    onPlay: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    subtitle: String? = null,
+    deleting: Boolean = false,
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    Card(shape = shape, modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
+    Card(shape = shape, modifier = Modifier.fillMaxWidth().clickable(enabled = !deleting, onClick = onEdit)) {
         Row(
             Modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
             Arrangement.SpaceBetween, Alignment.CenterVertically,
         ) {
-            Text(name, style = MaterialTheme.typography.bodyLarge)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPlay) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = "Play")
+            Column {
+                Text(name, style = MaterialTheme.typography.bodyLarge)
+                subtitle?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            if (deleting) {
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                }
+            } else {
                 Box {
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More")

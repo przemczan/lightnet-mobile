@@ -175,6 +175,13 @@ data class SceneLayer(
     val disabled: Boolean = false, // true = layer is skipped entirely during playback
 )
 
+/** A phone-stored scene's link to its copy on a specific device (phone-only bookkeeping, never sent over the wire). */
+@Serializable
+data class SceneDeviceLink(
+    val deviceId: String,
+    val deviceSceneId: String,
+)
+
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class SceneJson(
@@ -187,6 +194,10 @@ data class SceneJson(
     val background: String? = null,  // compositor base colour (#RRGGBB), default black
     val palette: String? = null,
     val layers: List<SceneLayer>,
+    // Phone-only: per-device scene links, used to PATCH instead of duplicating when re-saving
+    // to a device, and to find-and-update the right phone scene when pulling a device scene
+    // back. Always stripped before sending this model over the wire (LightnetHttpClient).
+    val deviceLinks: List<SceneDeviceLink> = emptyList(),
 )
 
 @OptIn(ExperimentalSerializationApi::class)
