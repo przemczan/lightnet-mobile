@@ -99,7 +99,7 @@ Custom binary format over WebSocket. Every packet:
 
 `SocketConnector` — Ktor WebSocket with exponential back-off reconnect loop (1 s → doubles → 30 s cap). `CancellationException` breaks the loop on explicit `disconnect()` / `close()`.
 
-`DemoConnector` (`demo/`) — self-contained fake device for the optional Demo entry; auto-responds to `GET_EDGES_LIST`, `GET_PANELS_STATES`, `TOGGLE`, `SET_COLOR`, `PING` with properly encoded protocol packets. Recommended test harness for domain logic without hardware.
+`DemoConnector` (`demo/`) — self-contained fake device enabled in **Settings → Enable demo device**; auto-responds to `GET_EDGES_LIST`, `GET_PANELS_STATES`, `TOGGLE`, `SET_COLOR`, `PING` with properly encoded protocol packets. Recommended test harness for domain logic without hardware.
 
 ### Navigation
 

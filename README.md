@@ -12,7 +12,7 @@ Android and iOS app (Kotlin Multiplatform / Compose Multiplatform) for visualisi
 - **Live preview** — opt-in `MIRROR_BATCH` stream replays outbound I²C packets for real-time colours
 - **Scenes & palettes** — browse, edit, and play scenes; manage palettes on the controller
 - **Device discovery** — scans the local network for Lightnet controllers via mDNS (Android NSD)
-- **Demo device** — built-in simulated controller (`DemoConnector`) for development without hardware
+- **Demo device** — built-in simulated controller (`DemoConnector`); enable in **Settings** for development without hardware
 - **Auto-reconnect** — WebSocket connection retries with exponential back-off (1 s → 30 s cap) on unexpected drops
 
 ---

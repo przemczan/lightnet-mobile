@@ -85,7 +85,7 @@ A `CancellationException` (from `disconnect()` or `close()`) breaks the loop imm
 
 ## DemoConnector
 
-`DemoConnector` (`demo/`) is a self-contained fake controller that responds to all commands with properly encoded, CRC-correct packets. It is used by the **Demo Device** entry in the device list and is the recommended harness for testing domain logic without physical hardware.
+`DemoConnector` (`demo/`) is a self-contained fake controller that responds to all commands with properly encoded, CRC-correct packets. Enable it in **Settings → Enable demo device**; the virtual device then appears at the top of the device list. It is the recommended harness for testing domain logic without physical hardware.
 
 ---
 

@@ -23,7 +23,7 @@ The Lightnet mobile app is a Kotlin Multiplatform project — one Compose UI sha
 
     ---
 
-    Clone, build, install, and run on Android or iOS. Includes the demo-device shortcut for development without hardware.
+    Clone, build, install, and run on Android or iOS. Enable the demo device in Settings for development without hardware.
 
     [:material-arrow-right: Getting Started](getting-started.md)
 

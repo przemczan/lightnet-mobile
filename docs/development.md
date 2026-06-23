@@ -63,7 +63,7 @@ fun close()
 
 ## Demo Device
 
-The demo device (`com.lightnet.demo`) is a fully functional virtual device that runs without any physical hardware. It is enabled via **Settings → Enable demo device** and always appears at the top of the device list with a "Demo" badge.
+The demo device (`__demo__`, shown as **Demo**) is a fully functional virtual device that runs without any physical hardware. Enable it in **Settings → Enable demo device** (gear icon on the device list); it then appears at the top of the device list with a "Demo" badge.
 
 | Component | Role |
 |---|---|
@@ -72,9 +72,9 @@ The demo device (`com.lightnet.demo`) is a fully functional virtual device that 
 | `DemoTopologyGenerator` | Generates a random spanning-tree panel topology (3 edges per panel). |
 | `DemoDataInitializer` | Default palette set seeded on first use. |
 | `DemoDevice.kt` | `createDemoDevice()` factory + `DEMO_DEVICE_ID` constant. |
-| `DemoSettings` | Persists `demoEnabled` and `demoPanelCount` (1–50). |
+| `DemoSettings` | Persists `demoEnabled` and `demoPanelCount` (1–100). |
 
-**Panel regeneration**: changing the panel count clears the stored topology via `DemoConnector.resetLayout()` and triggers a reconnect — the next `connect()` call generates a fresh random layout. In `DeviceControllerScreen` the **shuffle button** (only shown for the demo) also triggers an immediate regeneration.
+**Panel regeneration**: changing the panel count in Settings clears the stored topology via `DemoConnector.resetLayout()` and reloads panels. In `DeviceControllerScreen` the **shuffle button** (only shown for the demo) also triggers an immediate regeneration.
 
 **Scene playback**: routes through `LightnetDevice.offlineSceneService` (`OfflineSceneService` + shared C++ scene engine) — no separate demo-specific player. Palettes must be registered (via `device.loadPalettes()`) before a scene is played; this happens automatically when `DeviceControllerScreen` opens.
 
