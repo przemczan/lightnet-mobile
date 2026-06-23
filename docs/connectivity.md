@@ -31,22 +31,20 @@ Every packet has a fixed 14-byte header followed by a variable-length payload:
 ```
 
 - All multi-byte integers are **little-endian** — enforced by `ByteReader`/`ByteWriter`
-- CRC-16 is computed separately over the 7-byte header and over the payload
+- CRC-16/IBM (reflected, poly `0xA001`, init `0xFFFF`) is computed separately over the 7-byte header and over the payload
 - `MessageParser.parse(ByteArray)` validates both CRCs and returns `Result.Success/Failure`
-
-!!! note "CRC variant"
-    The firmware uses CRC-16/IBM (poly `0x8005`, no reflection). The mobile app uses the reflected equivalent (poly `0xA001`). Both produce the same result — the reflected poly is the standard software implementation of the same algorithm.
 
 ### Outgoing commands
 
 | Type | Value | Payload |
 |---|---|---|
+| `TOGGLE` | 1 | `address:u8, state:u8` |
+| `SET_COLOR` | 3 | `address:u8, r:u8, g:u8, b:u8` |
 | `GET_EDGES_LIST` | 4 | empty |
 | `GET_PANELS_STATES` | 5 | empty |
-| `TOGGLE` | 1 | `address:u8, state:u8` |
-| `SET_BRIGHTNESS` | 2 | `address:u8, brightness:u8` |
-| `SET_COLOR` | 3 | `address:u8, r:u8, g:u8, b:u8` |
 | `ANIMATION_TRIGGER` | 8 | `groupId:u8, value:u8` |
+| `SET_MIRROR` | 10 | `enabled:u8` — opt in/out of live I²C packet mirroring |
+| `PING` | 11 | empty |
 
 Outgoing messages extend `Message` and implement `encodePayload(ByteWriter)`.
 
@@ -56,8 +54,14 @@ Outgoing messages extend `Message` and implement `encodePayload(ByteWriter)`.
 |---|---|---|
 | `PANELS_STATES` | 6 | `decodePanelsStates(ByteArray)` |
 | `EDGES_LIST` | 7 | `decodeEdgesList(ByteArray)` |
+| `MIRROR_BATCH` | 9 | `decodeMirrorBatch(ByteArray)` — live preview stream |
+| `PONG` | 12 | empty — reply to `PING` |
 
 Inbound variable-length payloads are decoded by top-level functions in `api/websocket/protocol/`.
+
+### Live preview (`MIRROR_BATCH`)
+
+Mirroring is **off by default**. When the app enables it (`SET_MIRROR(1)`), the controller unicasts a state snapshot, then streams outbound I²C packets at up to ~30 fps. `PanelMirrorService` feeds these into `PanelPacketRenderer` so the visualiser shows live colours without polling.
 
 ---
 
@@ -79,9 +83,9 @@ A `CancellationException` (from `disconnect()` or `close()`) breaks the loop imm
 
 ---
 
-## MockConnector
+## DemoConnector
 
-`MockConnector` is a self-contained fake controller that responds to all commands with properly encoded, CRC-correct packets. It is used by the **Demo Device** entry in `DeviceDiscoveryScreen` and is the recommended harness for testing domain logic without physical hardware.
+`DemoConnector` (`demo/`) is a self-contained fake controller that responds to all commands with properly encoded, CRC-correct packets. It is used by the **Demo Device** entry in the device list and is the recommended harness for testing domain logic without physical hardware.
 
 ---
 

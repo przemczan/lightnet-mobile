@@ -39,7 +39,7 @@ The Lightnet mobile app is a Kotlin Multiplatform project — one Compose UI sha
 
     ---
 
-    mDNS discovery, the binary WebSocket framing, and the `MockConnector` test harness.
+    mDNS discovery, the binary WebSocket framing, live preview mirroring, and the `DemoConnector` test harness.
 
     [:material-arrow-right: Connectivity](connectivity.md)
 

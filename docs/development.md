@@ -29,12 +29,15 @@ All application code lives in `composeApp/src/commonMain/`. The project follows 
 
 ## Device Domain Layer
 
-`LightnetDevice` owns a `CoroutineScope` and composes four services:
+`LightnetDevice` owns a `CoroutineScope` and composes several services:
 
-- **`MessageApiService`** — hot `MutableSharedFlow` fed by `connector.incoming`; exposes `edgesList` and `panelsStates` flows
+- **`MessageApiService`** — hot `MutableSharedFlow` fed by `connector.incoming`; exposes `edgesList`, `panelsStates`, `mirrorBatches`, and `pong` flows
 - **`PanelsListService`** — sends `GET_EDGES_LIST`, builds `PanelInfo` tree; uses `CoroutineStart.UNDISPATCHED` before sending to prevent a race condition with the response
 - **`PanelsStatesService`** — sends `GET_PANELS_STATES` after panels load; subscribes to live state pushes
 - **`PanelsLayoutService`** — pure geometry; converts edge topology to 2-D polygon coordinates
+- **`PanelMirrorService`** — when live preview is enabled, feeds `MIRROR_BATCH` frames into `PanelPacketRenderer` at ~30 fps
+- **`DeviceLivenessService`** — periodic `PING`/`PONG` checks; exposes `isOnline: StateFlow<Boolean?>`
+- **`OfflineSceneService`** — offline scene preview via the shared C++ scene engine (`NativeSceneCore`); used by the demo device and the scene editor
 
 `LightnetDevice.snapshot: StateFlow<DeviceSnapshot?>` is `null` while loading, set after the first edge list arrives, and cleared on disconnect so the UI returns to the loading indicator during reconnect.
 

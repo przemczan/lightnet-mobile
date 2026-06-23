@@ -77,7 +77,7 @@ The project uses the Gradle wrapper (`gradlew.bat` / `./gradlew`) — no separat
 ## Demo device — develop without hardware
 
 !!! tip "No controller required"
-    On the device discovery screen, tap **Demo Device** to connect to `MockConnector` — a self-contained fake controller that responds with properly encoded, CRC-correct protocol packets. Every UI flow exercises the full protocol path, including encode/decode, so it's also the recommended harness for testing domain logic.
+    On the device discovery screen, tap **Demo Device** to connect to `DemoConnector` — a self-contained fake controller that responds with properly encoded, CRC-correct protocol packets. Every UI flow exercises the full protocol path, including encode/decode, so it's also the recommended harness for testing domain logic.
 
 ---
 
