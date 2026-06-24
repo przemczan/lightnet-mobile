@@ -248,6 +248,7 @@ private fun DeviceInfoScreen(
     }
 
     var controllerFirmware by remember { mutableStateOf(device?.cachedControllerFirmware) }
+    val deviceAppState by (device?.appState ?: MutableStateFlow(null)).collectAsState()
 
     LaunchedEffect(device) {
         val config = device?.getConfiguration() ?: return@LaunchedEffect
@@ -255,8 +256,10 @@ private fun DeviceInfoScreen(
         logicalRoot = config.logicalRoot
     }
     LaunchedEffect(device) {
-        device?.getPowerState()
-        controllerFirmware = device?.cachedControllerFirmware
+        device?.refreshAppState()
+    }
+    LaunchedEffect(deviceAppState?.controllerFirmware) {
+        controllerFirmware = deviceAppState?.controllerFirmware ?: device?.cachedControllerFirmware
     }
 
     Scaffold(

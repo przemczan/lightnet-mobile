@@ -2,8 +2,10 @@ package com.lightnet.api.websocket
 
 import com.lightnet.api.websocket.protocol.MessageParser
 import com.lightnet.api.websocket.protocol.MessageType
+import com.lightnet.api.http.model.AppStateBody
 import com.lightnet.api.websocket.protocol.message.Message
 import com.lightnet.api.websocket.protocol.message.MirrorBatch
+import com.lightnet.api.websocket.protocol.message.decodeAppState
 import com.lightnet.api.websocket.protocol.message.decodeEdgesList
 import com.lightnet.api.websocket.protocol.message.decodeMirrorBatch
 import com.lightnet.api.websocket.protocol.message.decodePanelsStates
@@ -39,6 +41,10 @@ class MessageApiService(
     val pong: Flow<Unit> = _messages
         .filter { it.type == MessageType.PONG }
         .map { }
+
+    val appState: Flow<AppStateBody> = _messages
+        .filter { it.type == MessageType.APP_STATE }
+        .map { decodeAppState(it.payload) }
 
     init {
         scope.launch {

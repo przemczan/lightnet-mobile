@@ -9,6 +9,7 @@ import com.lightnet.api.websocket.protocol.message.GetEdgesListMessage
 import com.lightnet.api.websocket.protocol.message.GetPanelsStatesMessage
 import com.lightnet.api.websocket.protocol.message.SetColorMessage
 import com.lightnet.api.websocket.protocol.message.ToggleMessage
+import com.lightnet.api.websocket.protocol.message.decodeAppState
 import com.lightnet.api.websocket.protocol.message.decodeEdgesList
 import com.lightnet.api.websocket.protocol.message.decodePanelsStates
 import com.lightnet.api.websocket.protocol.model.ColorRgbModel
@@ -197,6 +198,29 @@ class MessageProtocolTest {
         assertEquals(5, edges[0].connectedEdgeIndex)
     }
 
+    @Test
+    fun decodeAppStatePayload() {
+        val payload = buildPayload {
+            writeU8(1)
+            writeU8(0)
+            writeU8(1)
+            writeU8(0)
+            writeU32Le(2.5f.toRawBits().toLong() and 0xFFFF_FFFFL)
+            writeBytes(fixedCString("abcd1234", 11))
+            writeBytes(fixedCString("1.2.3", 32))
+        }
+        val state = decodeAppState(payload)
+        assertEquals(true, state.isOn)
+        assertEquals(false, state.lastPlayedSceneIsStored)
+        assertEquals(true, state.playing)
+        assertEquals(2.5f, state.speed)
+        assertEquals("abcd1234", state.lastPlayedSceneId)
+        assertEquals("1.2.3", state.controllerFirmware)
+    }
+
     // Helper for building raw payloads in tests
     private fun buildPayload(block: ByteWriter.() -> Unit): ByteArray = ByteWriter().apply(block).toByteArray()
+
+    private fun fixedCString(value: String, length: Int): ByteArray =
+        ByteArray(length) { index -> value.getOrNull(index)?.code?.toByte() ?: 0 }
 }

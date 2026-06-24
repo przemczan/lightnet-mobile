@@ -184,12 +184,10 @@ fun DeviceControllerScreen(
     var showAdjustSheet     by remember { mutableStateOf(false) }
     var showScenesSheet     by remember { mutableStateOf(false) }
     var allPanelsOn         by remember(device) { mutableStateOf(device.cachedPowerState ?: false) }
-    // Rotation is a persisted per-device view preference, edited in Appearance settings.
     val savedRotation       by devicePrefs.visualizerRotation.collectAsState()
     val rotationAngle       = (savedRotation / 5f).roundToInt() * 5f
 
-    var appState             by remember(device) { mutableStateOf<AppStateBody?>(null) }
-    var sceneStatusRefresh   by remember(device) { mutableStateOf(0) }
+    val appState by device.appState.collectAsState()
     val isScenePlaying       = appState?.playing == true
     val lastPlayedSceneId    = appState?.lastPlayedSceneId ?: ""
     val lastPlayedSceneIsStored = appState?.lastPlayedSceneIsStored != false
@@ -214,18 +212,13 @@ fun DeviceControllerScreen(
         paintModeEnabled = !isScenePlaying
     }
 
-    // Refresh scene playback status + last-played-scene name on screen open and after a play/stop action.
-    LaunchedEffect(device, connectionState, httpClient, sceneStatusRefresh) {
-        if (connectionState == ConnectionState.CONNECTED) {
-            httpClient?.runCatching { getAppState() }?.getOrNull()?.let { appState = it }
-        }
+    LaunchedEffect(appState?.isOn) {
+        appState?.isOn?.let { allPanelsOn = it }
     }
 
     LaunchedEffect(device, connectionState, httpClient) {
-        if (connectionState == ConnectionState.CONNECTED && device != null) {
-            // Fetch power state first so the visualizer unblocks with the correct on/off state.
-            val power = device.getPowerState()
-            if (power != null) allPanelsOn = power
+        if (connectionState == ConnectionState.CONNECTED) {
+            device.refreshAppState()
             deviceInfoReady = true
 
             val app = device.loadAppearance()
@@ -264,7 +257,7 @@ fun DeviceControllerScreen(
             httpClient = httpClient,
             initial    = scene,
             origin     = editingSceneOrigin,
-            onBack     = { editingScene = null; sceneStatusRefresh++ },
+            onBack     = { editingScene = null; scope.launch { device.refreshAppState() } },
         )
         return
     }
@@ -331,6 +324,7 @@ fun DeviceControllerScreen(
                                 if (!isConnected) return@FloatingActionButton
                                 val on = !allPanelsOn
                                 allPanelsOn = on
+                                device.patchAppState { it.copy(isOn = on) }
                                 scope.launch { device.setPowerState(on) }
                             },
                             containerColor = when {
@@ -457,24 +451,8 @@ fun DeviceControllerScreen(
                                             httpClient?.runCatching { stopScene() }
                                         }
                                         if (result?.isSuccess == true) {
-                                            // Optimistic update for instant feedback. The action is queued
-                                            // on the controller's main loop — for "play" it may take a
-                                            // while to land in /api/state because loadAndPlay() pushes
-                                            // palette + animation data to every panel over I2C before
-                                            // setting playing=true. Poll until the controller confirms the
-                                            // new state, ignoring stale responses so the icon doesn't flicker
-                                            // back before settling.
-                                            appState = appState?.copy(playing = wantPlaying)
-                                            for (attempt in 1..15) {
-                                                delay(300)
-                                                val fetched = httpClient?.runCatching { getAppState() }?.getOrNull()
-                                                if (fetched?.playing == wantPlaying) {
-                                                    appState = fetched
-                                                    break
-                                                }
-                                            }
+                                            device.patchAppState { it.copy(playing = wantPlaying) }
                                         }
-                                        sceneStatusRefresh++
                                     }
                                 },
                                 enabled = isConnected && (isScenePlaying || lastPlayedSceneId.isNotBlank()),
@@ -544,6 +522,7 @@ fun DeviceControllerScreen(
                 device.setAppearance(AppearanceRequest(palette = paletteName))
             },
             httpClient         = httpClient,
+            sceneSpeed         = appState?.speed,
             onDismiss          = { showAdjustSheet = false },
         )
     }
@@ -556,26 +535,12 @@ fun DeviceControllerScreen(
             devicePrefs   = devicePrefs,
             onDismiss     = { showScenesSheet = false },
             onScenePlayed = {
-                appState = appState?.copy(playing = true)
-                scope.launch {
-                    for (attempt in 1..15) {
-                        delay(300)
-                        val fetched = httpClient?.runCatching { getAppState() }?.getOrNull()
-                        if (fetched?.playing == true) { appState = fetched; break }
-                    }
-                    sceneStatusRefresh++
-                }
+                device.patchAppState { it.copy(playing = true) }
+                scope.launch { device.refreshAppState() }
             },
             onSceneStopped = {
-                appState = appState?.copy(playing = false)
-                scope.launch {
-                    for (attempt in 1..15) {
-                        delay(300)
-                        val fetched = httpClient?.runCatching { getAppState() }?.getOrNull()
-                        if (fetched?.playing == false) { appState = fetched; break }
-                    }
-                    sceneStatusRefresh++
-                }
+                device.patchAppState { it.copy(playing = false) }
+                scope.launch { device.refreshAppState() }
             },
             onEdit        = { scene, origin -> showScenesSheet = false; editingSceneOrigin = origin; editingScene = scene },
         )
@@ -606,16 +571,17 @@ private fun AdjustSheet(
     currentPalette: String?,
     onSelectPalette: suspend (String) -> Unit,
     httpClient: DeviceHttpApi?,
+    sceneSpeed: Float?,
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
 
     var brightness     by remember { mutableFloatStateOf(initialBrightness) }
-    var speed          by remember { mutableFloatStateOf(1f) }
+    var speed          by remember { mutableFloatStateOf(sceneSpeed ?: 1f) }
     var applyingPalette by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(httpClient) {
-        httpClient?.runCatching { getAppState() }?.getOrNull()?.let { speed = it.speed }
+    LaunchedEffect(sceneSpeed) {
+        sceneSpeed?.let { speed = it }
     }
 
     // Conflated channels throttle each control to at most one API call per 250 ms.

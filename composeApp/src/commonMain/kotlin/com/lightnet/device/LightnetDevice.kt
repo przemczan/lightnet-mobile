@@ -1,6 +1,7 @@
 package com.lightnet.device
 
 import com.lightnet.api.http.DeviceHttpApi
+import com.lightnet.api.http.model.AppStateBody
 import com.lightnet.api.http.model.EntryIds
 import com.lightnet.api.http.model.AppearanceRequest
 import com.lightnet.api.http.model.AppearanceResponse
@@ -128,6 +129,10 @@ class LightnetDevice(
     @Volatile var cachedControllerFirmware: String? = null
         private set
 
+    private val _appState = MutableStateFlow<AppStateBody?>(null)
+    /** Runtime app state — seeded via HTTP on connect, then kept in sync by APP_STATE WS packets. */
+    val appState: StateFlow<AppStateBody?> = _appState
+
     /** Last known logical root — 0 means the physical root (panel 1). */
     @Volatile private var cachedLogicalRoot: Int = 0
         private set
@@ -147,6 +152,9 @@ class LightnetDevice(
     val scenesLoading: StateFlow<Boolean> = _scenesLoading
 
     init {
+        scope.launch {
+            messageApiService.appState.collect { applyAppState(it) }
+        }
         scope.launch {
             connector.state.collect { cs ->
                 _connectionState.value = when (cs) {
@@ -178,7 +186,10 @@ class LightnetDevice(
                     _palettes.value = null
                     _scenes.value = null
                 }
-                if (cs == ConnectorState.DISCONNECTED || cs == ConnectorState.FAILED) _snapshot.value = null
+                if (cs == ConnectorState.DISCONNECTED || cs == ConnectorState.FAILED) {
+                    _snapshot.value = null
+                    _appState.value = null
+                }
             }
         }
         scope.launch {
@@ -307,11 +318,23 @@ class LightnetDevice(
         httpClient?.runCatching { setAppearance(req) }
     }
 
-    suspend fun getPowerState(): Boolean? =
-        httpClient?.runCatching { getAppState() }?.getOrNull()?.also {
-            cachedPowerState = it.isOn
-            cachedControllerFirmware = it.controllerFirmware
-        }?.isOn
+    suspend fun getPowerState(): Boolean? = refreshAppState()?.isOn
+
+    suspend fun refreshAppState(): AppStateBody? =
+        httpClient?.runCatching { getAppState() }?.getOrNull()?.also { applyAppState(it) }
+
+    /** Applies a controller-reported state snapshot and propagates derived device flags. */
+    fun applyAppState(body: AppStateBody) {
+        _appState.value = body
+        cachedPowerState = body.isOn
+        cachedControllerFirmware = body.controllerFirmware
+        setScenePlaying(body.playing)
+    }
+
+    /** Local optimistic patch until the controller confirms via APP_STATE or HTTP refresh. */
+    fun patchAppState(transform: (AppStateBody) -> AppStateBody) {
+        _appState.value?.let { applyAppState(transform(it)) }
+    }
 
     suspend fun setPowerState(on: Boolean) {
         httpClient?.runCatching { setPowerState(on) }
