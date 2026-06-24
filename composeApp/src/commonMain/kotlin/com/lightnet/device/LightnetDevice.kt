@@ -16,6 +16,7 @@ import com.lightnet.api.websocket.model.PanelInfo
 import com.lightnet.api.websocket.model.PanelLayout
 import com.lightnet.api.websocket.model.PanelState
 import com.lightnet.api.websocket.protocol.message.SetMirrorMessage
+import com.lightnet.debug.platformLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -349,6 +350,9 @@ class LightnetDevice(
     /** Loads device palettes once and caches them; pass `force = true` to reload. */
     suspend fun loadPalettes(force: Boolean = false) {
         if (!force && _palettes.value != null) return
+        // Screen effects can run in the same frame as CONNECTED but before attachHttpClient
+        // wires the client — bail without starting a job so a later call actually fetches.
+        if (httpClient == null) return
         // Multiple call sites (attachHttpClient, screen-level LaunchedEffects) can ask to
         // load around the same time — share a single in-flight fetch instead of firing
         // concurrent duplicate GETs the controller would have to serialize anyway.
@@ -366,12 +370,18 @@ class LightnetDevice(
         val client = httpClient ?: return
         _palettesLoading.value = true
         try {
-            val palettes = client.runCatching { getPalettes() }.getOrNull() ?: return
-            _palettes.value = palettes
-            offlineSceneService.clearPalettes()
-            palettes.forEach { pal ->
-                offlineSceneService.registerPalette(pal.name, pal.stops)
-            }
+            client.runCatching { getPalettes() }.fold(
+                onSuccess = { palettes ->
+                    _palettes.value = palettes
+                    offlineSceneService.clearPalettes()
+                    palettes.forEach { pal ->
+                        offlineSceneService.registerPalette(pal.name, pal.stops)
+                    }
+                },
+                onFailure = { e ->
+                    platformLog("Palettes", "GET /api/palettes failed: ${e.message}")
+                },
+            )
         } finally {
             _palettesLoading.value = false
         }
@@ -385,6 +395,7 @@ class LightnetDevice(
     /** Loads device scenes once and caches them; pass `force = true` to reload. */
     suspend fun loadScenes(force: Boolean = false) {
         if (!force && _scenes.value != null) return
+        if (httpClient == null) return
         val job = scenesLoadLock.withLock {
             scenesLoadJob ?: scope.async { fetchScenes() }.also { scenesLoadJob = it }
         }
@@ -399,7 +410,10 @@ class LightnetDevice(
         val client = httpClient ?: return
         _scenesLoading.value = true
         try {
-            _scenes.value = client.runCatching { getScenes() }.getOrNull() ?: return
+            client.runCatching { getScenes() }.fold(
+                onSuccess = { _scenes.value = it },
+                onFailure = { e -> platformLog("Scenes", "GET /api/scenes failed: ${e.message}") },
+            )
         } finally {
             _scenesLoading.value = false
         }

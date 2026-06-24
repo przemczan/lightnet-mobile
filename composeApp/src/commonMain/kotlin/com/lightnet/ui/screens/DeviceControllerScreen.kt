@@ -217,7 +217,7 @@ fun DeviceControllerScreen(
     }
 
     LaunchedEffect(device, connectionState, httpClient) {
-        if (connectionState == ConnectionState.CONNECTED) {
+        if (connectionState == ConnectionState.CONNECTED && httpClient != null) {
             device.refreshAppState()
             deviceInfoReady = true
 
@@ -515,7 +515,7 @@ fun DeviceControllerScreen(
             onBrightnessChange = { brightness = it },
             onBrightnessApply  = { device.setAppearance(AppearanceRequest(brightness = it.toInt())) },
             palettes           = palettes ?: emptyList(),
-            palettesLoading    = palettesLoading || palettes == null,
+            palettesLoading    = palettesLoading,
             currentPalette     = palette,
             onSelectPalette    = { paletteName ->
                 palette = paletteName
@@ -656,7 +656,8 @@ private fun AdjustSheet(
                         CircularProgressIndicator()
                     }
                     palettes.isEmpty() -> Text(
-                        "No palettes available on this device.",
+                        if (httpClient == null) "Connect a device to load palettes."
+                        else "No palettes available on this device.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

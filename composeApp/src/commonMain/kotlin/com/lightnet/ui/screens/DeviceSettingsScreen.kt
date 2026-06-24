@@ -616,7 +616,9 @@ private fun PalettesSettingsScreen(
     var editingPalette by remember { mutableStateOf<PaletteJson?>(null) }
     var showEditor     by remember { mutableStateOf(false) }
 
-    LaunchedEffect(device) { device?.loadPalettes() }
+    LaunchedEffect(device, httpClient) {
+        if (httpClient != null) device?.loadPalettes()
+    }
 
     if (showEditor) {
         PaletteEditorScreen(
