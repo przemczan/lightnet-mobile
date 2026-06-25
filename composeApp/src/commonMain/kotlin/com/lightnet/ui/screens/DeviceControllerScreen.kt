@@ -95,6 +95,7 @@ import com.lightnet.discovery.SavedDevice
 import com.lightnet.debug.DebugLog
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
+import com.lightnet.ui.primaryBaseColor
 import lightnet.composeapp.generated.resources.Res
 import lightnet.composeapp.generated.resources.logo_mark
 import com.lightnet.ui.BackHandlerCompat
@@ -206,6 +207,7 @@ fun DeviceControllerScreen(
         }
     }
     val canPaint             = paintModeEnabled && !isScenePlaying
+    val effectivePaintColor  = paintColor ?: primaryBaseColor(baseColors)
 
     LaunchedEffect(device, isScenePlaying) {
         device.setScenePlaying(isScenePlaying)
@@ -392,7 +394,7 @@ fun DeviceControllerScreen(
                             powerOn       = allPanelsOn,
                             brightness    = brightness,
                             paintMode     = PaintMode.Paint,
-                            paintColor    = paintColor ?: Color(0xFFCF5B3C),
+                            paintColor    = effectivePaintColor,
                             interactive   = canPaint && !isReconnecting,
                             showPanelIds  = debugMode,
                             onTapWhileOff = { showOffMessage = true },
@@ -492,7 +494,7 @@ fun DeviceControllerScreen(
 
     if (showColorSheet) {
         ColorPickerSheet(
-            initial    = paintColor,
+            initial    = effectivePaintColor,
             baseColors = baseColors,
             onPick     = { paintColor = it },
             onUpdateBaseColor = { i, color ->
@@ -725,8 +727,16 @@ private fun AdjustSheet(
 
 private sealed class ScenesSheetItem {
     abstract val name: String
-    data class Global(val scene: SceneJson)  : ScenesSheetItem() { override val name = scene.name ?: "Unnamed" }
-    data class Device(val info: SceneInfo)   : ScenesSheetItem() { override val name = info.name }
+    abstract val key: String
+
+    data class Global(val scene: SceneJson) : ScenesSheetItem() {
+        override val name = scene.name ?: "Unnamed"
+        override val key  = "global:${scene.name ?: ""}"
+    }
+    data class Device(val info: SceneInfo) : ScenesSheetItem() {
+        override val name = info.name
+        override val key  = "device:${info.id}"
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -783,6 +793,7 @@ private fun ScenesSheet(
                 )
                 else -> items.forEach { item ->
                     val name = item.name
+                    val itemKey = item.key
                     val isPlayingItem = appState?.playing == true && when (item) {
                         is ScenesSheetItem.Device ->
                             appState.lastPlayedSceneIsStored &&
@@ -800,7 +811,7 @@ private fun ScenesSheet(
                                 snackbar.showSnackbar("Connect a device to play device scenes.")
                                 return@launch
                             }
-                            playing = name
+                            playing = itemKey
                             val ok = when (item) {
                                 is ScenesSheetItem.Global -> {
                                     if (httpClient == null) {
@@ -867,7 +878,7 @@ private fun ScenesSheet(
                                 },
                             ) {
                                 when {
-                                    playing == name || (isPlayingItem && stopping) -> CircularProgressIndicator(Modifier.size(20.dp))
+                                    playing == itemKey || (isPlayingItem && stopping) -> CircularProgressIndicator(Modifier.size(20.dp))
                                     isPlayingItem -> Icon(Icons.Default.Stop, contentDescription = "Stop \"$name\"")
                                     else -> Icon(Icons.Default.PlayArrow, contentDescription = "Play \"$name\"")
                                 }
@@ -879,7 +890,7 @@ private fun ScenesSheet(
                                         is ScenesSheetItem.Global -> onEdit(item.scene, SceneOrigin.GLOBAL)
                                         is ScenesSheetItem.Device -> scope.launch {
                                             if (httpClient == null) return@launch
-                                            loadingEdit = name
+                                            loadingEdit = itemKey
                                             val full = httpClient.runCatching { getScene(item.info.id) }.getOrNull()
                                             loadingEdit = null
                                             if (full != null) onEdit(full, SceneOrigin.DEVICE)
@@ -888,7 +899,7 @@ private fun ScenesSheet(
                                     }
                                 },
                             ) {
-                                if (loadingEdit == name) CircularProgressIndicator(Modifier.size(20.dp))
+                                if (loadingEdit == itemKey) CircularProgressIndicator(Modifier.size(20.dp))
                                 else Icon(Icons.Default.Edit, contentDescription = "Edit \"$name\"")
                             }
                         }

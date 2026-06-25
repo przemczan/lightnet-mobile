@@ -54,6 +54,7 @@ import com.lightnet.device.ConnectionState
 import com.lightnet.device.LightnetDevice
 import com.lightnet.settings.AppPreferences
 import com.lightnet.ui.components.groupedListItemShape
+import com.lightnet.ui.components.LoadingOverlay
 import com.lightnet.ui.screens.scene.SceneOrigin
 import com.lightnet.ui.screens.scene.TimelineSceneEditorScreen
 import com.lightnet.ui.BackHandlerCompat
@@ -93,6 +94,7 @@ fun ScenesSettingsScreen(
     var deleteDeviceTarget  by remember { mutableStateOf<SceneInfo?>(null) }
     var deletingGlobalName  by remember { mutableStateOf<String?>(null) }
     var deletingDeviceId    by remember { mutableStateOf<String?>(null) }
+    var loadingSceneId      by remember { mutableStateOf<String?>(null) }
     var showEditor          by remember { mutableStateOf(false) }
     var editingScene        by remember { mutableStateOf<SceneJson?>(null) }
     var editingOrigin       by remember { mutableStateOf(SceneOrigin.GLOBAL) }
@@ -128,6 +130,7 @@ fun ScenesSettingsScreen(
         return
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -235,8 +238,11 @@ fun ScenesSettingsScreen(
                                 shape    = groupedListItemShape(index, deviceScenes!!.size),
                                 deleting = deletingDeviceId == info.id,
                                 onEdit   = {
+                                    if (loadingSceneId != null) return@SceneSettingsItem
+                                    loadingSceneId = info.id
                                     scope.launch {
                                         val full = httpClient.runCatching { getScene(info.id) }.getOrNull()
+                                        loadingSceneId = null
                                         if (full != null) openEditor(full, SceneOrigin.DEVICE)
                                         else snackbar.showSnackbar("Failed to load \"${info.name}\".")
                                     }
@@ -248,6 +254,8 @@ fun ScenesSettingsScreen(
                 }
             }
         }
+    }
+        LoadingOverlay(visible = loadingSceneId != null)
     }
 
     deleteGlobalTarget?.let { target ->

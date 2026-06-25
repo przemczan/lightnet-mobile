@@ -25,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -63,6 +62,7 @@ import com.lightnet.api.http.model.isBuiltin
 import com.lightnet.api.http.model.paletteNameValidationError
 import com.lightnet.api.http.model.sanitizePaletteName
 import com.lightnet.ui.BackHandlerCompat
+import com.lightnet.ui.components.LoadingOverlay
 import com.lightnet.ui.colorToHex
 import com.lightnet.ui.parseHexColor
 import kotlinx.coroutines.launch
@@ -116,6 +116,7 @@ fun PaletteEditorScreen(
         }.toTypedArray()
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -166,11 +167,7 @@ fun PaletteEditorScreen(
                             }
                         },
                     ) {
-                        if (isSaving) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Save, contentDescription = null)
-                        }
+                        Icon(Icons.Default.Save, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Save")
                     }
@@ -272,6 +269,8 @@ fun PaletteEditorScreen(
                 )
             }
         }
+    }
+        LoadingOverlay(visible = isSaving)
     }
 
     // Color picker for a stop

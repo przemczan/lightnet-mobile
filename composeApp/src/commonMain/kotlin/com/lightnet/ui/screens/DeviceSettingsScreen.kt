@@ -85,6 +85,7 @@ import com.lightnet.settings.AppPreferences
 import com.lightnet.settings.DevicePreferences
 import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.components.LightnetDeviceVisualizer
+import com.lightnet.ui.components.LoadingOverlay
 import com.lightnet.ui.components.groupedListItemShape
 import com.lightnet.ui.screens.scene.PanelPickerField
 import com.lightnet.ui.colorToHex
@@ -615,6 +616,18 @@ private fun PalettesSettingsScreen(
     var deleteTarget   by remember { mutableStateOf<PaletteJson?>(null) }
     var editingPalette by remember { mutableStateOf<PaletteJson?>(null) }
     var showEditor     by remember { mutableStateOf(false) }
+    var openingPalette by remember { mutableStateOf<String?>(null) }
+
+    fun openPalette(palette: PaletteJson) {
+        if (openingPalette != null) return
+        openingPalette = palette.name
+        scope.launch {
+            val full = httpClient?.runCatching { getPalette(palette.name) }?.getOrNull() ?: palette
+            editingPalette = full
+            showEditor = true
+            openingPalette = null
+        }
+    }
 
     LaunchedEffect(device, httpClient) {
         if (httpClient != null) device?.loadPalettes()
@@ -633,6 +646,7 @@ private fun PalettesSettingsScreen(
         return
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -691,13 +705,15 @@ private fun PalettesSettingsScreen(
                         PaletteSettingsItem(
                             palette  = palette,
                             shape    = groupedListItemShape(index, loadedPalettes.size),
-                            onEdit   = { editingPalette = palette; showEditor = true },
+                            onEdit   = { openPalette(palette) },
                             onDelete = { deleteTarget = palette },
                         )
                     }
                 }
             }
         }
+    }
+        LoadingOverlay(visible = openingPalette != null)
     }
 
     deleteTarget?.let { target ->

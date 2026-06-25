@@ -7,6 +7,12 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+private val PRIMARY_BASE_FALLBACK = Color(0xFFCF5B3C)
+
+/** Primary device base colour, or the standard fallback when none is configured. */
+fun primaryBaseColor(baseColors: List<String>): Color =
+    baseColors.firstOrNull()?.let { parseHexColor(it) } ?: PRIMARY_BASE_FALLBACK
+
 fun parseHexColor(hex: String): Color? {
     val cleaned = hex.trimStart('#')
     if (cleaned.length != 6 && cleaned.length != 8) return null

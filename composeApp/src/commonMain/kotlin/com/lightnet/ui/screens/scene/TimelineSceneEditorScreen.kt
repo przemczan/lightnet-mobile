@@ -112,6 +112,7 @@ import com.lightnet.device.OfflineSceneService
 import com.lightnet.settings.AppPreferences
 import com.lightnet.ui.BackHandlerCompat
 import com.lightnet.ui.components.LightnetDeviceVisualizer
+import com.lightnet.ui.components.LoadingOverlay
 import com.lightnet.ui.components.SpeedSlider
 import com.lightnet.ui.components.colorRefToColor
 import androidx.compose.runtime.DisposableEffect
@@ -535,6 +536,7 @@ fun TimelineSceneEditorScreen(
         showSaveConfirm = true
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -581,11 +583,7 @@ fun TimelineSceneEditorScreen(
                             Icon(Icons.Default.Tune, contentDescription = "Scene options")
                         }
                         ExtendedFloatingActionButton(onClick = { if (!isSaving) requestSave() }) {
-                            if (isSaving) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Save, contentDescription = null)
-                            }
+                            Icon(Icons.Default.Save, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("Save")
                         }
@@ -653,6 +651,8 @@ fun TimelineSceneEditorScreen(
             )
         }
         }
+    }
+        LoadingOverlay(visible = isSaving)
     }
 
     if (showCloneDialog) {

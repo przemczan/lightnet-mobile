@@ -16,7 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -187,7 +187,7 @@ private fun HomeDeviceCard(
             )
             if (onEditClick != null) {
                 IconButton(onClick = onEditClick) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Edit device")
+                    Icon(Icons.Default.Edit, contentDescription = "Edit device")
                 }
             }
         }
