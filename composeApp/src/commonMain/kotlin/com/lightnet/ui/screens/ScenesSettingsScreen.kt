@@ -289,7 +289,6 @@ fun ScenesSettingsScreen(
                         httpClient?.runCatching { deleteScene(target.id) }
                         AppPreferences.scenes.removeDeviceLinks(deviceId, target.id)
                         reloadGlobal()
-                        device?.refreshPalettes()
                         reloadDevice()
                         deletingDeviceId = null
                     }
