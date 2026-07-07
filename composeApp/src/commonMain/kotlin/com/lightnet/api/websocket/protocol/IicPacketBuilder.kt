@@ -2,9 +2,10 @@ package com.lightnet.api.websocket.protocol
 
 import com.lightnet.api.http.model.PaletteStop
 
-/** Builds I²C wire packets (PacketMeta + body) for the panel animation core. */
+/** Builds relay wire packets (PacketMeta + body) for the panel animation core. */
 object IicPacketBuilder {
-    private const val PROTOCOL_VERSION = 6
+    // Must match the firmware's Protocol::VERSION (Core/Common/ProtocolMeta.hpp).
+    private const val PROTOCOL_VERSION = 12
 
     fun buildSetPalette(stops: List<PaletteStop>): ByteArray {
         val count = stops.size.coerceIn(1, 16)
@@ -42,12 +43,18 @@ object IicPacketBuilder {
         PaletteStop(255, baseColors.getOrNull(2) ?: "#000000"),
     )
 
+    // PacketHeader: type(1) + protocolVersion(2) + targetPanelIndex(2) = 5 bytes, followed by
+    // headerCrc(2) over those 5 bytes -- PacketMeta is 7 bytes total (protocol v10+).
+    // targetPanelIndex is left at 0 (broadcast/general-call) -- every caller of this builder
+    // sends to all panels, never one specific index.
     private fun stampMeta(packet: ByteArray, type: Int) {
         packet[0] = type.toByte()
         packet[1] = (PROTOCOL_VERSION and 0xFF).toByte()
         packet[2] = ((PROTOCOL_VERSION shr 8) and 0xFF).toByte()
-        val crc = Crc.calculate(packet, 0, 3)
-        packet[3] = (crc and 0xFF).toByte()
-        packet[4] = ((crc shr 8) and 0xFF).toByte()
+        packet[3] = 0  // targetPanelIndex low byte
+        packet[4] = 0  // targetPanelIndex high byte
+        val crc = Crc.calculate(packet, 0, 5)
+        packet[5] = (crc and 0xFF).toByte()
+        packet[6] = ((crc shr 8) and 0xFF).toByte()
     }
 }
