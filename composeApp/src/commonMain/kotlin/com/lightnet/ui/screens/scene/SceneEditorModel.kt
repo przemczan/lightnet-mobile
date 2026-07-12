@@ -514,10 +514,22 @@ private fun stepFrom(step: SceneStep): EditableStep {
     val anim = AnimId.fromStep(step)
     val (isGeometric, src, srcPanel) = parseRunnerSource(step.source, step.directionality)
     val params = step.params ?: anim.defaultParams()
+    // Firmware writes the lit/end colour as `color` (alias for colorTo). For FromTo steps,
+    // only map `color` onto the To slot so colorFrom is not overwritten on device round-trip.
+    val (colorA, colorB) = when (anim.colorMode) {
+        ColorMode.FromTo -> Pair(
+            step.colorFrom ?: ColorRef.Hex("#FF0000"),
+            step.colorTo ?: step.color ?: ColorRef.Hex("#0000FF"),
+        )
+        else -> Pair(
+            step.color ?: step.colorFrom ?: ColorRef.Hex("#FF0000"),
+            step.colorTo ?: ColorRef.Hex("#0000FF"),
+        )
+    }
     return EditableStep(
         anim        = anim,
-        colorA      = step.color ?: step.colorFrom ?: ColorRef.Hex("#FF0000"),
-        colorB      = step.colorTo ?: ColorRef.Hex("#0000FF"),
+        colorA      = colorA,
+        colorB      = colorB,
         durationMs  = step.duration ?: 1000,
         loop        = step.loop == true,
         pingpong    = step.pingpong == true,
