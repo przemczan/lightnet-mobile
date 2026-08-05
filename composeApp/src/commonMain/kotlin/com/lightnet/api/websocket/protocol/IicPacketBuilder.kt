@@ -5,7 +5,7 @@ import com.lightnet.api.http.model.PaletteStop
 /** Builds relay wire packets (PacketMeta + body) for the panel animation core. */
 object IicPacketBuilder {
     // Must match the firmware's Protocol::VERSION (Core/Common/ProtocolMeta.hpp).
-    private const val PROTOCOL_VERSION = 12
+    private const val PROTOCOL_VERSION = 14
 
     fun buildSetPalette(stops: List<PaletteStop>): ByteArray {
         val count = stops.size.coerceIn(1, 16)
